@@ -34,9 +34,21 @@ export function rawConfigFromEnvironment(
 }
 
 if (import.meta.main) {
-  const result = await launchDaemon(
-    rawConfigFromEnvironment(Deno.env.toObject()),
-  );
+  const names = [
+    "NIXSTR_BIND_HOST",
+    "NIXSTR_BIND_PORT",
+    "NIXSTR_PUBLISHER_PUBKEYS",
+    "NIXSTR_RELAY_URLS",
+    "NIXSTR_PREFERRED_BLOSSOM_URL",
+    "NIXSTR_DATABASE_PATH",
+    "NIXSTR_SPOOL_DIRECTORY",
+  ] as const;
+  const environment: Record<string, string> = {};
+  for (const name of names) {
+    const value = Deno.env.get(name);
+    if (value !== undefined) environment[name] = value;
+  }
+  const result = await launchDaemon(rawConfigFromEnvironment(environment));
   if (!result.ok) {
     for (const diagnostic of result.diagnostics) console.error(diagnostic);
     Deno.exit(1);
