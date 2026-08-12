@@ -5,14 +5,16 @@ import {
   VerifiedAbsent,
 } from "../hashtree/reader.ts";
 import type { SelectedPublication } from "../nostr/selection.ts";
+import type { MergedSelectionSnapshot } from "../nostr/selection.ts";
+import { classifyEndorsements } from "../protocol/narinfo.ts";
 import {
-  classifyEndorsements,
-  parseNarInfo,
-  serializeNarInfo,
-} from "../protocol/narinfo.ts";
+  type DiagnosticSink,
+  resolveMergedNarInfo,
+  WinnerRouteRegistry,
+} from "./merged_cache.ts";
 
 export interface SelectionView {
-  current(): SelectedPublication | undefined;
+  current(): MergedSelectionSnapshot;
 }
 
 export interface NixHandlerDependencies {
@@ -27,6 +29,8 @@ export interface NixHandlerDependencies {
     path: string,
     endorsed: number,
   ) => void;
+  readonly diagnostics?: DiagnosticSink;
+  readonly routes?: WinnerRouteRegistry;
 }
 
 const CACHE_INFO = "StoreDir: /nix/store\nWantMassQuery: 1\nPriority: 40\n";
@@ -66,47 +70,9 @@ function mapped(error: unknown): Response {
   return new Response("bad gateway\n", { status: 502 });
 }
 
-async function readBoundedText(
-  body: ReadableStream<Uint8Array>,
-  limit: number,
-): Promise<string> {
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  let complete = false;
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) {
-        complete = true;
-        break;
-      }
-      if (next.value.byteLength > limit - total) {
-        throw new BudgetExceeded("decoded metadata byte budget exceeded");
-      }
-      total += next.value.byteLength;
-      chunks.push(next.value);
-    }
-    const bytes = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch (error) {
-    if (!complete) {
-      try {
-        await reader.cancel(error);
-      } catch { /* preserve the read/decode error */ }
-    }
-    throw error;
-  } finally {
-    reader.releaseLock();
-  }
-}
-
 export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
+  const routes = dependencies.routes ??
+    new WinnerRouteRegistry(1024, 5 * 60_000);
   return async (request: Request): Promise<Response> => {
     const snapshot = dependencies.selection.current();
     if (request.method !== "GET" && request.method !== "HEAD") {
@@ -122,16 +88,62 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
     if (!narinfoMatch && !narMatch) {
       return new Response("not found\n", { status: 404 });
     }
-    if (!snapshot) return new Response("cache unavailable\n", { status: 503 });
+    if (snapshot.length === 0) {
+      return new Response("cache unavailable\n", { status: 503 });
+    }
     const path = narinfoMatch ? `${narinfoMatch[1]}.narinfo` : narMatch![1];
     try {
-      const resolved = await dependencies.resolverFor(snapshot).resolve(
-        snapshot.root.hex,
-        path,
-        request.method,
-        (dependencies.budgetFor ?? defaultBudget)(),
-        request.signal,
-      );
+      if (narinfoMatch) {
+        const merged = await resolveMergedNarInfo({
+          snapshot,
+          path,
+          storePathHash: narinfoMatch[1],
+          budget: (dependencies.budgetFor ?? defaultBudget)(),
+          signal: request.signal,
+          decodedMetadataBytes: dependencies.decodedMetadataBytes,
+          resolverFor: dependencies.resolverFor,
+          diagnostics: dependencies.diagnostics,
+        });
+        const endorsements = await classifyEndorsements(
+          merged.record,
+          merged.winner.nixSigKeys,
+        );
+        dependencies.onEndorsements?.(
+          merged.winner,
+          path,
+          endorsements.filter((value) => value.endorsed).length,
+        );
+        routes.set(merged.record.url, merged.winner);
+        return text(merged.text, request.method);
+      }
+      const budget = (dependencies.budgetFor ?? defaultBudget)();
+      let resolved;
+      const pinned = routes.get(path);
+      if (pinned) {
+        resolved = await dependencies.resolverFor(pinned).resolve(
+          pinned.root.hex,
+          path,
+          request.method,
+          budget,
+          request.signal,
+        );
+      } else {
+        for (const publication of snapshot) {
+          try {
+            resolved = await dependencies.resolverFor(publication).resolve(
+              publication.root.hex,
+              path,
+              request.method,
+              budget,
+              request.signal,
+            );
+            break;
+          } catch (error) {
+            if (!(error instanceof VerifiedAbsent)) throw error;
+          }
+        }
+        if (!resolved) throw new VerifiedAbsent(path);
+      }
       if (request.method === "HEAD") {
         return new Response(null, {
           status: 200,
@@ -139,31 +151,6 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
         });
       }
       if (!resolved.body) throw new Error("GET resolution omitted body");
-      if (narinfoMatch) {
-        if (resolved.size > dependencies.decodedMetadataBytes) {
-          await resolved.body.cancel(
-            "decoded metadata descriptor exceeds limit",
-          );
-          throw new BudgetExceeded("decoded metadata byte budget exceeded");
-        }
-        const record = parseNarInfo(
-          await readBoundedText(
-            resolved.body,
-            dependencies.decodedMetadataBytes,
-          ),
-        );
-        const endorsements = await classifyEndorsements(
-          record,
-          snapshot.nixSigKeys,
-        );
-        dependencies.onEndorsements?.(
-          snapshot,
-          path,
-          endorsements.filter((value) => value.endorsed).length,
-        );
-        const body = serializeNarInfo(record);
-        return text(body, request.method);
-      }
       return new Response(resolved.body, {
         status: 200,
         headers: {

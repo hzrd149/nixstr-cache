@@ -24,10 +24,19 @@ export interface NarInfo {
   readonly narHash: string;
   readonly narSize: number;
   readonly references: readonly string[];
+  readonly semantics: Readonly<
+    Record<NarInfoField, string | number | readonly string[] | undefined>
+  >;
   readonly signatures: readonly NarInfoSignature[];
   readonly fingerprint: string;
   readonly rawText: string;
 }
+
+export type NarInfoField =
+  | typeof REQUIRED[number]
+  | "Deriver"
+  | "System"
+  | "CA";
 
 export interface Endorsement {
   readonly signatureIndex: number;
@@ -69,7 +78,7 @@ function canonicalBase64(value: string, bytes: number): Uint8Array {
 }
 
 function unsignedInteger(value: string, field: string): number {
-  if (!/^(0|[1-9][0-9]*)$/.test(value)) {
+  if (!/^[0-9]+$/.test(value)) {
     throw new NarInfoError(`${field} is invalid`);
   }
   const parsed = Number(value);
@@ -157,6 +166,19 @@ export function parseNarInfo(text: string): NarInfo {
   const fingerprint = `1;${storePath};${narHash};${narSize};${
     references.join(",")
   }`;
+  const semantics = Object.freeze({
+    StorePath: storePath,
+    URL: url,
+    Compression: compression,
+    FileHash: fileHash,
+    FileSize: fileSize,
+    NarHash: narHash,
+    NarSize: narSize,
+    References: Object.freeze([...references]),
+    Deriver: scalars.get("Deriver"),
+    System: scalars.get("System"),
+    CA: scalars.get("CA"),
+  });
   return Object.freeze({
     storePath,
     url,
@@ -166,10 +188,34 @@ export function parseNarInfo(text: string): NarInfo {
     narHash,
     narSize,
     references: Object.freeze(references),
+    semantics,
     signatures: Object.freeze(signatures),
     fingerprint,
     rawText: text,
   });
+}
+
+const SEMANTIC_FIELDS = [...REQUIRED, "Deriver", "System", "CA"] as const;
+
+export function differingNarInfoFields(a: NarInfo, b: NarInfo): NarInfoField[] {
+  return SEMANTIC_FIELDS.filter((field) => {
+    const left = a.semantics[field];
+    const right = b.semantics[field];
+    return Array.isArray(left) && Array.isArray(right)
+      ? left.length !== right.length ||
+        left.some((value, index) => value !== right[index])
+      : left !== right;
+  });
+}
+
+export function appendNarInfoSignatures(
+  winner: NarInfo,
+  rawSignatureLines: readonly string[],
+): string {
+  if (rawSignatureLines.length === 0) return winner.rawText;
+  return `${winner.rawText.slice(0, -1)}${
+    rawSignatureLines.map((line) => `\n${line}`).join("")
+  }\n`;
 }
 
 export function serializeNarInfo(narinfo: NarInfo): string {

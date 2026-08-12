@@ -99,14 +99,19 @@ Deno.test("narinfo semantic projection covers optional presence and parsed scala
   ].join("\n"));
   assertEquals(differingNarInfoFields(first, second), []);
   const absent = parseNarInfo([...base, "System: x86_64-linux", ""].join("\n"));
-  assertEquals(differingNarInfoFields(first, absent), ["CA", "Deriver"]);
+  assertEquals(differingNarInfoFields(first, absent), ["Deriver", "CA"]);
 });
 
 Deno.test("signature append preserves winner layout and duplicate occurrences", () => {
-  const signature = "Sig: duplicate:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
-  const winner = parseNarInfo([...base, signature, "System: x86_64-linux", ""].join("\n"));
+  const signature =
+    "Sig: duplicate:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+  const winner = parseNarInfo(
+    [...base, signature, "System: x86_64-linux", ""].join("\n"),
+  );
   assertEquals(
     appendNarInfoSignatures(winner, [signature, signature]),
-    [...base, signature, "System: x86_64-linux", signature, signature, ""].join("\n"),
+    [...base, signature, "System: x86_64-linux", signature, signature, ""].join(
+      "\n",
+    ),
   );
 });

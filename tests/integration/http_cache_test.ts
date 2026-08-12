@@ -44,7 +44,7 @@ Deno.test("metadata bound|GET/HEAD: route classes preserve metadata and stream N
   const selected = snapshot("old");
   const handler = createNixHttpHandler({
     decodedMetadataBytes: encoder.encode(narinfo).length,
-    selection: { current: () => selected },
+    selection: { current: () => [selected] },
     resolverFor: () => ({
       resolve: (_root, path, method) => {
         if (path.endsWith(".narinfo")) {
@@ -107,7 +107,7 @@ Deno.test("http cache request captures one immutable selection before awaits", a
   const seen: string[] = [];
   const handler = createNixHttpHandler({
     decodedMetadataBytes: 4096,
-    selection: { current: () => current },
+    selection: { current: () => [current] },
     resolverFor: (selected) => ({
       async resolve() {
         seen.push(selected.event.id);
@@ -141,7 +141,7 @@ Deno.test("http cache maps methods, absence, availability, deadline and upstream
   const make = (error?: Error, available = true) =>
     createNixHttpHandler({
       decodedMetadataBytes: 4096,
-      selection: { current: () => available ? snapshot("x") : undefined },
+      selection: { current: () => available ? [snapshot("x")] : [] },
       resolverFor: () => ({
         resolve: () => Promise.reject(error ?? new Error("upstream")),
       }),
@@ -191,7 +191,7 @@ Deno.test("metadata bound|GET/HEAD: descriptor over limit rejects before body re
   let cancelled = false;
   const handler = createNixHttpHandler({
     decodedMetadataBytes: 8,
-    selection: { current: () => snapshot("x") },
+    selection: { current: () => [snapshot("x")] },
     resolverFor: () => ({
       resolve: () =>
         Promise.resolve({
@@ -217,7 +217,7 @@ Deno.test("metadata bound|GET/HEAD: streamed overflow cancels before parsing", a
   let cancelled = false;
   const handler = createNixHttpHandler({
     decodedMetadataBytes: 8,
-    selection: { current: () => snapshot("x") },
+    selection: { current: () => [snapshot("x")] },
     resolverFor: () => ({
       resolve: () =>
         Promise.resolve({
