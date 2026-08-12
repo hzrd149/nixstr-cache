@@ -126,10 +126,13 @@ export function isForbiddenAddress(address: string): boolean {
   const cidrs: ReadonlyArray<readonly [string, number]> = [
     ["::", 128],
     ["::1", 128],
+    ["64:ff9b:1::", 48],
+    ["100::", 64],
+    ["2001::", 23],
+    ["2001:db8::", 32],
     ["fc00::", 7],
     ["fe80::", 10],
     ["ff00::", 8],
-    ["2001:db8::", 32],
   ];
   return cidrs.some(([prefix, bits]) => inCidr(v6, parseIpv6(prefix)!, bits));
 }

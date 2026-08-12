@@ -3,6 +3,7 @@ import { parseConfig } from "../../src/config/config.ts";
 import {
   AddressPolicy,
   type ApprovedTarget,
+  isForbiddenAddress,
   NetworkPolicyError,
   PinnedTransport,
   type Resolver,
@@ -252,4 +253,64 @@ Deno.test("redirects are re-approved and rebinding cannot change peer", async ()
   );
   assertEquals(calls.length, 1);
   assertEquals(calls[0].address, "93.184.216.34");
+});
+
+Deno.test("canonical address policy rejects equivalent IPv6 forbidden ranges", () => {
+  for (
+    const address of [
+      "::",
+      "0:0:0:0:0:0:0:0",
+      "::1",
+      "0:0:0:0:0:0:0:1",
+      "fe80::1",
+      "fe9a:0:0:0:0:0:0:1",
+      "fc00::1",
+      "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "ff02::1",
+      "2001:db8::1",
+      "2001:0db8:0000:0000:0000:0000:0000:0001",
+    ]
+  ) assertEquals(isForbiddenAddress(address), true, address);
+  for (const address of ["2606:4700:4700::1111", "2001:4860:4860::8888"]) {
+    assertEquals(isForbiddenAddress(address), false, address);
+  }
+});
+
+Deno.test("canonical address policy normalizes mapped IPv4 before CIDR checks", () => {
+  for (
+    const address of [
+      "::ffff:127.0.0.1",
+      "::ffff:7f00:1",
+      "0:0:0:0:0:ffff:a00:1",
+      "::ffff:192.168.1.1",
+      "::ffff:c0a8:101",
+      "::ffff:169.254.1.1",
+      "::ffff:a9fe:101",
+    ]
+  ) assertEquals(isForbiddenAddress(address), true, address);
+  assertEquals(isForbiddenAddress("::ffff:93.184.216.34"), false);
+});
+
+Deno.test("canonical address policy fails closed on malformed and zone-scoped answers", async () => {
+  for (
+    const address of [
+      "fe80::1%eth0",
+      "1::2::3",
+      "2001:db8:zz::1",
+      "127.00.0.1",
+      "[::1]",
+    ]
+  ) assertEquals(isForbiddenAddress(address), true, address);
+  const policy = new AddressPolicy(resolver({
+    "mixed.test": ["2606:4700:4700::1111", "fe80::1"],
+    "malformed.test": ["not-an-address"],
+  }));
+  await assertRejects(
+    () => policy.approve(new URL("https://mixed.test"), "publisher"),
+    NetworkPolicyError,
+  );
+  await assertRejects(
+    () => policy.approve(new URL("https://malformed.test"), "publisher"),
+    NetworkPolicyError,
+  );
 });
