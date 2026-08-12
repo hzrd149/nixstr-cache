@@ -32,7 +32,7 @@ The v1 journey starts with the smallest safe walking slice: a stock Nix client s
   4. Large manifests, chunks, and NARs pass through hashing, verification, temporary storage, and HTTP responses with backpressure and bounded memory.
   5. A real `nix` CLI substitutes an uncached store path through the daemon and successfully verifies the returned metadata and NAR.
 
-**Plans:** 6/9 plans executed
+**Plans:** 7/9 plans executed
 
 Plans:
 
@@ -53,7 +53,7 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 01-04-PLAN.md — Serve snapshot-bound stock Nix GET/HEAD semantics.
-- [ ] 01-08-PLAN.md — Close hostile transport, deadline, framing, cancellation, and canonical SSRF gaps.
+- [x] 01-08-PLAN.md — Close hostile transport, deadline, framing, cancellation, and canonical SSRF gaps.
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -117,7 +117,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Verified Nix Substitution Walking Slice | 6/6 | In Progress|  |
+| 1. Verified Nix Substitution Walking Slice | 7/9 | In Progress|  |
 | 2. Deterministic Merged Read Cache | 0/TBD | Not started | - |
 | 3. Signer-Gated Writable Cache | 0/TBD | Not started | - |
 | 4. Availability-Gated Publication Loop | 0/TBD | Not started | - |

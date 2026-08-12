@@ -18,9 +18,9 @@
 
 - [ ] **TREE-01**: Daemon discovers ordered Blossom sources from valid event `blossom` tags and the publisher's BUD-03 kind `10063` server list, with optional configured mirrors.
 - [ ] **TREE-02**: Daemon streams every fetched blob through SHA-256 verification before parsing, caching, or serving it and discards mismatched bytes before trying another source.
-- [ ] **TREE-03**: Daemon applies HTTP(S)-only URL policy, private-network restrictions, DNS/address checks, redirect revalidation, redirect limits, and source-attempt limits to publisher-controlled requests.
+- [x] **TREE-03**: Daemon applies HTTP(S)-only URL policy, private-network restrictions, DNS/address checks, redirect revalidation, redirect limits, and source-attempt limits to publisher-controlled requests.
 - [ ] **TREE-04**: Daemon resolves BUD-16/17/18 Hashtree paths lazily with visited-hash deduplication and configurable bounds on manifests, depth, links, nodes, declared sizes, and total decoded bytes.
-- [ ] **TREE-05**: Daemon streams manifests, chunks, NARs, hashing, temporary storage, and responses with backpressure and without whole-file or whole-tree memory buffering.
+- [x] **TREE-05**: Daemon streams manifests, chunks, NARs, hashing, temporary storage, and responses with backpressure and without whole-file or whole-tree memory buffering.
 - [ ] **TREE-06**: Operator can configure a local Blossom URL as a read/write-through cache that receives only verified immutable blobs.
 
 ### Merged Nix Read API
