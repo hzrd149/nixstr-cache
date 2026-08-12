@@ -164,10 +164,10 @@ export type LaunchResult =
     readonly finished: Promise<void>;
   };
 
-export async function launchDaemon(
+export function launchDaemon(
   raw: RawConfig,
   hooks: ProductionHooks = {},
-): Promise<LaunchResult> {
+): LaunchResult {
   const app = createApp(raw, createProductionDependencies(hooks));
   if (!app.ok) return app;
   const running = startApp(app.value, hooks.bind);
