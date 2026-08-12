@@ -1,76 +1,54 @@
 ---
 phase: 01-verified-nix-substitution-walking-slice
-verified: 2026-08-12T13:20:00Z
+verified: 2026-08-12T13:15:25Z
 status: gaps_found
-score: 5/8 must-haves verified
+score: 7/8 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
   previous_status: gaps_found
-  previous_score: 1/5
+  previous_score: 5/8
   gaps_closed:
-    - "Production main.ts now composes and launches the daemon, enforces live allow-lists, and restores corrupt rows safely."
-    - "SafeFetcher now enforces canonical CIDRs, response-lifetime deadlines, strict framing, and cancellation."
-    - "Hashtree traversal now preserves nested chunk order and enforces per-blob, aggregate-transfer, aggregate-output, and narinfo limits."
-    - "The stock-Nix E2E now launches production main.ts."
+    - "Validated publications now enter an Applesauce EventStore only after durable acceptance and drive the custom CacheSelectionModel."
+    - "Authenticated kind-10063 BUD-03 server lists now update immutable selection snapshots and feed production source ordering."
+    - "Signer mode and writable identity now form a validated, fail-closed write-intent configuration while PUT remains disabled."
   gaps_remaining:
-    - "PROT-03 requires Applesauce EventStore/custom reactive casts, but selection uses a standalone RxJS BehaviorSubject."
-    - "TREE-01 requires live BUD-03 kind-10063 discovery, but production supplies only configured and publication-tag sources."
-    - "OPER-01 requires signer mode and writable-identity configuration, but RawConfig/ValidatedConfig expose neither."
+    - "The production main.ts executable does not read any NIXSTR_LIMIT_* environment variables, so operator-supplied limits are silently ignored."
   regressions: []
 gaps:
-  - truth: "Validated publications enter Applesauce state and the latest eligible identity is exposed through an Applesauce reactive cast."
-    status: failed
-    reason: "The relay is Applesauce-based, but the trusted selection state is a standalone RxJS BehaviorSubject; applesauce-core EventStore/custom casts are never imported or constructed."
+  - truth: "The shipped daemon accepts and validates operator-supplied resource limits instead of silently replacing them with defaults."
+    status: partial
+    reason: "rawConfigFromEnvironment maps all limit variables, but the import.meta.main environment-name allow-list omits every NIXSTR_LIMIT_* name. The actual executable therefore passes undefined for every limit override."
     artifacts:
-      - path: "src/nostr/selection.ts"
-        issue: "Imports BehaviorSubject, Observable, and Subscription directly from rxjs and has no EventStore/cast boundary."
-    missing:
-      - "Admit only validated publications to an Applesauce EventStore and expose selection through the required custom reactive cast/model."
-  - truth: "Production source discovery includes the publisher's ordered BUD-03 kind-10063 server list."
-    status: failed
-    reason: "buildSourcePlan supports a bud03 argument and its unit/integration test passes, but production never loads kind 10063 and never supplies bud03."
-    artifacts:
-      - path: "src/runtime/daemon.ts"
-        issue: "Relay subscription requests only kind 17091; resolverFor passes configured and event sources but no bud03 sources."
-      - path: "src/blossom/source_plan.ts"
-        issue: "BUD-03 ordering code is substantive but production-orphaned."
-    missing:
-      - "Load the selected publisher's valid kind-10063 server list and wire it into buildSourcePlan in authenticated order."
-  - truth: "Validated operator configuration covers signer mode and writable identity as required by OPER-01."
-    status: failed
-    reason: "The configuration covers read startup, publishers, relays, paths, and limits, but has no signer-mode or writable-identity fields or validation."
-    artifacts:
-      - path: "src/config/config.ts"
-        issue: "RawConfig and ValidatedConfig contain no signer mode or writable identity."
       - path: "main.ts"
-        issue: "No signer/writable-identity environment variables are read."
+        issue: "Lines 17-33 map limit keys, but lines 39-49 read only base/signer variables from Deno.env."
+      - path: "tests/integration/operator_config_test.ts"
+        issue: "Environment mapping tests cover signer fields only and do not execute the production environment collection path with a limit override."
     missing:
-      - "Add and validate signer-mode and writable-identity configuration, including disabled read-only values if writes remain deferred."
-deferred:
-  - truth: "Several publishers are merged in stable configured priority."
-    addressed_in: "Phase 2"
-    evidence: "Phase 2 goal and success criterion 1 explicitly own the ordered multi-publisher merged view (PROT-01/READ-05/READ-06)."
+      - "Include every supported NIXSTR_LIMIT_* variable in the production environment collection boundary."
+      - "Add a discriminating production-entry test proving a non-default limit reaches ValidatedConfig and an invalid override fails before side effects."
 ---
 
 # Phase 1: Verified Nix Substitution Walking Slice Verification Report
 
 **Phase Goal:** As a Nix cache operator, I want to point a real Nix client at the daemon and safely substitute an uncached store path from a valid plaintext Nostr-published cache, so that I can use a decentralized binary cache without modifying Nix.
-**Verified:** 2026-08-12T13:20:00Z
+**Verified:** 2026-08-12T13:15:25Z
 **Status:** gaps_found
-**Re-verification:** Yes — after plans 01-07, 01-08, and 01-09.
+**Re-verification:** Yes — after gap-closure plans 01-10 and 01-11.
 
 ## User Flow Coverage
 
-| Step | Expected | Evidence | Status |
-|---|---|---|---|
-| Configure/start | Valid read configuration starts the shipped daemon | `main.ts` calls `launchDaemon`; production launcher integration test passes | VERIFIED |
-| Select | Valid allow-listed plaintext publication becomes the durable snapshot | Validator, repository, selector, and seven selection tests pass | VERIFIED |
-| Resolve safely | Publisher bytes cross pinned, bounded, hash-verified transport and ordered Hashtree traversal | Address-pinning and hostile-Blossom suites pass | VERIFIED |
-| Serve | Stock Nix receives snapshot-bound metadata, narinfo, and streamed NAR | HTTP suite passes; signatures are preserved and endorsements classified | VERIFIED |
-| Substitute/outcome | An unmodified stock Nix substitutes solely through production `main.ts` | `deno task test:nix-e2e`: 1 passed | VERIFIED |
+The authoritative MVP story passes the centralized validator with role `Nix cache operator`, the real-client substitution capability, and the outcome `use a decentralized binary cache without modifying Nix`.
 
-The narrow MVP user flow is operational. The phase contract nevertheless remains incomplete because three explicitly mapped requirements and PLAN must-haves are absent from production wiring.
+| Step | Expected | Codebase evidence | Status |
+|---|---|---|---|
+| Configure and start | Operator supplies a valid read configuration and the production daemon starts only after validation | `main.ts` → `launchDaemon` → `createApp`; startup ordering tests pass | PARTIAL — custom resource-limit environment variables are not read by the executable |
+| Select publication | Latest eligible plaintext event becomes a durable reactive snapshot; invalid, stale, expired, rollback, downgrade, and BUD-15 candidates remain unavailable | `src/protocol/publication.ts`, `src/persistence/state_repository.ts`, EventStore-backed `CacheSelectionModel`; 8 selection tests pass | VERIFIED |
+| Discover and resolve | Configured, event-tag, and authenticated BUD-03 sources are ordered and fetched through bounded hostile-network controls | `src/nostr/blossom_servers.ts`, `src/runtime/daemon.ts`, source plan and 25 targeted network/Blossom tests | VERIFIED |
+| Serve to Nix | GET/HEAD metadata, narinfo, and NAR use one immutable snapshot and verified bounded streams | `src/nix/http_handler.ts`, `src/hashtree/reader.ts`; HTTP and hostile traversal tests pass | VERIFIED |
+| Outcome | Unmodified stock Nix substitutes an absent path solely through production `main.ts` | `tests/e2e/nix_substitution_test.ts`; fresh E2E pass | VERIFIED |
+
+The end-to-end user outcome works, but the operator configuration contract is incomplete in the shipped entry point.
 
 ## Goal Achievement
 
@@ -78,57 +56,60 @@ The narrow MVP user flow is operational. The phase contract nevertheless remains
 
 | # | Truth | Status | Evidence |
 |---|---|---|---|
-| 1 | Operator starts validated read configuration and only the latest eligible plaintext publication remains selected across restart | VERIFIED | Production launcher plus seven publication-selection tests cover invalid, unauthorized, stale, tie, expiry, rollback, downgrade, transaction failure, corrupt restore, and restart paths. |
-| 2 | Nix GET/HEAD serves cache metadata, narinfo, and NAR while preserving valid signatures and identifying endorsements separately | VERIFIED | `src/nix/http_handler.ts`, `src/protocol/narinfo.ts`, protocol and HTTP integration tests. |
-| 3 | Publisher fetches are network/traversal bounded and reject corrupt or oversized content before use | VERIFIED | Nine address-pinning and fourteen hostile-Blossom tests pass, including CIDR normalization, redirects, deadlines, framing, cancellation, hash mismatch, and budgets. |
-| 4 | Large manifests, chunks, and NARs remain ordered, backpressured, and memory/disk bounded | VERIFIED | Explicit traversal frames, progressive ledgers, bounded narinfo reader, cancellation cleanup, and focused passing behavioral tests. |
-| 5 | A real Nix CLI substitutes through the shipped daemon | VERIFIED | Stock Nix E2E launches `main.ts`, substitutes after restart and concurrently, and passes. |
-| 6 | Selection is exposed through Applesauce EventStore/custom reactive casts | FAILED | `src/nostr/selection.ts` uses only RxJS `BehaviorSubject`; no EventStore/cast exists. |
-| 7 | Production discovers BUD-03 kind-10063 Blossom sources | FAILED | Source-plan helper accepts `bud03`, but `src/runtime/daemon.ts` subscribes only to kind 17091 and never passes BUD-03 data. |
-| 8 | Operator configuration covers signer mode and writable identity | FAILED | These OPER-01 fields do not exist in config or environment composition. |
+| 1 | Operator starts the shipped daemon from validated read configuration, including enforceable operator-selected resource limits | FAILED | Parsing/defaults/ceilings are substantive, but `main.ts:39-49` omits all limit variables from the only production `Deno.env.get` loop. |
+| 2 | Nix GET/HEAD serves cache metadata, narinfo, and NAR while preserving valid signatures and classifying endorsements independently | VERIFIED | Lossless narinfo protocol tests and eight HTTP integration tests pass. |
+| 3 | Publisher-controlled fetches are constrained and reject corrupt or oversized content before use | VERIFIED | Nine address-pinning plus fourteen hostile-Blossom tests cover peer pinning, CIDRs, redirects, framing, deadlines, cancellation, hashes, and budgets. |
+| 4 | Large manifests, chunks, and NARs remain ordered, backpressured, and bounded | VERIFIED | Explicit traversal frames and progressive ledgers are production-wired; nested-order, transfer/output, metadata, and cancellation tests pass. |
+| 5 | A real stock Nix client substitutes through the production daemon | VERIFIED | Fresh `deno task verify` ran the stock-Nix E2E successfully through `main.ts`. |
+| 6 | Selection is exposed through an Applesauce EventStore custom model after durable admission | VERIFIED | `EventStore.model(CacheSelectionModel, ...)` is authoritative; `repository.accept` precedes `store.add`; focused commit/admission/disposal test passes. |
+| 7 | Production discovers authenticated BUD-03 kind-10063 Blossom sources | VERIFIED | Relay subscription includes 10063; verified publisher events update the model; `snapshot.bud03Servers` flows into `buildSourcePlan`; two focused tests pass. |
+| 8 | Configuration covers explicit signer mode and writable identity without enabling premature writes | VERIFIED | Discriminated `writeIntent`, strict raw identity parser, production env mapping, no-side-effect diagnostics, and PUT-405 tests pass. |
 
-**Score:** 5/8 truths verified (0 present-but-behavior-unverified).
+**Score:** 7/8 truths verified (0 present-but-behavior-unverified).
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |---|---|---|---|
-| `main.ts`, `src/runtime/daemon.ts` | Runnable production composition | VERIFIED | Main launches concrete relay, repository, selection, resolver, handler, and signal-safe lifecycle. |
-| `src/nostr/selection.ts`, `src/persistence/state_repository.ts` | Durable authorized reactive selection | PARTIAL | Behavior is tested and durable; required Applesauce store/cast is absent. |
-| `src/network/safe_fetcher.ts`, `src/blossom/blob_fetcher.ts` | Safe decoded verified spool | VERIFIED | Substantive, production-wired, and adversarially tested. |
-| `src/hashtree/reader.ts` | Lazy ordered bounded resolver | VERIFIED | Production-wired with configured request budgets and behavior tests. |
-| `src/nix/http_handler.ts` | Snapshot-bound bounded GET/HEAD | VERIFIED | Narinfo bounded read and direct NAR streaming are separately wired. |
-| `src/blossom/source_plan.ts` | configured/event/BUD-03 ordering | PARTIAL | Helper and test support all tiers; BUD-03 tier is not fed by production. |
-| `tests/e2e/nix_substitution_test.ts` | Stock Nix through production daemon | VERIFIED | Spawns `main.ts`, not a test-owned daemon. |
+| `main.ts` | Complete production environment boundary and launcher | PARTIAL | Signer fields are wired, but every limit environment name is omitted from the executable collection loop. |
+| `src/nostr/selection.ts` | Durable EventStore-backed custom reactive selection | VERIFIED | Substantive, authoritative, production-wired, and behaviorally tested. |
+| `src/nostr/blossom_servers.ts` | Strict authenticated BUD-03 projection | VERIFIED | Filters exact server tags and unsafe URL forms after signature/publisher admission. |
+| `src/runtime/daemon.ts` | Production relay/store/source-plan composition | VERIFIED | Subscribes to 17091/10063, wires immutable BUD-03 snapshots, limits, repository, resolver, and handler. |
+| `src/config/config.ts` | Aggregate validated configuration and hard ceilings | VERIFIED | Includes read settings, all limit fields, explicit disabled/nip46/local modes, and strict writable identities. |
+| `src/network/safe_fetcher.ts`, `src/blossom/blob_fetcher.ts` | Pinned, bounded, verified transport/spooling | VERIFIED | Production-wired and adversarially exercised. |
+| `src/hashtree/reader.ts`, `src/nix/http_handler.ts` | Lazy bounded traversal and stock Nix HTTP semantics | VERIFIED | Real data flows from selected root through verified spools to responses. |
+| `tests/e2e/nix_substitution_test.ts` | Stock-Nix production acceptance | VERIFIED | Launches `main.ts`, isolates the destination store/substituter, verifies restart/concurrency. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |---|---|---|---|---|
-| Config publishers/identities | selection admission | validation then allow-list before repository accept | WIRED | Live and restored candidates are checked. |
-| Relay events | Applesauce reactive state | EventStore/custom cast | NOT_WIRED | RelayPool supplies an Observable, but selection bypasses applesauce-core state/casts. |
-| Publisher | BUD-03 kind 10063 | loader/store to source plan | NOT_WIRED | No kind-10063 subscription/loader exists. |
-| SafeFetcher | BlobFetcher | decoded lifetime-owned response stream | WIRED | Deadlines/framing/cancellation persist through spool EOF. |
-| Config limits | RequestBudget/handler | per-request construction | WIRED | Transfer, output, metadata, traversal, redirect, attempt, concurrency, and deadline limits are supplied. |
-| Selection snapshot | resolver/handler | one capture before awaits | WIRED | Snapshot mutation test passes. |
-| Stock Nix E2E | production launcher | child process executing `main.ts` | WIRED | E2E passes. |
+| Relay publication | repository | validation + allow-list + `repository.accept` | WIRED | Rejection and transaction-failure paths never enter EventStore. |
+| Repository | EventStore/custom model | commit before `store.add`, then `store.model(CacheSelectionModel, ...)` | WIRED | PROT-03 closure is real, not a parallel BehaviorSubject. |
+| Kind 10063 relay event | source plan | verified admission → model snapshot → `bud03:` argument | WIRED | TREE-01 production path and immutable snapshot behavior are tested. |
+| Config limits | fetcher/resolver/handler | `ValidatedConfig.limits` builds all runtime budgets | WIRED | Defaults and directly supplied `RawConfig` overrides flow correctly. |
+| Process environment limits | `RawConfig.limits` | executable `Deno.env.get` allow-list | NOT_WIRED | No `NIXSTR_LIMIT_*` name is read by `import.meta.main`. |
+| Signer/write identity environment | typed intent | environment mapper → `parseConfig` discriminated union | WIRED | Inconsistent pairs fail before side effects; PUT stays 405. |
+| Selected root | stock Nix response | immutable request snapshot → resolver → streamed response | WIRED | HTTP integration and real-Nix E2E pass. |
 
 ### Data-Flow Trace (Level 4)
 
-| Artifact | Data | Source | Produces Real Data | Status |
+| Artifact | Data | Source | Produces real data | Status |
 |---|---|---|---|---|
-| Production selector | selected root | RelayPool event → validation/allow-list → SQLite commit → subject | Yes | FLOWING (wrong reactive abstraction for PROT-03) |
-| Source planner | ordered origins | configured URL + publication blossom tags | Yes | PARTIAL (BUD-03 disconnected) |
-| Blob/Hashtree path | verified requested bytes | pinned socket → decoded spool → SHA-256 → manifests/chunks | Yes | FLOWING |
-| Nix handler | cache response | immutable selection → resolver → bounded metadata/direct NAR stream | Yes | FLOWING |
+| `CacheSelectionModel` | selected root and BUD-03 list | verified relay events admitted to EventStore after durable acceptance | Yes | FLOWING |
+| `buildSourcePlan` | ordered fetch candidates | configured origin + publication tags + snapshot BUD-03 servers | Yes | FLOWING |
+| Blob/Hashtree pipeline | requested authenticated bytes | pinned socket → framed body → verified spool → manifests/chunks | Yes | FLOWING |
+| Nix handler | cache metadata/NAR response | captured selection → bounded resolver → response stream | Yes | FLOWING |
+| Production limit overrides | operator environment values | `Deno.env.get` loop | No | DISCONNECTED |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |---|---|---|---|
-| Complete quality and behavior matrix | `deno task verify` | fmt/lint/check passed; 12 protocol, 38 integration, 1 stock-Nix E2E passed | PASS |
-| Production daemon startup/lifecycle | Included named integration tests | invalid startup has no side effects; restore-before-bind and cleanup pass | PASS |
-| Transport/traversal adversarial behavior | Included address-pinning and hostile-Blossom suites | 23/23 passed | PASS |
+| Full quality/behavior matrix | `deno task verify` | fmt/lint/check; 12 protocol, 48 integration, 1 stock-Nix E2E passed | PASS |
+| EventStore selection with the plan's narrow command | `deno test --allow-read --allow-write tests/integration/publication_selection_test.ts` | module load failed because Applesauce `debug` requires env access | FAIL (test-command regression; canonical integration task passes with `--allow-env`) |
+| Production limit environment wiring | inspect `main.ts:17-33` against `main.ts:39-49` | mapper knows variables, executable never reads them | FAIL |
+| MVP story format | centralized `user-story.validate` query | valid; all role/capability/outcome slots extracted | PASS |
 
 ### Probe Execution
 
@@ -136,43 +117,48 @@ No phase-declared or conventional `probe-*.sh` files exist. Step 7c is not appli
 
 ### Requirements Coverage
 
-| Requirement | Source Plan | Status | Evidence |
-|---|---|---|---|
-| PROT-02 | 01-02, 01-07 | SATISFIED | Strict cryptographic/tag/time validation and pre-admission authorization tests pass. |
-| PROT-03 | 01-02, 01-07 | BLOCKED | Ordering/atomicity behavior passes, but the required Applesauce EventStore/custom-cast exposure is absent. |
-| PROT-04 | 01-02 | SATISFIED | SQLite watermark/tie state rejects rollback across restart. |
-| PROT-05 | 01-02 | SATISFIED | Durable signed-history/consent transition test passes. |
-| PROT-06 | 01-02 | SATISFIED | Strict plaintext nhash test rejects type-5 BUD-15 roots. |
-| TREE-01 | 01-03 | BLOCKED | Ordering helper supports BUD-03 input, but production does not discover kind 10063. |
-| TREE-02 | 01-03 | SATISFIED | Incremental SHA-256 spool gates exposure and retries after mismatch. |
-| TREE-03 | 01-01, 01-03, 01-08 | SATISFIED | Canonical address, exact-peer, redirect, framing, and deadline tests pass. |
-| TREE-04 | 01-03, 01-09 | SATISFIED | Lazy traversal and all configured ledgers are wired and tested. |
-| TREE-05 | 01-03, 01-08, 01-09 | SATISFIED | Backpressured streams, owner-only spools, cancellation, and bounded metadata pass. |
-| READ-01 | 01-04 | SATISFIED | GET/HEAD nix-cache-info behavior passes. |
-| READ-02 | 01-04 | SATISFIED | Narinfo and NAR GET/HEAD resolution passes for the Phase-1 single selected tree. |
-| READ-03 | 01-04 | SATISFIED | Immutable request snapshot test passes. |
-| READ-04 | 01-04 | SATISFIED | Signature byte preservation and independent key-byte endorsement tests pass. |
-| READ-07 | 01-05, 01-07 | SATISFIED | Real stock-Nix substitution through `main.ts` passes. |
-| OPER-01 | 01-01, 01-07 | BLOCKED | Read config/startup works, but signer mode and writable identity named by the requirement are absent. |
+| Requirement | Status | Evidence |
+|---|---|---|
+| PROT-02 | SATISFIED | Strict event/authentication/tag/time validation precedes admission. |
+| PROT-03 | SATISFIED | Durable acceptance precedes EventStore admission; custom model is the reactive authority. |
+| PROT-04 | SATISFIED | SQLite timestamp/id watermark blocks restart rollback. |
+| PROT-05 | SATISFIED | Durable signed history and explicit unsigned consent are tested. |
+| PROT-06 | SATISFIED | Canonical plaintext nhash accepted; BUD-15 type 5 rejected. |
+| TREE-01 | SATISFIED | Configured, publication-tag, and authenticated BUD-03 sources reach production in order. |
+| TREE-02 | SATISFIED | Incremental SHA-256 verified spooling gates parsing/serving. |
+| TREE-03 | SATISFIED | Address pinning, per-hop policy, redirect limits, canonical CIDRs, and deadlines pass. |
+| TREE-04 | SATISFIED | Lazy deduplicated traversal enforces mandatory bounds. |
+| TREE-05 | SATISFIED | Streams, owner-only spools, ordered traversal, backpressure, and cancellation pass. |
+| READ-01 | SATISFIED | Stock-compatible nix-cache-info GET/HEAD behavior passes. |
+| READ-02 | SATISFIED | Narinfo and referenced NAR GET/HEAD paths pass. |
+| READ-03 | SATISFIED | One immutable selection/source snapshot is captured per request. |
+| READ-04 | SATISFIED | Valid Sig lines remain unchanged; endorsement is independently classified by key bytes. |
+| READ-07 | SATISFIED | Real stock Nix substitutes an initially absent store path through production main. |
+| OPER-01 | BLOCKED | Signer/write identity closure is valid, but the shipped executable silently ignores every operator limit override. |
+
+No Phase 1 requirement is orphaned from the eleven plan frontmatters.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |---|---|---|---|---|
-| `src/nostr/selection.ts` | 1,46 | Planned/required Applesauce state replaced by standalone RxJS subject | BLOCKER | PROT-03 implementation contract is not met. |
-| `src/runtime/daemon.ts` | 37,128 | Only kind 17091 is loaded; `bud03` is omitted from source plan | BLOCKER | TREE-01 production behavior is incomplete. |
+| `main.ts` | 39 | Environment field-list drift from `rawConfigFromEnvironment` | BLOCKER | Operator-selected safety limits cannot reach production. |
+| `tests/integration/operator_config_test.ts` | 94 | Mapper-only environment test | WARNING | The green test cannot detect omissions in the executable's separate allow-list. |
+| `01-10-PLAN.md` / selection command | — | Exact narrow-permission test command is stale | WARNING | Direct command fails before tests; the canonical suite adds `--allow-env` and passes all behavior. |
 
-No unreferenced TBD/FIXME/XXX debt markers or implementation placeholders were found in phase source files. Whole-body materialization remains only for manifests already bounded by `manifestWireBytes`; NAR bodies stay streamed.
+No unreferenced `TBD`, `FIXME`, or `XXX` markers, placeholder implementations, whole-NAR buffering, automatic publisher redirects, or unbounded digest APIs were found in phase source files.
 
 ### Human Verification Required
 
-None for the verdict. The plan's package-legitimacy checkpoint was an execution-time blocking approval completed before lockfile mutation; no unresolved end-of-phase human check remains in the executed plan artifacts.
+None. The stock client flow, state transitions, cancellation/ordering invariants, and closure items have automated behavioral evidence. The dependency-legitimacy checkpoint was completed during plan execution rather than deferred to end-of-phase UAT.
 
 ### Gaps Summary
 
-Plans 01-07 through 01-09 genuinely close every gap from the prior report, and the roadmap's five user-flow success criteria now execute successfully. Phase completion still fails goal-backward verification because the phase explicitly maps PROT-03, TREE-01, and OPER-01, and their required production artifacts/wiring are observably absent. These concerns are not specifically assigned to a later milestone phase, so they cannot be deferred.
+Plans 01-10 and 01-11 genuinely close all three previously reported blockers: PROT-03 now uses an authoritative custom Applesauce model, TREE-01 has authenticated production BUD-03 discovery, and signer/write-identity intent is validated without enabling Phase 3 behavior. Regression checks and the full 61-test matrix confirm the read walking slice remains operational.
+
+Phase 1 still cannot pass because the shipped entry point maintains a second, incomplete environment-name list. All resource-limit variables mapped by `rawConfigFromEnvironment` are absent from that list, so a real operator cannot tighten or raise the validated limits through `main.ts`; the values are silently discarded and defaults take effect. This is not deferred to a later phase and directly leaves OPER-01 incomplete.
 
 ---
 
-_Verified: 2026-08-12T13:20:00Z_
+_Verified: 2026-08-12T13:15:25Z_
 _Verifier: the agent (gsd-verifier)_
