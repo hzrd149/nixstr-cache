@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 3
 current_phase_name: Signer-Gated Writable Cache
-status: in_progress
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-08-12T14:37:58.264Z"
+status: executing
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-08-12T14:46:13.840Z"
 last_activity: 2026-08-12
-last_activity_desc: Completed Phase 03 Plan 01 signer-gated streamed PUT staging
+last_activity_desc: Completed signer-gated streamed PUT staging
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 17
-  completed_plans: 15
+  completed_plans: 16
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 3 — Signer-Gated Writable Cache
-Plan: 1 of 3 complete
-Status: In Progress
+Plan: 2 of 3 complete
+Status: Ready to execute
 Last activity: 2026-08-12 — Completed signer-gated streamed PUT staging
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -73,6 +73,7 @@ Progress: [█████████░] 88%
 | Phase 02 P02 | 12 min | 2 tasks | 7 files |
 | Phase 02 P03 | 12 min | 3 tasks | 12 files |
 | Phase 03 P01 | 28min | 2 tasks | 10 files |
+| Phase 03 P02 | 8min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Reserve the configured per-body ceiling transactionally before opening a temp file to prevent concurrent aggregate oversubscription.
 - [Phase ?]: Use same-filesystem hard-link creation for no-overwrite immutable promotion followed by transactional route metadata.
 - [Phase ?]: Capture signer ownership, repository health, publication relays, and a current configured/BUD-03 Blossom destination as one PUT readiness fact.
+- [Phase ?]: Treat only the current atomic signer overlay generation as readable; mutable staging is never a resolver input.
+- [Phase ?]: Pin signer NAR routes to the immutable generation that supplied their Narinfo.
 
 ### Pending Todos
 
@@ -145,6 +148,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T14:37:58.251Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-08-12T14:46:13.828Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None

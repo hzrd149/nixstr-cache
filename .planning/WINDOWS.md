@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 7
+open_count: 8
 waived_count: 0
 fixed_count: 0
-total_count: 7
-last_updated: 2026-08-12T13:48:28.402Z
+total_count: 8
+last_updated: 2026-08-12T14:46:13.081Z
 ---
 
 # Broken Windows Ledger
@@ -22,6 +22,7 @@ last_updated: 2026-08-12T13:48:28.402Z
 | 5 | 01 | deviation | tests/e2e/nix_substitution_test.ts |  | Canonical root manifest order corrected during stock Nix E2E | open |  | 2026-08-12T11:13:30.387Z |  |
 | 6 | 02 | deviation | tests/integration/blossom_discovery_test.ts |  | Adapted scalar BUD-03 regression assertions to the merged snapshot API | open |  | 2026-08-12T13:46:21.923Z |  |
 | 7 | 02 | deviation | tests/integration/blossom_discovery_test.ts |  | Corrected stale scalar cast in merged BUD-03 production source-plan regression | open |  | 2026-08-12T13:48:28.402Z |  |
+| 8 | 03 | deviation | src/nix/http_handler.ts |  | Removed stale signer overlay snapshot type import discovered by lint | open |  | 2026-08-12T14:46:13.081Z |  |
 
 ````json
 [
@@ -107,6 +108,18 @@ last_updated: 2026-08-12T13:48:28.402Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T13:48:28.402Z",
+    "resolved_at": null
+  },
+  {
+    "id": 8,
+    "kind": "deviation",
+    "phase": "03",
+    "file": "src/nix/http_handler.ts",
+    "line": null,
+    "description": "Removed stale signer overlay snapshot type import discovered by lint",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T14:46:13.081Z",
     "resolved_at": null
   }
 ]

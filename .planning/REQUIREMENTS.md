@@ -39,8 +39,8 @@
 - [x] **WRIT-02**: Operator can connect either an Applesauce NIP-46 remote signer or a protected local private-key signer through one capability interface.
 - [x] **WRIT-03**: Daemon disables PUT readiness when no signer is connected, signer pubkey does not own the configured identity, or required publication destinations are unavailable.
 - [x] **WRIT-04**: Nix client can stream standard binary-cache PUT paths into durable staging without whole-body buffering and receive idempotent success for identical content.
-- [ ] **WRIT-05**: Daemon makes a store object eligible for publication only when its `.narinfo`, referenced NAR, and declared store-path references are resolvable in the candidate tree.
-- [ ] **WRIT-06**: Complete staged objects are readable through the signer-first merged view while incomplete objects remain invisible.
+- [x] **WRIT-05**: Daemon makes a store object eligible for publication only when its `.narinfo`, referenced NAR, and declared store-path references are resolvable in the candidate tree.
+- [x] **WRIT-06**: Complete staged objects are readable through the signer-first merged view while incomplete objects remain invisible.
 
 ### Publication
 
@@ -116,8 +116,8 @@
 | WRIT-02 | Phase 3 | Complete |
 | WRIT-03 | Phase 3 | Complete |
 | WRIT-04 | Phase 3 | Complete |
-| WRIT-05 | Phase 3 | Pending |
-| WRIT-06 | Phase 3 | Pending |
+| WRIT-05 | Phase 3 | Complete |
+| WRIT-06 | Phase 3 | Complete |
 | PUBL-01 | Phase 3 | Pending |
 | PUBL-02 | Phase 3 | Pending |
 | PUBL-03 | Phase 4 | Pending |
