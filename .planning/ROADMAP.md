@@ -32,7 +32,7 @@ The v1 journey starts with the smallest safe walking slice: a stock Nix client s
   4. Large manifests, chunks, and NARs pass through hashing, verification, temporary storage, and HTTP responses with backpressure and bounded memory.
   5. A real `nix` CLI substitutes an uncached store path through the daemon and successfully verifies the returned metadata and NAR.
 
-**Plans:** 6/6 plans executed
+**Plans:** 6/9 plans executed
 
 Plans:
 
@@ -53,10 +53,16 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 01-04-PLAN.md — Serve snapshot-bound stock Nix GET/HEAD semantics.
+- [ ] 01-08-PLAN.md — Close hostile transport, deadline, framing, cancellation, and canonical SSRF gaps.
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 01-05-PLAN.md — Prove the walking slice with pinned stock Nix 2.34.7.
+- [ ] 01-09-PLAN.md — Preserve ordered Hashtree streaming under bounded transfer, output, and metadata budgets.
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 01-07-PLAN.md — Ship the production launcher, enforce live allow-lists, recover persisted state safely, and run stock Nix through `main.ts`.
 
 ### Phase 2: Deterministic Merged Read Cache
 
