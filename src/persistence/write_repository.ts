@@ -766,6 +766,11 @@ export class WriteRepository {
       admitted: row.admitted === 1,
     });
   }
+  publicationSagaByBatch(batchId: number): PublicationSaga | undefined {
+    const active = this.publicationSaga();
+    if (active?.batchId === batchId) return active;
+    return this.publicationHistory().find((saga) => saga.batchId === batchId);
+  }
   publicationHistory(): readonly PublicationSaga[] {
     const rows = this.#db.prepare(
       "SELECT batch_id,candidate_json,destinations_json,complete_server,template_json,signed_event_json,acknowledged_relay,committed,admitted FROM publication_saga_history ORDER BY batch_id",
@@ -877,7 +882,7 @@ export class WriteRepository {
     });
   }
   recordBlobProof(batchId: number, server: string, hash: string): void {
-    const saga = this.publicationSaga();
+    const saga = this.publicationSagaByBatch(batchId);
     if (
       !saga || saga.batchId !== batchId || !saga.destinations.includes(server)
     ) {
@@ -906,8 +911,11 @@ export class WriteRepository {
     if (!this.serverComplete(batchId, server)) {
       throw new Error("server is not complete");
     }
+    const active = this.publicationSaga()?.batchId === batchId;
     this.#db.prepare(
-      "UPDATE publication_sagas SET complete_server=COALESCE(complete_server,?) WHERE batch_id=?",
+      active
+        ? "UPDATE publication_sagas SET complete_server=COALESCE(complete_server,?) WHERE batch_id=?"
+        : "UPDATE publication_saga_history SET complete_server=COALESCE(complete_server,?) WHERE batch_id=?",
     ).run(server, batchId);
   }
   recordSigned(

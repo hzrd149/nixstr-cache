@@ -296,7 +296,7 @@ export class PublicationCoordinator {
     code: import("../persistence/write_repository.ts").EndpointWorkCode,
     durationMs: number,
   ): void {
-    const saga = this.options.repository.publicationSaga();
+    const saga = this.options.repository.publicationSagaByBatch(work.batchId);
     if (work.kind === "replica") {
       this.options.diagnostics?.emit({
         type: "replica_attempt",
@@ -324,12 +324,15 @@ export class PublicationCoordinator {
   }
   async #repair(): Promise<void> {
     const o = this.options;
-    const saga = o.repository.publicationSaga();
-    if (!saga?.committed || !saga.signedEvent) return;
     const retry = this.#retryOptions();
     const due = o.repository.claimDueWork(o.now(), retry.concurrency);
     await Promise.all(due.map(async (work) => {
       const started = Date.now();
+      const saga = o.repository.publicationSagaByBatch(work.batchId);
+      if (!saga?.committed || !saga.signedEvent) {
+        this.#outcome(work, false, "unavailable");
+        return;
+      }
       if (work.kind === "replica") {
         let ok = true;
         for (const entry of o.repository.publicationInventory(work.batchId)) {
