@@ -25,10 +25,10 @@
 
 ### Merged Nix Read API
 
-- [ ] **READ-01**: Nix client can GET and HEAD `nix-cache-info` from one stable daemon URL with valid binary-cache metadata.
-- [ ] **READ-02**: Nix client can GET and HEAD `.narinfo` and referenced NAR paths resolved across selected trees in configured priority order.
-- [ ] **READ-03**: Each request uses one immutable merged-root snapshot so relay updates cannot change publisher roots midway through resolution.
-- [ ] **READ-04**: Daemon preserves every syntactically valid `.narinfo` `Sig` field unchanged, records which signatures verify against key bytes declared in the selected event as publisher-endorsed, and leaves trust selection to the Nix client.
+- [x] **READ-01**: Nix client can GET and HEAD `nix-cache-info` from one stable daemon URL with valid binary-cache metadata.
+- [x] **READ-02**: Nix client can GET and HEAD `.narinfo` and referenced NAR paths resolved across selected trees in configured priority order.
+- [x] **READ-03**: Each request uses one immutable merged-root snapshot so relay updates cannot change publisher roots midway through resolution.
+- [x] **READ-04**: Daemon preserves every syntactically valid `.narinfo` `Sig` field unchanged, records which signatures verify against key bytes declared in the selected event as publisher-endorsed, and leaves trust selection to the Nix client.
 - [ ] **READ-05**: Daemon unions `Sig` fields from duplicate `.narinfo` records only when all non-signature semantic fields agree.
 - [ ] **READ-06**: Daemon serves the highest-priority record and emits a structured warning when duplicate `.narinfo` records disagree semantically.
 - [ ] **READ-07**: A real `nix` CLI can substitute an uncached store path through the daemon and verify the returned metadata and NAR successfully.
@@ -54,7 +54,7 @@
 
 ### Configuration and Operations
 
-- [ ] **OPER-01**: Operator can start the daemon from validated configuration covering listen address, whitelist order, relays, optional local caches, limits, signer mode, and writable identity.
+- [x] **OPER-01**: Operator can start the daemon from validated configuration covering listen address, whitelist order, relays, optional local caches, limits, signer mode, and writable identity.
 - [ ] **OPER-02**: Daemon emits structured logs for event rejection, cache conflicts, upstream failures, signer state, batch state, replication, and publication outcomes without exposing secrets.
 - [ ] **OPER-03**: Operator can query a basic health endpoint that distinguishes process health, read availability, and write availability.
 - [ ] **OPER-04**: Automated tests cover strict protocol fixtures, hostile inputs, bounded streaming behavior, local relay/Blossom integration, and real `nix` CLI read/write workflows.
@@ -105,10 +105,10 @@
 | TREE-04 | Phase 1 | Complete |
 | TREE-05 | Phase 1 | Complete |
 | TREE-06 | Phase 2 | Pending |
-| READ-01 | Phase 1 | Pending |
-| READ-02 | Phase 1 | Pending |
-| READ-03 | Phase 1 | Pending |
-| READ-04 | Phase 1 | Pending |
+| READ-01 | Phase 1 | Complete |
+| READ-02 | Phase 1 | Complete |
+| READ-03 | Phase 1 | Complete |
+| READ-04 | Phase 1 | Complete |
 | READ-05 | Phase 2 | Pending |
 | READ-06 | Phase 2 | Pending |
 | READ-07 | Phase 1 | Pending |
@@ -125,7 +125,7 @@
 | PUBL-05 | Phase 4 | Pending |
 | PUBL-06 | Phase 4 | Pending |
 | PUBL-07 | Phase 4 | Pending |
-| OPER-01 | Phase 1 | Pending |
+| OPER-01 | Phase 1 | Complete |
 | OPER-02 | Phase 4 | Pending |
 | OPER-03 | Phase 4 | Pending |
 | OPER-04 | Phase 4 | Pending |

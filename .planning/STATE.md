@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: verified-nix-substitution-walking-slice
 status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-08-12T10:59:31.473Z"
+stopped_at: Completed 01-04-PLAN.md
+last_updated: "2026-08-12T11:06:34.619Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 01 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 01 (verified-nix-substitution-walking-slice) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-08-12 — Phase 01 execution started
 
-Progress: [██████░░░░] 60%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Progress: [██████░░░░] 60%
 | Phase 01 P01 | 25 min | 2 tasks | 5 files |
 | Phase 01 P02 | 20 min | 2 tasks | 8 files |
 | Phase 01 P03 | 8 min | 3 tasks | 8 files |
+| Phase 01 P04 | 14 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -76,6 +77,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Reject non-canonical MessagePack before using authenticated Hashtree data.
 - [Phase ?]: Quarantine canonical origins only for complete SHA-256 mismatches.
 - [Phase ?]: HEAD authenticates the final link without acquiring the final content blob.
+- [Phase ?]: Preserve authenticated narinfo text exactly and classify publisher endorsement separately by Ed25519 key bytes.
+- [Phase ?]: Capture selection once at HTTP handler entry and pass the immutable snapshot through resolution.
 
 ### Pending Todos
 
@@ -97,6 +100,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T10:59:31.458Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-08-12T11:06:34.605Z
+Stopped at: Completed 01-04-PLAN.md
 Resume file: None
