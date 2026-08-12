@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertThrows } from "@std/assert";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { Subject } from "rxjs";
 import { bech32 } from "@scure/base";
@@ -74,8 +74,8 @@ Deno.test("one complete replica publishes exact event through normal admission",
       return await original(template);
     };
     const replica: ReplicaPublisher = {
-      async prove(_server, entry) {
-        return entry.hash !== "33".repeat(32);
+      prove(_server, entry) {
+        return Promise.resolve(entry.hash !== "33".repeat(32));
       },
     };
     const coordinator = new PublicationCoordinator({
@@ -89,13 +89,13 @@ Deno.test("one complete replica publishes exact event through normal admission",
       lifetimeSeconds: 3600,
       now: () => 100,
       replica,
-      publishRelays: async (
+      publishRelays: (
         _event,
-      ) => [{ relay: "ws://127.0.0.1:7447", ok: true }],
+      ) => Promise.resolve([{ relay: "ws://127.0.0.1:7447", ok: true }]),
     });
     await coordinator.tick();
     assertEquals(signCalls, 0, "split/partial replicas must not sign");
-    replica.prove = async (server) => server.endsWith("9002");
+    replica.prove = (server) => Promise.resolve(server.endsWith("9002"));
     await coordinator.tick();
     assertEquals(signCalls, 1);
     const saga = f.write.publicationSaga();
@@ -131,8 +131,9 @@ Deno.test("hostile signer and false relay fail before promotion", async () => {
       publicationRelays: ["ws://127.0.0.1:7447"],
       lifetimeSeconds: 3600,
       now: () => 100,
-      replica: { prove: async () => true },
-      publishRelays: async () => [{ relay: "ws://127.0.0.1:7447", ok: false }],
+      replica: { prove: () => Promise.resolve(true) },
+      publishRelays: () =>
+        Promise.resolve([{ relay: "ws://127.0.0.1:7447", ok: false }]),
     });
     await coordinator.tick();
     assert(f.write.publicationSaga()?.signedEvent);
@@ -160,8 +161,8 @@ Deno.test("repository independently rejects a signed event that differs from its
     }
     f.write.recordCompleteServer(saga.batchId, "http://127.0.0.1:9001");
     const template = { kind: 17091, created_at: 100, tags: [], content: "" };
-    await assertRejects(
-      async () => {
+    assertThrows(
+      () => {
         f.write.recordSigned(saga.batchId, template, {
           id: "0".repeat(64),
           pubkey: f.pubkey,

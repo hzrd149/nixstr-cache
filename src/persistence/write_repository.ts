@@ -2,6 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { sha256 } from "@noble/hashes/sha2.js";
 import type { NarInfo } from "../protocol/narinfo.ts";
 import { Subject } from "rxjs";
+import { verifyEvent } from "nostr-tools";
+import { validatePublication } from "../protocol/publication.ts";
 
 export class WriteConflict extends Error {
   constructor() {
@@ -546,6 +548,18 @@ export class WriteRepository {
     );
   }
   recordBlobProof(batchId: number, server: string, hash: string): void {
+    const saga = this.publicationSaga();
+    if (
+      !saga || saga.batchId !== batchId || !saga.destinations.includes(server)
+    ) {
+      throw new Error("proof server is not part of the claimed saga");
+    }
+    const blob = this.#db.prepare(
+      "SELECT 1 present FROM publication_saga_blobs WHERE batch_id=? AND hash=?",
+    ).get(batchId, hash);
+    if (!blob) {
+      throw new Error("proof hash is not part of the claimed inventory");
+    }
     this.#db.prepare(
       "INSERT OR IGNORE INTO publication_blob_proofs(batch_id,server,hash) VALUES(?,?,?)",
     ).run(batchId, server, hash);
@@ -575,6 +589,21 @@ export class WriteRepository {
     const saga = this.publicationSaga();
     if (!saga?.completeServer) {
       throw new Error("complete replica proof required before signing");
+    }
+    const expected = template as {
+      kind?: unknown;
+      created_at?: unknown;
+      tags?: unknown;
+      content?: unknown;
+    };
+    if (
+      event.kind !== expected.kind ||
+      event.created_at !== expected.created_at ||
+      event.content !== expected.content ||
+      JSON.stringify(event.tags) !== JSON.stringify(expected.tags) ||
+      !verifyEvent(event) || !validatePublication(event, event.created_at).ok
+    ) {
+      throw new Error("signed event differs from template");
     }
     if (
       saga.signedEvent &&
