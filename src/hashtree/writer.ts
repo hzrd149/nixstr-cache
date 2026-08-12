@@ -26,7 +26,13 @@ export interface WriterLimits {
   readonly maxLinks: number;
   readonly maxInventoryBlobs: number;
   readonly maxInventoryBytes: number;
+  readonly maxEntries?: number;
+  readonly maxRouteBytes?: number;
+  readonly maxRouteDepth?: number;
 }
+export type LogicalFileSource =
+  | Iterable<LogicalFile>
+  | AsyncIterable<LogicalFile>;
 type Node = { files: Map<string, LogicalFile>; directories: Map<string, Node> };
 type Built = CandidateBlob & {
   bytes: Uint8Array;
@@ -54,7 +60,7 @@ export class HashtreeWriter {
     Deno.mkdirSync(root, { recursive: true, mode: 0o700 });
   }
   async build(
-    files: readonly LogicalFile[],
+    files: LogicalFileSource,
     _base?: HashtreeBuild,
     signal?: AbortSignal,
   ): Promise<HashtreeBuild> {
@@ -83,14 +89,38 @@ export class HashtreeWriter {
       return inventory.get(hash)!;
     };
     const tree: Node = { files: new Map(), directories: new Map() };
-    for (
-      const file of [...files].sort((a, b) => compareUtf8(a.route, b.route))
-    ) {
+    const orderedFiles: LogicalFileSource = Array.isArray(files)
+      ? [...files].sort((a, b) => compareUtf8(a.route, b.route))
+      : files;
+    let previousRoute: string | undefined;
+    let entries = 0;
+    for await (const file of orderedFiles) {
+      signal?.throwIfAborted();
+      if (
+        ++entries > (this.limits.maxEntries ?? this.limits.maxInventoryBlobs)
+      ) {
+        throw new RangeError("logical entry ceiling exceeded");
+      }
       const parts = file.route.split("/").filter(Boolean);
       if (
         !parts.length ||
         parts.some((x) => x === "." || x === ".." || x.includes("\0"))
       ) throw new Error("unsafe logical route");
+      if (
+        encoder.encode(file.route).length > (this.limits.maxRouteBytes ?? 4096)
+      ) {
+        throw new RangeError("logical route byte ceiling exceeded");
+      }
+      if (parts.length > (this.limits.maxRouteDepth ?? 32)) {
+        throw new RangeError("logical route depth ceiling exceeded");
+      }
+      if (
+        previousRoute !== undefined &&
+        compareUtf8(previousRoute, file.route) >= 0
+      ) {
+        throw new Error("logical routes must be strictly UTF-8 ordered");
+      }
+      previousRoute = file.route;
       let node = tree;
       for (const part of parts.slice(0, -1)) {
         let child = node.directories.get(part);
@@ -112,6 +142,7 @@ export class HashtreeWriter {
           const chunk = new Uint8Array(FILE_CHUNK_BYTES);
           let used = 0;
           while (used < chunk.length) {
+            signal?.throwIfAborted();
             const n = await handle.read(chunk.subarray(used));
             if (n === null) break;
             used += n;

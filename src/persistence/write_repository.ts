@@ -487,6 +487,41 @@ export class WriteRepository {
       ),
     );
   }
+  async *publicationBatchFiles(
+    batch: Pick<FrozenBatch, "id" | "token" | "generation">,
+    maxEntries: number,
+    signal?: AbortSignal,
+  ): AsyncIterable<import("../hashtree/writer.ts").LogicalFile> {
+    const current = this.#db.prepare(
+      "SELECT token,generation,status FROM publication_batches WHERE id=?",
+    ).get(batch.id) as unknown as {
+      token: number;
+      generation: number;
+      status: string;
+    } | undefined;
+    if (
+      !current || current.token !== batch.token ||
+      current.generation !== batch.generation ||
+      !["building", "failed"].includes(current.status)
+    ) throw new Error("frozen batch identity changed");
+    const statement = this.#db.prepare(
+      "SELECT route,path,size FROM publication_batch_entries WHERE batch_id=? ORDER BY CAST(route AS BLOB)",
+    );
+    let count = 0;
+    for (
+      const row of statement.iterate(batch.id) as unknown as Iterable<{
+        route: string;
+        path: string;
+        size: number;
+      }>
+    ) {
+      signal?.throwIfAborted();
+      if (++count > maxEntries) {
+        throw new RangeError("logical entry ceiling exceeded");
+      }
+      yield Object.freeze(row);
+    }
+  }
   failedBatches(): readonly FrozenBatch[] {
     const rows = this.#db.prepare(
       "SELECT id,token,generation,base_root FROM publication_batches WHERE status='failed' ORDER BY id",

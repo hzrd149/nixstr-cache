@@ -100,3 +100,41 @@ Deno.test("one-path updates reuse unchanged persistent blobs", async () => {
     await Deno.remove(root, { recursive: true });
   }
 });
+
+Deno.test("bounded durable iteration is single-pass ordered and cancellable", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const source = `${root}/source`;
+    await Deno.writeTextFile(source, "x");
+    let iterations = 0;
+    let yields = 0;
+    const files = {
+      async *[Symbol.asyncIterator]() {
+        iterations++;
+        for (const route of ["a", "b", "c"]) {
+          yields++;
+          yield { route, path: source, size: 1 };
+        }
+      },
+    };
+    const writer = new HashtreeWriter(`${root}/trees`, {
+      maxLinks: 2,
+      maxInventoryBlobs: 100,
+      maxInventoryBytes: 65536,
+      maxEntries: 3,
+      maxRouteBytes: 16,
+      maxRouteDepth: 2,
+    });
+    const streamed = await writer.build(files);
+    const array = await writer.build(["a", "b", "c"].map((route) => ({
+      route,
+      path: source,
+      size: 1,
+    })));
+    assertEquals(streamed.rootHex, array.rootHex);
+    assertEquals(iterations, 1);
+    assertEquals(yields, 3);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});

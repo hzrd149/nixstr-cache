@@ -2,12 +2,12 @@ import type {
   FrozenBatch,
   WriteRepository,
 } from "../persistence/write_repository.ts";
-import type { HashtreeBuild, LogicalFile } from "../hashtree/writer.ts";
+import type { HashtreeBuild, LogicalFileSource } from "../hashtree/writer.ts";
 import type { OperationalDiagnosticSink } from "../operations/diagnostics.ts";
 
 export interface BatchWriter {
   build(
-    files: readonly LogicalFile[],
+    files: LogicalFileSource,
     base?: HashtreeBuild,
     signal?: AbortSignal,
   ): Promise<HashtreeBuild>;
@@ -35,6 +35,7 @@ export class PublicationBatchScheduler {
   #maximum?: number;
   #serial: Promise<void> = Promise.resolve();
   #closed = false;
+  readonly #abort = new AbortController();
   constructor(
     readonly repository: WriteRepository,
     readonly writer: BatchWriter,
@@ -78,11 +79,13 @@ export class PublicationBatchScheduler {
     this.#serial = this.#serial.catch(() => {}).then(async () => {
       try {
         const candidate = await this.writer.build(
-          batch.entries.map((entry) => ({
-            route: entry.route,
-            path: entry.path,
-            size: entry.size,
-          })),
+          this.repository.publicationBatchFiles(
+            batch,
+            batch.entries.length,
+            this.#abort.signal,
+          ),
+          undefined,
+          this.#abort.signal,
         );
         this.repository.recordPending(batch, {
           batchId: batch.id,
@@ -111,6 +114,7 @@ export class PublicationBatchScheduler {
   }
   async close(): Promise<void> {
     this.#closed = true;
+    this.#abort.abort("batch scheduler closed");
     if (this.#quiet !== undefined) this.clock.clearTimer(this.#quiet);
     if (this.#maximum !== undefined) this.clock.clearTimer(this.#maximum);
     await this.#serial;
