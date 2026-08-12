@@ -50,8 +50,9 @@ the Event kinds table below. Successive events sharing an identity are
 successive states of one cache, which is what makes rollback between them
 meaningful.
 
-**Unsigned cache** — a cache whose publication event declares no `nixSigKey`
-tag.
+**Unsigned cache** — a cache whose publication event declares no
+publisher-endorsed Nix signing key through a `nixSigKey` tag. Its `.narinfo`
+records may still contain `Sig` fields trusted independently by a Nix client.
 
 **Client** — any implementation that resolves a publication event and fetches
 from the Hashtree it references.
@@ -174,9 +175,11 @@ Nostr-published cache is not bound to a serving domain and can be served by any
 Blossom server or a local gateway; the name is a label carried for
 configuration, not an identity claim.
 
-When present, the set of `nixSigKey` tags declares every Nix signing key that a
-publisher expects clients to accept for `.narinfo` records in this cache. A
-cache MAY use multiple keys, for example during key rotation or when combining
+When present, the set of `nixSigKey` tags declares the Nix signing keys whose
+valid signatures the publisher endorses for `.narinfo` records in this cache.
+It is not an exhaustive list of keys that may appear in `Sig` fields and does
+not override a Nix client's independently configured trust policy. A cache MAY
+endorse multiple keys, for example during key rotation or when combining
 artifacts from multiple builders. Clients MUST ignore duplicate tags whose
 values decode to the same 32 bytes, whatever names those tags carry.
 
@@ -303,9 +306,10 @@ signable Nostr events.
 
 ### Unsigned cache
 
-This default-cache event has no `nixSigKey` tags. All `.narinfo` records in its
-Hashtree are therefore unsigned and authenticated through the signed event and
-content-addressed tree.
+This default-cache event has no `nixSigKey` tags. The publisher therefore
+endorses no Nix signing key through this NIP, whether or not `.narinfo` records
+in its Hashtree contain `Sig` fields. The records are authenticated as part of
+the signed event's content-addressed tree.
 
 ```json
 {
@@ -373,8 +377,9 @@ a name for an unrelated cache.
 
 When rotating a Nix signing key, a publisher SHOULD first publish a cache event
 containing both the old and new `nixSigKey` tags. The publisher SHOULD remove an
-old key only after no `.narinfo` record reachable from the published root
-requires that key.
+old key only after clients are no longer expected to rely on its endorsement.
+Removing a tag does not require removing `Sig` fields made by that key from
+reachable `.narinfo` records.
 
 A publisher SHOULD NOT remove every `nixSigKey` tag from a cache that previously
 declared one. Doing so converts a signed cache into an unsigned one, which
@@ -521,12 +526,22 @@ selected publication event. The names in the `Sig` field and in the
 compare either to a serving domain. This endorsement is separate from local Nix
 signature policy.
 
-Every syntactically valid `Sig` field MUST be preserved unchanged when a
-gateway serves the record onward, including signatures that do not verify
-against a declared `nixSigKey` and every signature in an unsigned cache. Such a
-signature is not publisher-endorsed under this NIP, but it can still satisfy a
-stock Nix client's independently configured `trusted-public-keys` policy. An
-unverifiable signature does not invalidate the record.
+Every syntactically valid `Sig` field MUST be preserved unchanged and in its
+original occurrence order when a gateway serves the record onward. This
+includes signatures whose key is not declared by a `nixSigKey`, signatures that
+do not verify against a declared key, and every signature in an unsigned cache.
+Such a signature is not publisher-endorsed under this NIP, but it can still
+satisfy a stock Nix client's independently configured `trusted-public-keys`
+policy. Absence from the event's declared key set, or failure to verify against
+that set, does not invalidate the record.
+
+When a client combines compatible `.narinfo` records from multiple selected
+caches, it MUST concatenate all of their `Sig` fields. Records are compatible
+for this purpose only when every non-`Sig` field is identical. The combined
+record MUST preserve cache priority between source records and occurrence order
+within each source record, and MUST NOT select, filter, rewrite, or deduplicate
+`Sig` fields based on any source event's `nixSigKey` tags. This passthrough does
+not make an undeclared signature publisher-endorsed.
 
 In an unsigned cache, trust comes from the chain:
 
@@ -575,11 +590,12 @@ its own configured mirrors, not only against a publisher's.
 ### Downgrade
 
 An event that declares no `nixSigKey` tag removes the publisher's declaration of
-endorsed Nix signing keys; it does not change the consuming Nix client's own
-signature checks. A client that has previously accepted a signed cache for an
-identity MUST NOT silently accept that identity becoming unsigned; it MUST
-obtain explicit user consent first. Without this rule, anyone able to publish as
-the publisher can remove the publisher-endorsed key set unnoticed.
+endorsed Nix signing keys; it neither removes `Sig` fields from `.narinfo`
+records nor changes the consuming Nix client's own signature checks. A client
+that has previously accepted a signed cache for an identity MUST NOT silently
+accept that identity becoming unsigned; it MUST obtain explicit user consent
+first. Without this rule, anyone able to publish as the publisher can remove the
+publisher-endorsed key set unnoticed.
 
 Rollback of the Hashtree root itself is addressed under Resolution.
 
