@@ -94,24 +94,24 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | PROT-01 | Phase 2 | Complete |
-| PROT-02 | Phase 1 | Gaps Found |
-| PROT-03 | Phase 1 | Gaps Found |
-| PROT-04 | Phase 1 | Gaps Found |
-| PROT-05 | Phase 1 | Gaps Found |
-| PROT-06 | Phase 1 | Gaps Found |
-| TREE-01 | Phase 1 | Gaps Found |
-| TREE-02 | Phase 1 | Gaps Found |
-| TREE-03 | Phase 1 | Gaps Found |
-| TREE-04 | Phase 1 | Gaps Found |
-| TREE-05 | Phase 1 | Gaps Found |
+| PROT-02 | Phase 1 | Complete |
+| PROT-03 | Phase 1 | Complete |
+| PROT-04 | Phase 1 | Complete |
+| PROT-05 | Phase 1 | Complete |
+| PROT-06 | Phase 1 | Complete |
+| TREE-01 | Phase 1 | Complete |
+| TREE-02 | Phase 1 | Complete |
+| TREE-03 | Phase 1 | Complete |
+| TREE-04 | Phase 1 | Complete |
+| TREE-05 | Phase 1 | Complete |
 | TREE-06 | Phase 2 | Complete |
-| READ-01 | Phase 1 | Gaps Found |
-| READ-02 | Phase 1 | Gaps Found |
-| READ-03 | Phase 1 | Gaps Found |
-| READ-04 | Phase 1 | Gaps Found |
+| READ-01 | Phase 1 | Complete |
+| READ-02 | Phase 1 | Complete |
+| READ-03 | Phase 1 | Complete |
+| READ-04 | Phase 1 | Complete |
 | READ-05 | Phase 2 | Complete |
 | READ-06 | Phase 2 | Complete |
-| READ-07 | Phase 1 | Gaps Found |
+| READ-07 | Phase 1 | Complete |
 | WRIT-01 | Phase 3 | Complete |
 | WRIT-02 | Phase 3 | Complete |
 | WRIT-03 | Phase 3 | Complete |
@@ -125,7 +125,7 @@
 | PUBL-05 | Phase 4 | Complete |
 | PUBL-06 | Phase 4 | Complete |
 | PUBL-07 | Phase 4 | Complete |
-| OPER-01 | Phase 1 | Gaps Found |
+| OPER-01 | Phase 1 | Complete |
 | OPER-02 | Phase 4 | Complete |
 | OPER-03 | Phase 4 | Complete |
 | OPER-04 | Phase 4 | Complete |
