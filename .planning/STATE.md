@@ -157,6 +157,7 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 260812-igi | Wire supported NIXSTR limit environment variables | 2026-08-12 | a7b6958 | [260812-igi-wire-supported-nixstr-limit-environment-](./quick/260812-igi-wire-supported-nixstr-limit-environment-/) |
 | 260812-kuw | Add deterministic in-process NIP-46 integration coverage | 2026-08-12 | 1209236 | [260812-kuw-add-deterministic-in-process-nip-46-inte](./quick/260812-kuw-add-deterministic-in-process-nip-46-inte/) |
+| 260812-mhi | Close milestone integration gaps for signing, restart recovery, and diagnostics | 2026-08-12 | b79030c | [260812-mhi-close-milestone-integration-gaps-nip-46-](./quick/260812-mhi-close-milestone-integration-gaps-nip-46-/) |
 
 ## Deferred Items
 
@@ -167,6 +168,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T16:03:52.668Z
-Stopped at: Completed 04-04-PLAN.md
+Last session: 2026-08-12T16:19:51Z
+Stopped at: Completed quick task 260812-mhi
 Resume file: None
