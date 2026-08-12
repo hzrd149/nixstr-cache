@@ -27,7 +27,10 @@ export interface SignerCapability {
   current(): SignerState;
   start(): Promise<void>;
   close(): Promise<void>;
-  signEvent(template: EventTemplate): Promise<VerifiedEvent>;
+  signEvent(
+    template: EventTemplate,
+    signal?: AbortSignal,
+  ): Promise<VerifiedEvent>;
 }
 
 export interface SignerCapabilityOptions {
@@ -142,7 +145,8 @@ export function createSignerCapability(
         subject.complete();
       }
     },
-    async signEvent(template) {
+    async signEvent(template, signal) {
+      signal?.throwIfAborted();
       const state = subject.value;
       if (
         closed || state.status !== "ready" || !active?.signEvent ||
@@ -156,7 +160,18 @@ export function createSignerCapability(
       ) {
         throw new Error("signer ownership changed");
       }
-      const event = await active.signEvent(template);
+      const operation = active.signEvent(template);
+      const event = signal
+        ? await Promise.race([
+          operation,
+          new Promise<never>((_, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            });
+          }),
+        ])
+        : await operation;
+      signal?.throwIfAborted();
       if (event.pubkey !== pubkey) {
         throw new Error("signer returned foreign event");
       }

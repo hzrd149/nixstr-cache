@@ -444,13 +444,32 @@ export function createProductionDependencies(
           lifetimeSeconds: config.publicationLifetimeSeconds,
           now: () => Math.floor(Date.now() / 1000),
           replica: uploader,
-          publishRelays: async (event, relays) => {
+          publishRelays: async (event, relays, signal) => {
+            const abort = <T>(promise: Promise<T>): Promise<T> => {
+              signal?.throwIfAborted();
+              if (!signal) return promise;
+              return Promise.race([
+                promise,
+                new Promise<never>((_, reject) =>
+                  signal.addEventListener(
+                    "abort",
+                    () => reject(signal.reason),
+                    { once: true },
+                  )
+                ),
+              ]);
+            };
             const outcomes = await Promise.all(relays.map(async (relay) => {
               if (localRelay?.relay === new URL(relay).href) {
-                return { relay, ok: await localRelay.publishSigned(event) };
+                return {
+                  relay,
+                  ok: await abort(localRelay.publishSigned(event)),
+                };
               }
               try {
-                const response = await publishPool.publish([relay], event);
+                const response = await abort(
+                  publishPool.publish([relay], event),
+                );
                 return { relay, ok: response.some((item) => item.ok) };
               } catch {
                 return { relay, ok: false };

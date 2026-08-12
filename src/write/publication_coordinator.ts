@@ -46,6 +46,7 @@ export interface PublicationCoordinatorOptions {
     readonly jitter: (kind: "replica" | "relay", target: string) => number;
   };
   readonly refreshLeadSeconds?: number;
+  readonly operationTimeoutMs?: number;
   readonly diagnostics?: OperationalDiagnosticSink;
 }
 
@@ -68,6 +69,24 @@ export class PublicationCoordinator {
   #closed = false;
   readonly #abort = new AbortController();
   constructor(readonly options: PublicationCoordinatorOptions) {}
+
+  async #bounded<T>(
+    operation: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const timeout = AbortSignal.timeout(
+      this.options.operationTimeoutMs ?? 30_000,
+    );
+    const signal = AbortSignal.any([this.#abort.signal, timeout]);
+    signal.throwIfAborted();
+    return await Promise.race([
+      operation(signal),
+      new Promise<never>((_, reject) =>
+        signal.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        })
+      ),
+    ]);
+  }
 
   tick(): Promise<void> {
     const work = this.#serial.then(() => this.#run());
@@ -175,7 +194,9 @@ export class PublicationCoordinator {
         tags,
         content: "",
       };
-      const event = await o.signer.signEvent(template) as RawPublication;
+      const event = await this.#bounded((signal) =>
+        o.signer.signEvent(template, signal)
+      ) as RawPublication;
       this.#abort.signal.throwIfAborted();
       if (!exactTemplate(event, template, o.identity.pubkey)) {
         throw new Error("signer changed publication template");
@@ -195,11 +216,13 @@ export class PublicationCoordinator {
     }
     if (!saga.acknowledgedRelay) {
       const configured = new Set(o.publicationRelays);
-      const outcomes = await o.publishRelays(
-        saga.signedEvent!,
-        o.publicationRelays,
-        this.#abort.signal,
+      const expectedBatch = saga.batchId;
+      const signedEvent = saga.signedEvent!;
+      const outcomes = await this.#bounded((signal) =>
+        o.publishRelays(signedEvent, o.publicationRelays, signal)
       );
+      this.#abort.signal.throwIfAborted();
+      if (o.repository.publicationSaga()?.batchId !== expectedBatch) return;
       for (const relay of o.publicationRelays) {
         this.#recordInitial(
           "relay",
@@ -352,9 +375,10 @@ export class PublicationCoordinator {
           Date.now() - started,
         );
       } else {
-        const outcomes = await o.publishRelays(saga.signedEvent!, [
-          work.target,
-        ], this.#abort.signal);
+        const outcomes = await this.#bounded((signal) =>
+          o.publishRelays(saga.signedEvent!, [work.target], signal)
+        );
+        this.#abort.signal.throwIfAborted();
         this.#outcome(
           work,
           outcomes.some((x) => x.relay === work.target && x.ok),

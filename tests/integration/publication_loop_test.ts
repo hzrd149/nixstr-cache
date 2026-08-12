@@ -239,3 +239,53 @@ Deno.test("second generation rolls over an admitted saga with monotonic event ti
     await Deno.remove(f.root, { recursive: true });
   }
 });
+
+Deno.test("shutdown cancels hanging signer and rejects its late result", async () => {
+  const f = await fixture();
+  try {
+    const original = f.signer.signEvent.bind(f.signer);
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => release = resolve);
+    f.signer.signEvent = async (template, signal) => {
+      await blocked;
+      signal?.throwIfAborted();
+      return await original(template, signal);
+    };
+    const coordinator = new PublicationCoordinator({
+      repository: f.write,
+      signer: f.signer,
+      selector: f.selection,
+      identity: { kind: 17091, pubkey: f.pubkey, identifier: "" },
+      blossomServers: ["http://127.0.0.1:9001"],
+      nixSigKeys: [],
+      publicationRelays: ["ws://127.0.0.1:7447"],
+      lifetimeSeconds: 3600,
+      now: () => 100,
+      operationTimeoutMs: 100,
+      replica: { prove: () => Promise.resolve(true) },
+      publishRelays: () => new Promise(() => {}),
+    });
+    const tick = coordinator.tick();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await Promise.race([
+      coordinator.close(),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("shutdown did not abort signer")),
+          250,
+        )
+      ),
+    ]);
+    await tick.catch(() => {});
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assertEquals(f.write.publicationSaga()?.signedEvent, undefined);
+    assertEquals(f.write.publicationSaga()?.committed, false);
+  } finally {
+    f.selection.dispose();
+    f.state.close();
+    f.write.close();
+    await f.signer.close();
+    await Deno.remove(f.root, { recursive: true });
+  }
+});
