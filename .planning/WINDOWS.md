@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 8
+open_count: 9
 waived_count: 0
 fixed_count: 0
-total_count: 8
-last_updated: 2026-08-12T14:46:13.081Z
+total_count: 9
+last_updated: 2026-08-12T15:10:15.531Z
 ---
 
 # Broken Windows Ledger
@@ -23,6 +23,7 @@ last_updated: 2026-08-12T14:46:13.081Z
 | 6 | 02 | deviation | tests/integration/blossom_discovery_test.ts |  | Adapted scalar BUD-03 regression assertions to the merged snapshot API | open |  | 2026-08-12T13:46:21.923Z |  |
 | 7 | 02 | deviation | tests/integration/blossom_discovery_test.ts |  | Corrected stale scalar cast in merged BUD-03 production source-plan regression | open |  | 2026-08-12T13:48:28.402Z |  |
 | 8 | 03 | deviation | src/nix/http_handler.ts |  | Removed stale signer overlay snapshot type import discovered by lint | open |  | 2026-08-12T14:46:13.081Z |  |
+| 9 | 03 | unrun-verify | tests/e2e/nix_substitution_test.ts |  | Full verify stock-Nix E2E hit an unrelated temporary SQLite disk I/O error | open |  | 2026-08-12T15:10:15.531Z |  |
 
 ````json
 [
@@ -120,6 +121,18 @@ last_updated: 2026-08-12T14:46:13.081Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T14:46:13.081Z",
+    "resolved_at": null
+  },
+  {
+    "id": 9,
+    "kind": "unrun-verify",
+    "phase": "03",
+    "file": "tests/e2e/nix_substitution_test.ts",
+    "line": null,
+    "description": "Full verify stock-Nix E2E hit an unrelated temporary SQLite disk I/O error",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T15:10:15.531Z",
     "resolved_at": null
   }
 ]

@@ -6,7 +6,7 @@ current_phase: 3
 current_phase_name: Signer-Gated Writable Cache
 status: executing
 stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-08-12T14:56:15.455Z"
+last_updated: "2026-08-12T15:10:38.587Z"
 last_activity: 2026-08-12
 last_activity_desc: Completed signer-gated streamed PUT staging
 progress:
@@ -141,6 +141,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260812-igi | Wire supported NIXSTR limit environment variables | 2026-08-12 | a7b6958 | [260812-igi-wire-supported-nixstr-limit-environment-](./quick/260812-igi-wire-supported-nixstr-limit-environment-/) |
+| 260812-kuw | Add deterministic in-process NIP-46 integration coverage | 2026-08-12 | 1209236 | [260812-kuw-add-deterministic-in-process-nip-46-inte](./quick/260812-kuw-add-deterministic-in-process-nip-46-inte/) |
 
 ## Deferred Items
 
