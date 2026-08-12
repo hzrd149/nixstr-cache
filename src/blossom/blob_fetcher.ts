@@ -55,6 +55,13 @@ type FetchBoundary = {
 };
 
 const verifiedBrand: unique symbol = Symbol("VerifiedBlob");
+async function removeIfPresent(path: string): Promise<void> {
+  try {
+    await Deno.remove(path);
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
+  }
+}
 export class VerifiedBlob {
   readonly [verifiedBrand] = true;
   #disposed = false;
@@ -92,11 +99,7 @@ export class VerifiedBlob {
   async dispose(): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
-    try {
-      await Deno.remove(this.path);
-    } catch (error) {
-      if (!(error instanceof Deno.errors.NotFound)) throw error;
-    }
+    await removeIfPresent(this.path);
   }
 }
 
@@ -236,13 +239,7 @@ export class BlobFetcher {
       try {
         file?.close();
       } catch { /* already closed */ }
-      if (path) {
-        try {
-          await Deno.remove(path);
-        } catch (error) {
-          if (!(error instanceof Deno.errors.NotFound)) throw error;
-        }
-      }
+      if (path) await removeIfPresent(path);
     }
   }
 }
