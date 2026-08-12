@@ -1275,10 +1275,8 @@ export class WriteRepository {
       this.#db.exec("BEGIN IMMEDIATE");
       try {
         const used = (this.#db.prepare(
-          `SELECT COALESCE(SUM(s.size),0) used FROM staged_blobs s
-           WHERE NOT EXISTS(SELECT 1 FROM overlay_entries o
-             WHERE o.generation=(SELECT current_generation FROM overlay_state WHERE singleton=1)
-             AND o.route=s.route)`,
+          `SELECT COALESCE(SUM(size),0) used FROM
+             (SELECT digest,MAX(size) size FROM staged_blobs GROUP BY digest)`,
         ).get() as unknown as { used: number }).used;
         if (used + size > this.#limits.aggregateBytes) {
           throw new RangeError("aggregate staging ceiling exceeded");
@@ -1347,10 +1345,9 @@ export class WriteRepository {
     this.#db.exec("BEGIN IMMEDIATE");
     try {
       const row = this.#db.prepare(
-        `SELECT (SELECT COALESCE(SUM(s.size),0) FROM staged_blobs s
-          WHERE NOT EXISTS(SELECT 1 FROM overlay_entries o
-            WHERE o.generation=(SELECT current_generation FROM overlay_state WHERE singleton=1)
-            AND o.route=s.route))+(SELECT COALESCE(SUM(bytes),0) FROM write_reservations) used`,
+        `SELECT (SELECT COALESCE(SUM(size),0) FROM
+          (SELECT digest,MAX(size) size FROM staged_blobs GROUP BY digest))+
+          (SELECT COALESCE(SUM(bytes),0) FROM write_reservations) used`,
       ).get() as unknown as { used: number };
       if (row.used + this.#limits.perBodyBytes > this.#limits.aggregateBytes) {
         throw new RangeError("aggregate staging reservation unavailable");

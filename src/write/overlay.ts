@@ -25,8 +25,10 @@ export class SignerOverlay {
   current(): SignerOverlaySnapshot {
     return this.#snapshot;
   }
-  acquire(): LeasedSignerOverlaySnapshot {
-    const snapshot = this.#snapshot;
+  acquire(generation = this.#snapshot.generation): LeasedSignerOverlaySnapshot {
+    const snapshot = generation === this.#snapshot.generation
+      ? this.#snapshot
+      : this.#loadGeneration(generation);
     const release = this.repository.acquireGeneration(snapshot.generation);
     return Object.freeze({ snapshot, release });
   }
@@ -52,8 +54,11 @@ export class SignerOverlay {
     };
   }
   #load(): SignerOverlaySnapshot {
+    return this.#loadGeneration(this.repository.currentGeneration());
+  }
+  #loadGeneration(generation: number): SignerOverlaySnapshot {
     const entries = new Map(
-      this.repository.currentOverlayEntries().map((
+      this.repository.overlayEntries(generation).map((
         entry,
       ) => [
         entry.route,
@@ -66,9 +71,9 @@ export class SignerOverlay {
       ]),
     );
     return Object.freeze({
-      generation: this.repository.currentGeneration(),
+      generation,
       entries,
-      storePaths: this.repository.currentOverlayStorePaths(),
+      storePaths: this.repository.overlayStorePaths(generation),
     });
   }
 }

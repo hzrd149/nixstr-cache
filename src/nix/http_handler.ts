@@ -236,12 +236,15 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       if (narinfoMatch) {
         const signerEntry = overlaySnapshot?.entries.get(path);
         if (signerEntry && overlaySnapshot) {
-          const resolved = await dependencies.overlay!.resolver(overlaySnapshot)
+          const lease = dependencies.overlay!.acquire(
+            overlaySnapshot.generation,
+          );
+          const resolved = await dependencies.overlay!.resolver(lease.snapshot)
             .resolve("", path, "GET");
           if (!resolved.body) throw new Error("GET resolution omitted body");
           const raw = await new Response(resolved.body).text();
           const record = parseNarInfo(raw);
-          signerRoutes.set(record.url, overlaySnapshot);
+          signerRoutes.set(record.url, lease);
           return text(raw, request.method);
         }
         const merged = await resolveMergedNarInfo({
@@ -268,13 +271,15 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       }
       const budget = (dependencies.budgetFor ?? defaultBudget)();
       let resolved;
-      const pinnedSigner = signerRoutes.get(path);
+      const pinnedSigner = signerRoutes.take(path);
       if (pinnedSigner) {
-        resolved = await dependencies.overlay!.resolver(pinnedSigner).resolve(
-          "",
-          path,
-          request.method,
-        );
+        releaseOverlay = pinnedSigner.release;
+        resolved = await dependencies.overlay!.resolver(pinnedSigner.snapshot)
+          .resolve(
+            "",
+            path,
+            request.method,
+          );
       } else if (overlaySnapshot?.entries.has(path)) {
         const leased = dependencies.overlay!.acquire();
         releaseOverlay = leased.release;

@@ -16,7 +16,7 @@ import type {
   MergedSelectionSnapshot,
   SelectedPublication,
 } from "../nostr/selection.ts";
-import type { SignerOverlaySnapshot } from "../write/overlay.ts";
+import type { LeasedSignerOverlaySnapshot } from "../write/overlay.ts";
 
 export interface NarInfoConflictDiagnostic {
   readonly code: "narinfo-semantic-conflict";
@@ -207,37 +207,46 @@ export class WinnerRouteRegistry {
 export class SignerRouteRegistry {
   readonly #entries = new Map<
     string,
-    { snapshot: SignerOverlaySnapshot; expiresAt: number }
+    { lease: LeasedSignerOverlaySnapshot; expiresAt: number }
   >();
   constructor(
     readonly maxEntries: number,
     readonly ttlMs: number,
     readonly now = Date.now,
   ) {}
-  set(path: string, snapshot: SignerOverlaySnapshot): void {
+  set(path: string, lease: LeasedSignerOverlaySnapshot): void {
     const key = normalizedNarPath(path);
     if (!key) throw new TypeError("invalid NAR route");
     this.#purge();
-    this.#entries.delete(key);
+    this.#delete(key);
     while (this.#entries.size >= this.maxEntries) {
-      this.#entries.delete(this.#entries.keys().next().value!);
+      this.#delete(this.#entries.keys().next().value!);
     }
-    this.#entries.set(key, { snapshot, expiresAt: this.now() + this.ttlMs });
+    this.#entries.set(key, { lease, expiresAt: this.now() + this.ttlMs });
   }
-  get(path: string): SignerOverlaySnapshot | undefined {
+  take(path: string): LeasedSignerOverlaySnapshot | undefined {
     const key = normalizedNarPath(path);
     if (!key) return undefined;
     const entry = this.#entries.get(key);
     if (!entry || entry.expiresAt <= this.now()) {
-      this.#entries.delete(key);
+      this.#delete(key);
       return undefined;
     }
-    return entry.snapshot;
+    this.#entries.delete(key);
+    return entry.lease;
   }
   #purge(): void {
     const now = this.now();
     for (const [key, entry] of this.#entries) {
-      if (entry.expiresAt <= now) this.#entries.delete(key);
+      if (entry.expiresAt <= now) this.#delete(key);
     }
+  }
+  #delete(key: string): void {
+    const entry = this.#entries.get(key);
+    this.#entries.delete(key);
+    entry?.lease.release();
+  }
+  close(): void {
+    for (const key of [...this.#entries.keys()]) this.#delete(key);
   }
 }
