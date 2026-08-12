@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 6
+open_count: 7
 waived_count: 0
 fixed_count: 0
-total_count: 6
-last_updated: 2026-08-12T13:46:21.923Z
+total_count: 7
+last_updated: 2026-08-12T13:48:28.402Z
 ---
 
 # Broken Windows Ledger
@@ -21,6 +21,7 @@ last_updated: 2026-08-12T13:46:21.923Z
 | 4 | 01 | deviation | src/blossom/blob_fetcher.ts |  | Repository verification required lockfile resolution and lint-safe cleanup | open |  | 2026-08-12T10:59:21.138Z |  |
 | 5 | 01 | deviation | tests/e2e/nix_substitution_test.ts |  | Canonical root manifest order corrected during stock Nix E2E | open |  | 2026-08-12T11:13:30.387Z |  |
 | 6 | 02 | deviation | tests/integration/blossom_discovery_test.ts |  | Adapted scalar BUD-03 regression assertions to the merged snapshot API | open |  | 2026-08-12T13:46:21.923Z |  |
+| 7 | 02 | deviation | tests/integration/blossom_discovery_test.ts |  | Corrected stale scalar cast in merged BUD-03 production source-plan regression | open |  | 2026-08-12T13:48:28.402Z |  |
 
 ````json
 [
@@ -94,6 +95,18 @@ last_updated: 2026-08-12T13:46:21.923Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T13:46:21.923Z",
+    "resolved_at": null
+  },
+  {
+    "id": 7,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "tests/integration/blossom_discovery_test.ts",
+    "line": null,
+    "description": "Corrected stale scalar cast in merged BUD-03 production source-plan regression",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T13:48:28.402Z",
     "resolved_at": null
   }
 ]

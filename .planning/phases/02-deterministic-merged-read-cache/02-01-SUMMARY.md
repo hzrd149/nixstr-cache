@@ -89,6 +89,7 @@ status: complete
 2. **Task 1 GREEN: ordered multi-cache production selection** - `6cb4b7e` (feat)
 3. **Task 2 RED: independent layer lifecycle coverage** - `5fefa69` (test)
 4. **Task 2 GREEN: nearest-expiry independent lifecycle** - `c64aa48` (feat)
+5. **Post-merge fix: merged BUD-03 production assertion** - `373c8c3` (test)
 
 ## Files Created/Modified
 
@@ -126,11 +127,19 @@ status: complete
 - **Verification:** 22 focused tests passed, plus lint, check, and stock-Nix E2E.
 - **Committed in:** N/A (verification-only adjustment)
 
-**Total deviations:** 2 auto-fixed (2 Rule 3 blocking issues). **Impact:** No feature scope increase; the adjustments preserve existing coverage and accommodate the pinned dependency graph.
+**3. [Rule 1 - Bug] Corrected the production BUD-03 regression's scalar snapshot assumption**
+- **Found during:** Post-merge cumulative integration gate
+- **Issue:** The test cast the new ordered `current()` result as one publication, so its source-plan probe read array properties as `undefined` and observed only the configured source.
+- **Fix:** Selected `current()[0]` explicitly and retained assertions that the highest-priority layer carries immutable event and reactive BUD-03 sources into production resolution.
+- **Files modified:** `tests/integration/blossom_discovery_test.ts`
+- **Verification:** `deno task test:integration` passes all 55 tests and `deno task test:nix-e2e` passes.
+- **Committed in:** `373c8c3`
+
+**Total deviations:** 3 auto-fixed (1 Rule 1 bug, 2 Rule 3 blocking issues). **Impact:** No feature scope increase; the adjustments preserve existing coverage and accommodate the pinned dependency graph.
 
 ## Issues Encountered
 
-The pinned npm dependency graph requires environment permission during module initialization. The plan-level focused command with `--allow-env` passed all 22 tests.
+The pinned npm dependency graph requires environment permission during module initialization. The plan-level focused command with `--allow-env` passed all 22 tests. A post-merge cumulative test exposed a stale scalar type assertion in BUD-03 coverage; production code already selected the highest-priority layer correctly, and the corrected regression now proves its event and BUD-03 source propagation.
 
 ## Authentication Gates
 
@@ -145,6 +154,7 @@ None.
 - `deno task fmt` - passed, 30 files checked.
 - `deno task lint` - passed, 26 files checked.
 - `deno task check` - passed across production, protocol, integration, and E2E modules.
+- `deno task test:integration` - 55 passed.
 - `deno test --allow-env --allow-read=.,/tmp --allow-write=/tmp tests/integration/operator_config_test.ts tests/integration/publication_selection_test.ts` - 22 passed.
 - `deno task test:nix-e2e` - 1 passed with stock Nix through production `main.ts`.
 
@@ -165,5 +175,5 @@ None.
 ## Self-Check: PASSED
 
 - All seven modified implementation/test files exist.
-- All four task commits are present in git history.
+- All four task commits and the post-merge regression fix are present in git history.
 - All task acceptance criteria and plan-level verification commands passed under the documented dependency permission envelope.
