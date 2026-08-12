@@ -37,16 +37,23 @@ Deno.test("narinfo permits unsigned records and rejects ambiguous scalars", () =
 });
 
 Deno.test("narinfo rejects malformed or non-canonical signatures", () => {
-  assertThrows(() => parseNarInfo([...base, "Sig: missing-colon", ""].join("\n")));
+  assertThrows(() =>
+    parseNarInfo([...base, "Sig: missing-colon", ""].join("\n"))
+  );
   assertThrows(() => parseNarInfo([...base, "Sig: bad:!!!!", ""].join("\n")));
-  assertThrows(() => parseNarInfo([...base, `Sig: bad:${"A".repeat(88)}`, ""].join("\n")));
+  assertThrows(() =>
+    parseNarInfo([...base, `Sig: bad:${"A".repeat(88)}`, ""].join("\n"))
+  );
 });
 
 Deno.test("endorsement uses key bytes independently of signature names", async () => {
   const secret = new Uint8Array(32).fill(7);
   const publicKey = ed25519.getPublicKey(secret);
   const unsigned = parseNarInfo([...base, ""].join("\n"));
-  const signature = ed25519.sign(new TextEncoder().encode(unsigned.fingerprint), secret);
+  const signature = ed25519.sign(
+    new TextEncoder().encode(unsigned.fingerprint),
+    secret,
+  );
   const encoded = btoa(String.fromCharCode(...signature));
   const text = [...base, `Sig: unrelated-name:${encoded}`, ""].join("\n");
   const parsed = parseNarInfo(text);
@@ -57,9 +64,11 @@ Deno.test("endorsement uses key bytes independently of signature names", async (
   }]);
   assertEquals(result, [{ signatureIndex: 0, endorsed: true, keyIndex: 0 }]);
   assertEquals(serializeNarInfo(parsed), text);
-  await assertRejects(async () => classifyEndorsements(parsed, [{
-    name: "bad",
-    encoded: "",
-    bytes: new Uint8Array(31),
-  }]));
+  await assertRejects(async () =>
+    classifyEndorsements(parsed, [{
+      name: "bad",
+      encoded: "",
+      bytes: new Uint8Array(31),
+    }])
+  );
 });
