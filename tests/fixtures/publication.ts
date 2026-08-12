@@ -32,7 +32,7 @@ function waitUntil<T>(
   });
 }
 
-export async function createPublicationFixture(): Promise<PublicationFixture> {
+export function createPublicationFixture(): PublicationFixture {
   const blobs = new Map<string, Uint8Array>();
   const uploadedHashes: string[] = [];
   const publishedEvents: RawPublication[] = [];
@@ -143,7 +143,7 @@ export type BlossomMode =
   | "truncated-proof"
   | "false-possession";
 
-export async function createControlledBlossomFixture(
+export function createControlledBlossomFixture(
   options: { readonly throttleMs?: number } = {},
 ) {
   const blobs = new Map<string, Uint8Array>();
@@ -247,7 +247,7 @@ export type RelayMode =
   | "absent"
   | "duplicate-true";
 
-export async function createControlledRelayFixture() {
+export function createControlledRelayFixture() {
   const control: { mode: RelayMode } = { mode: "true" };
   const facts = { eventIds: [] as string[] };
   const sockets = new Set<WebSocket>();
