@@ -1,5 +1,21 @@
 export type OperationalDiagnostic =
   | {
+    readonly type: "staging_failure";
+    readonly code:
+      | "staging_conflict"
+      | "staging_too_large"
+      | "staging_invalid_narinfo"
+      | "staging_unavailable";
+    readonly routeClass: "narinfo" | "nar";
+    readonly status: 400 | 409 | 413 | 503;
+  }
+  | {
+    readonly type: "batch_build_failure";
+    readonly code: "hashtree_build_failed";
+    readonly batchId: number;
+    readonly count: number;
+  }
+  | {
     readonly type: "event_rejection";
     readonly code: string;
     readonly eventId?: string;
@@ -96,6 +112,20 @@ export function serializeOperationalDiagnostic(
 ): string {
   let safe: Record<string, unknown>;
   switch (item.type) {
+    case "staging_failure":
+      safe = {
+        ...base(item, timestamp),
+        routeClass: item.routeClass,
+        status: item.status,
+      };
+      break;
+    case "batch_build_failure":
+      safe = {
+        ...base(item, timestamp),
+        batchId: item.batchId,
+        count: item.count,
+      };
+      break;
     case "event_rejection":
       safe = {
         ...base(item, timestamp),

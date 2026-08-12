@@ -3,6 +3,7 @@ import type {
   WriteRepository,
 } from "../persistence/write_repository.ts";
 import type { HashtreeBuild, LogicalFile } from "../hashtree/writer.ts";
+import type { OperationalDiagnosticSink } from "../operations/diagnostics.ts";
 
 export interface BatchWriter {
   build(
@@ -38,6 +39,7 @@ export class PublicationBatchScheduler {
     readonly repository: WriteRepository,
     readonly writer: BatchWriter,
     readonly clock: BatchClock = systemClock,
+    readonly diagnostics?: OperationalDiagnosticSink,
   ) {
     for (const batch of repository.failedBatches()) this.#enqueue(batch);
     const window = repository.activePublicationWindow();
@@ -92,6 +94,14 @@ export class PublicationBatchScheduler {
         }, candidate.inventory);
       } catch (error) {
         this.repository.markBatchFailed(batch.id);
+        try {
+          this.diagnostics?.emit({
+            type: "batch_build_failure",
+            code: "hashtree_build_failed",
+            batchId: batch.id,
+            count: batch.entries.length,
+          });
+        } catch { /* diagnostics are non-authoritative */ }
         throw error;
       }
     });

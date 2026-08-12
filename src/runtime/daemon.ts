@@ -387,6 +387,8 @@ export function createProductionDependencies(
               config.limits.linksPerNode,
             maxInventoryBytes: config.stagingAggregateBytes,
           }),
+          undefined,
+          diagnostics,
         )
         : undefined;
       if (batchScheduler) supervisor.drains.add(() => batchScheduler.close());
@@ -506,6 +508,7 @@ export function createProductionDependencies(
               differingFields: item.differingFields,
             }),
         },
+        operationalDiagnostics: diagnostics,
         health: createHealthSnapshotProvider(() => {
           const selected = (selection as unknown as SelectionView).current();
           const signerState = signer?.current();

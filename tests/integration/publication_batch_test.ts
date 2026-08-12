@@ -209,3 +209,41 @@ Deno.test("restart restores the durable quiet deadline without another dirty", a
     await Deno.remove(root, { recursive: true });
   }
 });
+
+Deno.test("batch build failure diagnostic is typed and preserves durable retry", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const repository = new WriteRepository(
+      `${root}/write.db`,
+      `${root}/spool`,
+      {
+        perBodyBytes: 4096,
+        aggregateBytes: 65536,
+      },
+    );
+    await repository.stage("one", new Blob(["secret-content"]).stream());
+    const generation = repository.commitOverlayRoutes(["one"]);
+    const clock = new FakeClock();
+    const seen: unknown[] = [];
+    const scheduler = new PublicationBatchScheduler(
+      repository,
+      { build: () => Promise.reject(new Error("/secret/path")) },
+      clock,
+      { emit: (item) => seen.push(item) },
+    );
+    scheduler.dirty(generation);
+    await clock.advance(5_000);
+    await scheduler.idle().catch(() => {});
+    assertEquals(repository.batches().map((batch) => batch.status), ["failed"]);
+    assertEquals(seen, [{
+      type: "batch_build_failure",
+      code: "hashtree_build_failed",
+      batchId: 1,
+      count: 1,
+    }]);
+    await scheduler.close().catch(() => {});
+    repository.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});

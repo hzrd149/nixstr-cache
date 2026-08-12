@@ -9,6 +9,7 @@ import type { MergedSelectionSnapshot } from "../nostr/selection.ts";
 import { classifyEndorsements, parseNarInfo } from "../protocol/narinfo.ts";
 import type { SignerOverlay } from "../write/overlay.ts";
 import type { HealthSnapshotProvider } from "../operations/health.ts";
+import type { OperationalDiagnosticSink } from "../operations/diagnostics.ts";
 import {
   WriteConflict,
   type WriteRepository,
@@ -37,6 +38,7 @@ export interface NixHandlerDependencies {
     endorsed: number,
   ) => void;
   readonly diagnostics?: DiagnosticSink;
+  readonly operationalDiagnostics?: OperationalDiagnosticSink;
   readonly routes?: WinnerRouteRegistry;
   readonly overlay?: SignerOverlay;
   readonly health?: HealthSnapshotProvider;
@@ -90,6 +92,13 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
   const routes = dependencies.routes ??
     new WinnerRouteRegistry(1024, 5 * 60_000);
   const signerRoutes = new SignerRouteRegistry(1024, 5 * 60_000);
+  const emitOperational = (
+    item: Parameters<OperationalDiagnosticSink["emit"]>[0],
+  ) => {
+    try {
+      dependencies.operationalDiagnostics?.emit(item);
+    } catch { /* diagnostics are non-authoritative */ }
+  };
   return async (request: Request): Promise<Response> => {
     const pathname = new URL(request.url).pathname;
     if (
@@ -161,15 +170,40 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
         await readiness.onStaged?.(route);
         return new Response(null, { status: 200 });
       } catch (error) {
+        const routeClass = narinfoMatch ? "narinfo" as const : "nar" as const;
         if (error instanceof WriteConflict) {
+          emitOperational({
+            type: "staging_failure",
+            code: "staging_conflict",
+            routeClass,
+            status: 409,
+          });
           return new Response("immutable route conflict\n", { status: 409 });
         }
         if (error instanceof RangeError) {
+          emitOperational({
+            type: "staging_failure",
+            code: "staging_too_large",
+            routeClass,
+            status: 413,
+          });
           return new Response("payload too large\n", { status: 413 });
         }
         if (error instanceof TypeError) {
+          emitOperational({
+            type: "staging_failure",
+            code: "staging_invalid_narinfo",
+            routeClass,
+            status: 400,
+          });
           return new Response("invalid narinfo\n", { status: 400 });
         }
+        emitOperational({
+          type: "staging_failure",
+          code: "staging_unavailable",
+          routeClass,
+          status: 503,
+        });
         return new Response("staging unavailable\n", { status: 503 });
       }
     }

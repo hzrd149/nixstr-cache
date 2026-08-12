@@ -8,6 +8,7 @@ import {
   type HealthInputs,
 } from "../../src/operations/health.ts";
 import { createNixHttpHandler } from "../../src/nix/http_handler.ts";
+import type { WriteRepository } from "../../src/persistence/write_repository.ts";
 
 const secretCorpus = [
   "Bearer authorization-secret",
@@ -109,6 +110,56 @@ Deno.test("blocked publication is observable without side effects or secrets", a
   );
   assertEquals(await head.text(), "");
   assertEquals(reads, 3);
+});
+
+Deno.test("staging failure diagnostic is typed secret-safe and non-authoritative", async () => {
+  const lines: string[] = [];
+  const sink = createJsonDiagnosticSink({
+    write: (line) => lines.push(line),
+    now: () => 0,
+  });
+  const repository = {
+    stage: () => Promise.reject(new Error("path-secret body-secret")),
+  } as unknown as WriteRepository;
+  const handler = createNixHttpHandler({
+    decodedMetadataBytes: 1024,
+    selection: { current: () => Object.freeze([]) },
+    resolverFor: () => ({ resolve: () => Promise.reject(new Error("unused")) }),
+    operationalDiagnostics: sink,
+    write: { current: () => ({ ready: true, repository }) },
+  });
+  const response = await handler(
+    new Request("http://cache.test/nar/fail.nar", {
+      method: "PUT",
+      body: "body-secret",
+    }),
+  );
+  assertEquals(response.status, 503);
+  assertEquals(lines.length, 1);
+  assertStringIncludes(lines[0], '"type":"staging_failure"');
+  assertStringIncludes(lines[0], '"code":"staging_unavailable"');
+  assertEquals(lines[0].includes("secret"), false);
+
+  const throwing = createNixHttpHandler({
+    decodedMetadataBytes: 1024,
+    selection: { current: () => Object.freeze([]) },
+    resolverFor: () => ({ resolve: () => Promise.reject(new Error("unused")) }),
+    operationalDiagnostics: {
+      emit: () => {
+        throw new Error("sink-secret");
+      },
+    },
+    write: { current: () => ({ ready: true, repository }) },
+  });
+  assertEquals(
+    (await throwing(
+      new Request("http://cache.test/nar/fail.nar", {
+        method: "PUT",
+        body: "x",
+      }),
+    )).status,
+    503,
+  );
 });
 
 Deno.test("health state matrix is deterministic and independent", () => {
