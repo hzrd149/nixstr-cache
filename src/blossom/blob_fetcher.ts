@@ -47,6 +47,12 @@ export interface BlobFetchLimits {
   readonly beforeAttempt?: () => void;
   readonly onTransfer?: (bytes: number) => void;
 }
+export interface LocalCacheDiagnostic {
+  readonly code: "local_hash_mismatch";
+  readonly origin: string;
+  readonly hash: string;
+  readonly retryable: true;
+}
 type FetchBoundary = {
   fetch(
     input: string | URL,
@@ -108,16 +114,19 @@ export class BlobFetcher {
   readonly #fetcher: FetchBoundary;
   readonly #quarantine: QuarantineRepository;
   readonly #spoolDirectory: string;
+  readonly #onLocalDiagnostic?: (diagnostic: LocalCacheDiagnostic) => void;
   constructor(
     options: {
       readonly fetcher: SafeFetcher | FetchBoundary;
       readonly quarantine: QuarantineRepository;
       readonly spoolDirectory: string;
+      readonly onLocalDiagnostic?: (diagnostic: LocalCacheDiagnostic) => void;
     },
   ) {
     this.#fetcher = options.fetcher;
     this.#quarantine = options.quarantine;
     this.#spoolDirectory = options.spoolDirectory;
+    this.#onLocalDiagnostic = options.onLocalDiagnostic;
   }
   release(origin: string): void {
     this.#quarantine.releaseQuarantine(new URL(origin).origin);
@@ -144,7 +153,20 @@ export class BlobFetcher {
       } catch (error) {
         failures.push(error);
         if (error instanceof HashMismatch) {
-          this.#quarantine.quarantine(source.origin, error.message, Date.now());
+          if (source.role === "local-cache") {
+            this.#onLocalDiagnostic?.(Object.freeze({
+              code: "local_hash_mismatch",
+              origin: source.origin,
+              hash: expectedHash,
+              retryable: true,
+            }));
+          } else {
+            this.#quarantine.quarantine(
+              source.origin,
+              error.message,
+              Date.now(),
+            );
+          }
         }
       }
     }

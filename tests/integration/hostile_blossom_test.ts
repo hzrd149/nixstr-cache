@@ -55,7 +55,11 @@ Deno.test("local Blossom is first and corrupt local cache falls back without qua
     fetcher: {
       fetch: (url: string | URL) => {
         calls.push(String(url));
-        return Promise.resolve(response(calls.length === 1 ? new TextEncoder().encode("corrupt") : good));
+        return Promise.resolve(
+          response(
+            calls.length === 1 ? new TextEncoder().encode("corrupt") : good,
+          ),
+        );
       },
     },
     quarantine: {

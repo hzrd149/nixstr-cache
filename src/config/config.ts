@@ -23,6 +23,7 @@ export interface RawConfig {
   readonly cacheIdentities?: string;
   readonly relayUrls?: string;
   readonly preferredBlossomUrl?: string;
+  readonly localBlossomUrl?: string;
   readonly databasePath?: string;
   readonly spoolDirectory?: string;
   readonly signerMode?: string;
@@ -53,6 +54,7 @@ export interface ValidatedConfig {
   readonly publisherPubkeys: readonly string[];
   readonly relayUrls: readonly URL[];
   readonly preferredBlossomUrl?: URL;
+  readonly localBlossomUrl?: URL;
   readonly databasePath: string;
   readonly spoolDirectory: string;
   readonly identities: readonly string[];
@@ -262,6 +264,9 @@ export function parseConfig(
   const preferredBlossomUrl = raw.preferredBlossomUrl
     ? parseUrl(raw.preferredBlossomUrl, "preferredBlossomUrl", diagnostics)
     : undefined;
+  const localBlossomUrl = raw.localBlossomUrl
+    ? parseUrl(raw.localBlossomUrl, "localBlossomUrl", diagnostics)
+    : undefined;
   const databasePath = parseOwnerPath(
     raw.databasePath,
     "databasePath",
@@ -315,6 +320,7 @@ export function parseConfig(
       publisherPubkeys: Object.freeze(publisherValues),
       relayUrls: Object.freeze(relayUrls),
       preferredBlossomUrl,
+      localBlossomUrl,
       databasePath: databasePath!,
       spoolDirectory: spoolDirectory!,
       identities: Object.freeze([...identityValues]),

@@ -86,7 +86,9 @@ Deno.test("local cache configuration is optional exact and side-effect free", ()
     NIXSTR_LOCAL_BLOSSOM_URL: "http://127.0.0.1:3000",
   });
   assertEquals(mapped.localBlossomUrl, "http://127.0.0.1:3000");
-  const present = parseConfig(validRaw(mapped));
+  const present = parseConfig(validRaw({
+    localBlossomUrl: mapped.localBlossomUrl,
+  }));
   assert(present.ok);
   assertEquals(present.value.localBlossomUrl?.origin, "http://127.0.0.1:3000");
 

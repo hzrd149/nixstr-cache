@@ -111,7 +111,7 @@ export function createProductionDependencies(
         throw new TypeError("production selection omitted repository");
       }
       const fetcher = new SafeFetcher(
-        new AddressPolicy(undefined, config.preferredBlossomUrl?.href),
+        new AddressPolicy(undefined, config.localBlossomUrl?.href),
         new PinnedTransport(),
         {
           maxRedirects: config.limits.maxRedirects,
@@ -124,6 +124,8 @@ export function createProductionDependencies(
         fetcher,
         quarantine: repository,
         spoolDirectory: config.spoolDirectory,
+        onLocalDiagnostic: (diagnostic) =>
+          console.warn("local cache diagnostic", diagnostic),
       });
       return createNixHttpHandler({
         decodedMetadataBytes: config.limits.decodedMetadataBytes,
@@ -141,6 +143,7 @@ export function createProductionDependencies(
         },
         resolverFor(snapshot) {
           const sources = buildSourcePlan({
+            localCache: config.localBlossomUrl,
             configured: config.preferredBlossomUrl,
             event: snapshot.blossomServers,
             bud03: snapshot.bud03Servers,
