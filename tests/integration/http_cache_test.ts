@@ -36,10 +36,11 @@ function snapshot(id: string): SelectedPublication {
   } as unknown as SelectedPublication;
 }
 
-Deno.test("http cache GET/HEAD route classes preserve metadata and stream NAR", async () => {
+Deno.test("metadata bound|GET/HEAD: route classes preserve metadata and stream NAR", async () => {
   let finalGets = 0;
   const selected = snapshot("old");
   const handler = createNixHttpHandler({
+    decodedMetadataBytes: encoder.encode(narinfo).length,
     selection: { current: () => selected },
     resolverFor: () => ({
       resolve: (_root, path, method) => {
@@ -102,6 +103,7 @@ Deno.test("http cache request captures one immutable selection before awaits", a
   const gate = new Promise<void>((resolve) => release = resolve);
   const seen: string[] = [];
   const handler = createNixHttpHandler({
+    decodedMetadataBytes: 4096,
     selection: { current: () => current },
     resolverFor: (selected) => ({
       async resolve() {
@@ -135,6 +137,7 @@ Deno.test("http cache request captures one immutable selection before awaits", a
 Deno.test("http cache maps methods, absence, availability, deadline and upstream errors", async () => {
   const make = (error?: Error, available = true) =>
     createNixHttpHandler({
+      decodedMetadataBytes: 4096,
       selection: { current: () => available ? snapshot("x") : undefined },
       resolverFor: () => ({
         resolve: () => Promise.reject(error ?? new Error("upstream")),
@@ -179,6 +182,62 @@ Deno.test("http cache maps methods, absence, availability, deadline and upstream
     (await make()(new Request("http://cache/not-valid"))).status,
     404,
   );
+});
+
+Deno.test("metadata bound|GET/HEAD: descriptor over limit rejects before body read", async () => {
+  let pulls = 0;
+  const handler = createNixHttpHandler({
+    decodedMetadataBytes: 8,
+    selection: { current: () => snapshot("x") },
+    resolverFor: () => ({
+      resolve: () =>
+        Promise.resolve({
+          hash: "x",
+          size: 9,
+          type: 0,
+          body: new ReadableStream({
+            pull() {
+              pulls++;
+            },
+          }),
+        }),
+    }),
+  });
+  const result = await handler(
+    new Request("http://cache/0123456789abcdfghijklmnpqrsvwxyz.narinfo"),
+  );
+  assertEquals(result.status, 502);
+  assertEquals(pulls, 0);
+});
+
+Deno.test("metadata bound|GET/HEAD: streamed overflow cancels before parsing", async () => {
+  let cancelled = false;
+  const handler = createNixHttpHandler({
+    decodedMetadataBytes: 8,
+    selection: { current: () => snapshot("x") },
+    resolverFor: () => ({
+      resolve: () =>
+        Promise.resolve({
+          hash: "x",
+          size: 8,
+          type: 0,
+          body: new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode("12345"));
+              controller.enqueue(encoder.encode("6789"));
+            },
+            cancel() {
+              cancelled = true;
+            },
+          }),
+        }),
+    }),
+  });
+  const result = await handler(
+    new Request("http://cache/0123456789abcdfghijklmnpqrsvwxyz.narinfo"),
+  );
+  assertEquals(result.status, 502);
+  assertEquals(cancelled, true);
 });
 
 Deno.test("startup|shutdown invalid startup has no durable or network side effects", async () => {
