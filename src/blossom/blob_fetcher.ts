@@ -45,6 +45,7 @@ export interface BlobFetchLimits {
   readonly maxTransferBytes: number;
   readonly declaredSize?: number;
   readonly beforeAttempt?: () => void;
+  readonly onTransfer?: (bytes: number) => void;
 }
 type FetchBoundary = {
   fetch(
@@ -209,6 +210,7 @@ export class BlobFetcher {
             completed = true;
             break;
           }
+          limits.onTransfer?.(value.byteLength);
           size += value.byteLength;
           if (
             size > limits.maxTransferBytes ||

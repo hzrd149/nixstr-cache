@@ -1,6 +1,9 @@
 export interface Limits {
   readonly manifestWireBytes: number;
   readonly decodedMetadataBytes: number;
+  readonly blobTransferBytes: number;
+  readonly requestTransferBytes: number;
+  readonly requestOutputBytes: number;
   readonly traversalDepth: number;
   readonly linksPerNode: number;
   readonly uniqueManifestNodes: number;
@@ -61,6 +64,18 @@ const LIMIT_SPECS: {
     ceiling: 32 * 1024 * 1024,
   },
   decodedMetadataBytes: { defaultValue: 1024 * 1024, ceiling: 8 * 1024 * 1024 },
+  blobTransferBytes: {
+    defaultValue: 256 * 1024 * 1024,
+    ceiling: 4 * 1024 * 1024 * 1024,
+  },
+  requestTransferBytes: {
+    defaultValue: 1024 * 1024 * 1024,
+    ceiling: 8 * 1024 * 1024 * 1024,
+  },
+  requestOutputBytes: {
+    defaultValue: 1024 * 1024 * 1024,
+    ceiling: 8 * 1024 * 1024 * 1024,
+  },
   traversalDepth: { defaultValue: 32, ceiling: 128 },
   linksPerNode: { defaultValue: 174, ceiling: 1024 },
   uniqueManifestNodes: { defaultValue: 2048, ceiling: 16_384 },

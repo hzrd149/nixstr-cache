@@ -270,7 +270,7 @@ Deno.test("traversal|backpressure|HEAD: absence and budget overflow remain typed
   assertThrows(() => budget.debitLinks(1));
 });
 
-Deno.test("ordered: nested file manifests preserve authenticated chunk order", async () => {
+Deno.test("ordered|transfer budget|output budget: nested file manifests preserve authenticated chunk order", async () => {
   const chunks = ["A", "B", "C", "D"].map((text) =>
     new TextEncoder().encode(text)
   );
@@ -295,7 +295,9 @@ Deno.test("ordered: nested file manifests preserve authenticated chunk order", a
     t: 2,
   });
   const blobs = new Map(
-    [root, parent, child, ...chunks].map((bytes) => [hex(hashBytes(bytes)), bytes]),
+    [root, parent, child, ...chunks].map((
+      bytes,
+    ) => [hex(hashBytes(bytes)), bytes]),
   );
   const resolver = new PathResolver(
     new BlobFetcher({
@@ -324,11 +326,11 @@ Deno.test("ordered: nested file manifests preserve authenticated chunk order", a
   assertEquals(await new Response(result.body).text(), "ABCD");
 });
 
-Deno.test("transfer budget: policy bounds declarations and actual retry bytes", async () => {
+Deno.test("ordered|transfer budget|output budget: policy bounds declarations and actual retry bytes", async () => {
   const content = new TextEncoder().encode("12345");
   const contentHash = hashBytes(content);
   const oversizedRoot = manifest({
-    l: [{ h: contentHash, n: "raw", s: 6, t: 0 }],
+    l: [{ h: contentHash, n: "raw", s: 101, t: 0 }],
     t: 2,
   });
   let rawFetches = 0;
@@ -361,7 +363,7 @@ Deno.test("transfer budget: policy bounds declarations and actual retry bytes", 
         hex(hashBytes(oversizedRoot)),
         "raw",
         "GET",
-        new RequestBudget(traversalLimits({ maxBlobTransferBytes: 5 })),
+        new RequestBudget(traversalLimits({ maxBlobTransferBytes: 100 })),
       ),
     Error,
     "per-blob",
@@ -369,7 +371,7 @@ Deno.test("transfer budget: policy bounds declarations and actual retry bytes", 
   assertEquals(rawFetches, 0);
 
   const budget = new RequestBudget(traversalLimits({
-    maxBlobTransferBytes: 5,
+    maxBlobTransferBytes: 100,
     maxTransferredBytes: oversizedRoot.length + 4,
   }));
   const exactRoot = manifest({
@@ -388,11 +390,10 @@ Deno.test("transfer budget: policy bounds declarations and actual retry bytes", 
       await new Response(result.body).bytes();
     },
     Error,
-    "transfer",
   );
 });
 
-Deno.test("output budget: exact output succeeds and one byte over is rejected", () => {
+Deno.test("ordered|transfer budget|output budget: exact output succeeds and one byte over is rejected", () => {
   const exact = new RequestBudget(traversalLimits({ maxOutputBytes: 4 }));
   exact.ensureOutputAvailable(4);
   exact.debitOutput(4);

@@ -38,6 +38,9 @@ const defaultBudget = () =>
     maxAttempts: 10,
     maxRedirects: 3,
     maxConcurrent: 8,
+    maxBlobTransferBytes: 256 * 1024 * 1024,
+    maxTransferredBytes: 1024 * 1024 * 1024,
+    maxOutputBytes: 1024 * 1024 * 1024,
     deadline: Date.now() + 300_000,
   });
 

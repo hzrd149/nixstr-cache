@@ -19,6 +19,9 @@ export interface TraversalLimits {
   readonly maxAttempts: number;
   readonly maxRedirects: number;
   readonly maxConcurrent: number;
+  readonly maxBlobTransferBytes: number;
+  readonly maxTransferredBytes: number;
+  readonly maxOutputBytes: number;
   readonly deadline: number;
 }
 export class BudgetExceeded extends Error {
@@ -42,6 +45,8 @@ export class RequestBudget {
   #attempts = 0;
   #redirects = 0;
   #concurrent = 0;
+  #transferred = 0;
+  #output = 0;
   constructor(limits: TraversalLimits) {
     for (const [name, value] of Object.entries(limits)) {
       if (!Number.isSafeInteger(value) || value <= 0) {
@@ -92,6 +97,37 @@ export class RequestBudget {
       throw new BudgetExceeded("redirect budget exceeded");
     }
     this.#redirects++;
+  }
+  get remainingTransferBytes(): number {
+    return this.limits.maxTransferredBytes - this.#transferred;
+  }
+  get remainingOutputBytes(): number {
+    return this.limits.maxOutputBytes - this.#output;
+  }
+  debitTransfer(count: number): void {
+    this.#live();
+    if (!Number.isSafeInteger(count) || count < 0) {
+      throw new RangeError(
+        "transfer debit must be a non-negative safe integer",
+      );
+    }
+    if (count > this.remainingTransferBytes) {
+      throw new BudgetExceeded("request transfer budget exceeded");
+    }
+    this.#transferred += count;
+  }
+  ensureOutputAvailable(count: number): void {
+    this.#live();
+    if (!Number.isSafeInteger(count) || count < 0) {
+      throw new RangeError("output size must be a non-negative safe integer");
+    }
+    if (count > this.remainingOutputBytes) {
+      throw new BudgetExceeded("request output budget exceeded");
+    }
+  }
+  debitOutput(count: number): void {
+    this.ensureOutputAvailable(count);
+    this.#output += count;
   }
   acquire(): () => void {
     this.#live();
@@ -214,16 +250,31 @@ export class PathResolver {
     budget: RequestBudget,
     signal?: AbortSignal,
     declaredSize?: number,
+    transferCeiling = budget.limits.maxBlobTransferBytes,
   ): Promise<VerifiedBlob> {
+    if (
+      declaredSize !== undefined &&
+      declaredSize > budget.limits.maxBlobTransferBytes
+    ) {
+      throw new BudgetExceeded("per-blob transfer budget exceeded");
+    }
     const release = budget.acquire();
     try {
+      const maxTransferBytes = Math.min(
+        budget.limits.maxBlobTransferBytes,
+        budget.remainingTransferBytes,
+        transferCeiling,
+        declaredSize ?? Number.MAX_SAFE_INTEGER,
+      );
+      if (maxTransferBytes <= 0) {
+        throw new BudgetExceeded("request transfer budget exceeded");
+      }
       const limits: BlobFetchLimits = {
         maxAttempts: budget.limits.maxAttempts,
-        maxTransferBytes: this.manifestLimits.maxWireBytes,
-        ...(declaredSize === undefined
-          ? {}
-          : { declaredSize, maxTransferBytes: declaredSize }),
+        maxTransferBytes,
+        ...(declaredSize === undefined ? {} : { declaredSize }),
         beforeAttempt: () => budget.debitAttempt(),
+        onTransfer: (bytes) => budget.debitTransfer(bytes),
       };
       return await this.blobs.fetch(hash, this.sources, limits, signal);
     } finally {
@@ -239,7 +290,13 @@ export class PathResolver {
     const cached = cache.get(hash);
     if (cached) return cached;
     budget.visit(hash);
-    const blob = await this.#fetch(hash, budget, signal);
+    const blob = await this.#fetch(
+      hash,
+      budget,
+      signal,
+      undefined,
+      this.manifestLimits.maxWireBytes,
+    );
     try {
       const wire = await new Response(blob.open()).bytes();
       budget.debitDecoded(wire.length);
@@ -257,7 +314,7 @@ export class PathResolver {
     signal?: AbortSignal,
   ): Promise<ReadableStream<Uint8Array>> {
     const blob = await this.#fetch(hash, budget, signal, size);
-    return cleanupStream(blob, size);
+    return cleanupStream(blob, size, budget);
   }
   async #fileStream(
     hash: string,
@@ -267,26 +324,48 @@ export class PathResolver {
     signal?: AbortSignal,
   ): Promise<ReadableStream<Uint8Array>> {
     const chunks: Array<{ hash: string; size: number }> = [];
-    const stack: Array<{ hash: string; depth: number }> = [{ hash, depth: 1 }];
+    const stack: Array<{
+      hash: string;
+      depth: number;
+      manifest?: Manifest;
+      index: number;
+    }> = [{ hash, depth: 1, index: 0 }];
     let total = 0;
     while (stack.length) {
-      const frame = stack.pop()!;
-      budget.checkDepth(frame.depth);
-      const manifest = await this.#manifest(frame.hash, budget, cache, signal);
-      if (manifest.type !== "file") {
-        throw new Error("file link did not resolve to a file manifest");
+      const frame = stack.at(-1)!;
+      if (!frame.manifest) {
+        budget.checkDepth(frame.depth);
+        frame.manifest = await this.#manifest(
+          frame.hash,
+          budget,
+          cache,
+          signal,
+        );
+        if (frame.manifest.type !== "file") {
+          throw new Error("file link did not resolve to a file manifest");
+        }
+        budget.debitLinks(frame.manifest.links.length);
       }
-      budget.debitLinks(manifest.links.length);
-      for (let i = manifest.links.length - 1; i >= 0; i--) {
-        const link = manifest.links[i];
-        if (link.type === 1) {
-          stack.push({ hash: link.hash.toHex(), depth: frame.depth + 1 });
-        } else if (link.type === 0) {
-          chunks.unshift({ hash: link.hash.toHex(), size: link.size });
-        } else throw new Error("invalid file-manifest child type");
+      if (frame.index >= frame.manifest.links.length) {
+        stack.pop();
+        continue;
       }
+      const link = frame.manifest.links[frame.index++];
+      if (link.type === 1) {
+        stack.push({
+          hash: link.hash.toHex(),
+          depth: frame.depth + 1,
+          index: 0,
+        });
+      } else if (link.type === 0) {
+        if (!Number.isSafeInteger(total + link.size)) {
+          throw new BudgetExceeded("file output size is not a safe integer");
+        }
+        total += link.size;
+        budget.ensureOutputAvailable(total);
+        chunks.push({ hash: link.hash.toHex(), size: link.size });
+      } else throw new Error("invalid file-manifest child type");
     }
-    total = chunks.reduce((n, chunk) => n + chunk.size, 0);
     if (total !== expectedSize) {
       throw new Error(
         "file manifest size differs from authenticated directory link",
@@ -328,6 +407,7 @@ export class PathResolver {
 function cleanupStream(
   blob: VerifiedBlob,
   expected: number,
+  budget: RequestBudget,
 ): ReadableStream<Uint8Array> {
   const reader = blob.open().getReader();
   let emitted = 0;
@@ -354,6 +434,7 @@ function cleanupStream(
         if (emitted > expected) {
           throw new Error("verified stream exceeds authenticated size");
         }
+        budget.debitOutput(next.value.byteLength);
         controller.enqueue(next.value);
       } catch (error) {
         await finish();
