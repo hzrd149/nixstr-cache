@@ -113,7 +113,7 @@ Plans:
 
 ### Phase 4: Availability-Gated Publication Loop
 
-**Goal**: A staged Nix object becomes a signed, retrievable decentralized cache update and remains observable and recoverable when some replicas or relays fail.
+**Goal:** As a Nix cache operator, I want to publish a staged object only after a complete replica is reachable, so that the signed cache update remains retrievable, observable, and recoverable when other replicas or relays fail.
 **Mode:** mvp
 **Depends on**: Phase 3
 **Requirements**: PUBL-03, PUBL-04, PUBL-05, PUBL-06, PUBL-07, OPER-02, OPER-03, OPER-04
