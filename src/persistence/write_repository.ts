@@ -3,6 +3,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import type { NarInfo } from "../protocol/narinfo.ts";
 import { Subject } from "rxjs";
 import { verifyEvent } from "nostr-tools";
+import { releaseContentOwner } from "../hashtree/writer.ts";
 import { validatePublication } from "../protocol/publication.ts";
 
 export class WriteConflict extends Error {
@@ -567,6 +568,12 @@ export class WriteRepository {
     candidate: PendingCandidate,
     inventory: Iterable<PendingInventoryEntry>,
   ): void {
+    const superseded = this.#db.prepare(
+      "SELECT batch_id batchId FROM pending_candidate WHERE singleton=1",
+    ).get() as { batchId: number } | undefined;
+    const supersededPath = superseded && (this.#db.prepare(
+      "SELECT path FROM pending_candidate_blobs WHERE batch_id=? LIMIT 1",
+    ).get(superseded.batchId) as { path: string } | undefined)?.path;
     this.#db.exec("BEGIN IMMEDIATE");
     try {
       this.#db.prepare("DELETE FROM pending_candidate_blobs").run();
@@ -591,6 +598,9 @@ export class WriteRepository {
         "UPDATE publication_batches SET status='pending' WHERE id=? AND status IN ('building','failed')",
       ).run(batch.id);
       this.#db.exec("COMMIT");
+      if (supersededPath && superseded!.batchId !== batch.id) {
+        releaseContentOwner(`batch:${superseded!.batchId}`, supersededPath);
+      }
     } catch (error) {
       this.#db.exec("ROLLBACK");
       throw error;

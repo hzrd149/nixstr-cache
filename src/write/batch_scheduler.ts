@@ -96,6 +96,7 @@ export class PublicationBatchScheduler {
           blobCount: candidate.inventory.length,
           totalBytes: candidate.totalBytes,
         }, candidate.inventory);
+        candidate.transferOwnership(`batch:${batch.id}`);
       } catch (error) {
         this.repository.markBatchFailed(batch.id);
         try {

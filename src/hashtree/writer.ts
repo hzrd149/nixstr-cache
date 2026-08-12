@@ -23,6 +23,7 @@ export interface HashtreeBuild {
   readonly totalBytes: number;
   readonly createdBlobs: number;
   readonly maxBufferedLinks: number;
+  transferOwnership(owner: string): void;
   dispose(): Promise<void>;
 }
 export interface CandidateInventory extends Iterable<CandidateBlob> {
@@ -39,6 +40,29 @@ export interface WriterLimits {
 export type LogicalFileSource =
   | Iterable<LogicalFile>
   | AsyncIterable<LogicalFile>;
+
+export function releaseContentOwner(owner: string, samplePath: string): void {
+  const root = samplePath.slice(0, samplePath.lastIndexOf("/"));
+  const ledger = `${root}/.blob-owners.sqlite`;
+  try {
+    const db = new DatabaseSync(ledger);
+    db.prepare("DELETE FROM blob_owners WHERE owner=?").run(owner);
+    const rows = db.prepare(
+      "SELECT hash,path FROM content_blobs b WHERE NOT EXISTS(SELECT 1 FROM blob_owners o WHERE o.hash=b.hash)",
+    ).all() as unknown as { hash: string; path: string }[];
+    for (const row of rows) {
+      try {
+        Deno.removeSync(row.path);
+      } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) continue;
+      }
+      db.prepare("DELETE FROM content_blobs WHERE hash=?").run(row.hash);
+    }
+    db.close();
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
+  }
+}
 type Built = CandidateBlob & {
   bytes: Uint8Array;
   type: 0 | 1 | 2 | 3;
@@ -48,6 +72,7 @@ type Built = CandidateBlob & {
 };
 
 const encoder = new TextEncoder();
+const writerSession = crypto.randomUUID();
 const compareUtf8 = (a: string, b: string) => {
   const aa = encoder.encode(a), bb = encoder.encode(b);
   for (let i = 0; i < Math.min(aa.length, bb.length); i++) {
@@ -58,19 +83,50 @@ const compareUtf8 = (a: string, b: string) => {
 const hexBytes = (hex: string) => Uint8Array.fromHex(hex);
 
 export class HashtreeWriter {
+  readonly #owners: DatabaseSync;
   constructor(readonly root: string, readonly limits: WriterLimits) {
     if (limits.maxLinks < 2) {
       throw new RangeError("maxLinks must be at least two");
     }
     Deno.mkdirSync(root, { recursive: true, mode: 0o700 });
+    this.#owners = new DatabaseSync(`${root}/.blob-owners.sqlite`);
+    this.#owners.exec(`PRAGMA journal_mode=WAL;
+      CREATE TABLE IF NOT EXISTS content_blobs(hash TEXT PRIMARY KEY,size INTEGER NOT NULL,path TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS blob_owners(owner TEXT NOT NULL,hash TEXT NOT NULL,PRIMARY KEY(owner,hash),FOREIGN KEY(hash) REFERENCES content_blobs(hash));
+      CREATE TABLE IF NOT EXISTS writer_runs(owner TEXT PRIMARY KEY,index_path TEXT NOT NULL,session TEXT NOT NULL);`);
+    const abandoned = this.#owners.prepare(
+      "SELECT owner,index_path FROM writer_runs WHERE session<>?",
+    ).all(writerSession) as unknown as { owner: string; index_path: string }[];
+    for (const run of abandoned) {
+      this.#owners.prepare("DELETE FROM blob_owners WHERE owner=?").run(
+        run.owner,
+      );
+      this.#owners.prepare("DELETE FROM writer_runs WHERE owner=?").run(
+        run.owner,
+      );
+      for (const suffix of ["", "-wal", "-shm"]) {
+        try {
+          Deno.removeSync(run.index_path + suffix);
+        } catch (error) {
+          if (!(error instanceof Deno.errors.NotFound)) throw error;
+        }
+      }
+    }
+    void this.#sweepUnowned();
   }
   async build(
     files: LogicalFileSource,
     _base?: HashtreeBuild,
     signal?: AbortSignal,
   ): Promise<HashtreeBuild> {
+    const owners = this.#owners;
+    const sweepUnowned = () => this.#sweepUnowned();
+    const runOwner = `run:${crypto.randomUUID()}`;
     const indexPath = `${this.root}/inventory-${crypto.randomUUID()}.sqlite`;
     const index = new DatabaseSync(indexPath);
+    owners.prepare(
+      "INSERT INTO writer_runs(owner,index_path,session) VALUES(?,?,?)",
+    ).run(runOwner, indexPath, writerSession);
     index.exec(`
       CREATE TABLE inventory(hash TEXT PRIMARY KEY,size INTEGER NOT NULL,path TEXT NOT NULL,created INTEGER NOT NULL);
       CREATE TABLE nodes(path TEXT PRIMARY KEY,parent TEXT NOT NULL,name TEXT NOT NULL,depth INTEGER NOT NULL,hash TEXT,size INTEGER,type INTEGER,source_path TEXT,source_size INTEGER);
@@ -109,6 +165,19 @@ export class HashtreeWriter {
           "INSERT INTO inventory(hash,size,path,created) VALUES(?,?,?,?)",
         )
           .run(hash, bytes.length, path, createdNow);
+        owners.exec("BEGIN IMMEDIATE");
+        try {
+          owners.prepare(
+            "INSERT OR IGNORE INTO content_blobs(hash,size,path) VALUES(?,?,?)",
+          ).run(hash, bytes.length, path);
+          owners.prepare(
+            "INSERT OR IGNORE INTO blob_owners(owner,hash) VALUES(?,?)",
+          ).run(runOwner, hash);
+          owners.exec("COMMIT");
+        } catch (error) {
+          owners.exec("ROLLBACK");
+          throw error;
+        }
       }
       return Object.freeze({ hash, size: bytes.length, path });
     };
@@ -400,6 +469,7 @@ export class HashtreeWriter {
         },
       });
       let disposed = false;
+      let durableOwner: string | undefined;
       return Object.freeze({
         rootHex: root.hash,
         rootNhash: encodePlaintextNhash(hexBytes(root.hash)),
@@ -408,9 +478,29 @@ export class HashtreeWriter {
         totalBytes: total,
         createdBlobs: created,
         maxBufferedLinks,
+        transferOwnership(owner: string) {
+          if (disposed) throw new Error("build handle is disposed");
+          if (!owner || owner.startsWith("run:")) {
+            throw new Error("invalid durable owner");
+          }
+          owners.exec("BEGIN IMMEDIATE");
+          try {
+            owners.prepare(
+              "INSERT OR IGNORE INTO blob_owners(owner,hash) SELECT ?,hash FROM blob_owners WHERE owner=?",
+            ).run(owner, runOwner);
+            owners.exec("COMMIT");
+            durableOwner = owner;
+          } catch (error) {
+            owners.exec("ROLLBACK");
+            throw error;
+          }
+        },
         async dispose() {
           if (disposed) return;
           disposed = true;
+          owners.prepare("DELETE FROM blob_owners WHERE owner=?").run(runOwner);
+          owners.prepare("DELETE FROM writer_runs WHERE owner=?").run(runOwner);
+          if (!durableOwner) await sweepUnowned();
           for (const suffix of ["", "-wal", "-shm"]) {
             try {
               await Deno.remove(indexPath + suffix);
@@ -421,21 +511,14 @@ export class HashtreeWriter {
         },
       });
     } catch (error) {
-      const createdPaths = [
-        ...index.prepare(
-          "SELECT path FROM inventory WHERE created=1",
-        ).iterate() as unknown as Iterable<{ path: string }>,
-      ].map((row) => row.path);
       index.close();
-      for (const path of createdPaths) {
-        try {
-          await Deno.remove(path);
-        } catch (cleanup) {
-          if (
-            !(cleanup instanceof Deno.errors.NotFound)
-          ) { /* retained for restart sweep */ }
-        }
-      }
+      this.#owners.prepare("DELETE FROM blob_owners WHERE owner=?").run(
+        runOwner,
+      );
+      this.#owners.prepare("DELETE FROM writer_runs WHERE owner=?").run(
+        runOwner,
+      );
+      await this.#sweepUnowned();
       for (const suffix of ["", "-wal", "-shm"]) {
         try {
           await Deno.remove(indexPath + suffix);
@@ -446,6 +529,22 @@ export class HashtreeWriter {
         }
       }
       throw error;
+    }
+  }
+
+  async #sweepUnowned(): Promise<void> {
+    const rows = this.#owners.prepare(
+      "SELECT hash,path FROM content_blobs b WHERE NOT EXISTS(SELECT 1 FROM blob_owners o WHERE o.hash=b.hash)",
+    ).all() as unknown as { hash: string; path: string }[];
+    for (const row of rows) {
+      try {
+        await Deno.remove(row.path);
+      } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) continue;
+      }
+      this.#owners.prepare(
+        "DELETE FROM content_blobs WHERE hash=? AND NOT EXISTS(SELECT 1 FROM blob_owners WHERE hash=?)",
+      ).run(row.hash, row.hash);
     }
   }
 }
