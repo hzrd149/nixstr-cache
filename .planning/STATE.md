@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 1
-current_phase_name: Verified Nix Substitution Walking Slice
+current_phase: 01
+current_phase_name: verified-nix-substitution-walking-slice
 status: executing
-stopped_at: Phase 1 context gathered
-last_updated: "2026-08-12T10:26:52.461Z"
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-08-12T10:39:35.415Z"
 last_activity: 2026-08-12
-last_activity_desc: Initial vertical-MVP roadmap created with complete v1 traceability.
+last_activity_desc: Phase 01 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 5
-  completed_plans: 0
+  completed_plans: 1
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** An unmodified Nix client can reliably read and publish a decentralized binary cache while preserving NIP.md trust, integrity, freshness, and bounded-resource guarantees.
-**Current focus:** Phase 1 — Verified Nix Substitution Walking Slice
+**Current focus:** Phase 01 — verified-nix-substitution-walking-slice
 
 ## Current Position
 
-Phase: 1 of 4 (Verified Nix Substitution Walking Slice)
-Plan: 0 of TBD in current phase
+Phase: 01 (verified-nix-substitution-walking-slice) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-08-12 — Initial vertical-MVP roadmap created with complete v1 traceability.
+Last activity: 2026-08-12 — Phase 01 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 20%
 
 ## Performance Metrics
 
@@ -53,6 +53,12 @@ Progress: [░░░░░░░░░░] 0%
 - Last 5 plans: -
 - Trend: -
 
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01 P01 | 25 min | 2 tasks | 5 files |
+
 ## Accumulated Context
 
 ### Decisions
@@ -62,6 +68,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Roadmap]: Use four coarse vertical MVP phases rather than the research summary's horizontal subsystem sequence.
 - [Phase 1]: The first real-Nix read slice includes strict protocol validation, rollback protection, hostile-network controls, verified streaming, and bounded traversal.
 - [v2]: BUD-15 self-encryption and production-grade operational hardening remain out of scope.
+- [Phase 01]: Use Deno.connect to bind the approved IP and Deno.startTls with the URL hostname for SNI and certificate validation. — Closes DNS TOCTOU without weakening TLS hostname verification.
 
 ### Pending Todos
 
@@ -83,6 +90,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T10:03:07.278Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-verified-nix-substitution-walking-slice/01-CONTEXT.md
+Last session: 2026-08-12T10:39:25.505Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None
