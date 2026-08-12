@@ -1,0 +1,1 @@
+{"content":"Current official packages @noble/hashes 2.3.0, @noble/curves 2.3.0 and @scure/base 2.3.0 supply incremental SHA-256, Ed25519 and Bech32 primitives. Incremental SHA is required because Web Crypto digest buffers a complete input.","source":"web","provider":"websearch","confidence":"MEDIUM","fetched_at":"2026-08-12T09:16:36.712Z","ttl":86400000,"kind":"web"}
