@@ -316,14 +316,13 @@ export class PathResolver {
     const blob = await this.#fetch(hash, budget, signal, size);
     return cleanupStream(blob, size, budget);
   }
-  async #fileStream(
+  #fileStream(
     hash: string,
     expectedSize: number,
     budget: RequestBudget,
     cache: Map<string, Manifest>,
     signal?: AbortSignal,
-  ): Promise<ReadableStream<Uint8Array>> {
-    const chunks: Array<{ hash: string; size: number }> = [];
+  ): ReadableStream<Uint8Array> {
     const stack: Array<{
       hash: string;
       depth: number;
@@ -331,63 +330,68 @@ export class PathResolver {
       index: number;
     }> = [{ hash, depth: 1, index: 0 }];
     let total = 0;
-    while (stack.length) {
-      const frame = stack.at(-1)!;
-      if (!frame.manifest) {
-        budget.checkDepth(frame.depth);
-        frame.manifest = await this.#manifest(
-          frame.hash,
-          budget,
-          cache,
-          signal,
+    const nextChunk = async (): Promise<
+      { hash: string; size: number } | undefined
+    > => {
+      signal?.throwIfAborted();
+      while (stack.length) {
+        const frame = stack.at(-1)!;
+        if (!frame.manifest) {
+          budget.checkDepth(frame.depth);
+          frame.manifest = await this.#manifest(
+            frame.hash,
+            budget,
+            cache,
+            signal,
+          );
+          if (frame.manifest.type !== "file") {
+            throw new Error("file link did not resolve to a file manifest");
+          }
+          budget.debitLinks(frame.manifest.links.length);
+        }
+        if (frame.index >= frame.manifest.links.length) {
+          stack.pop();
+          continue;
+        }
+        const link = frame.manifest.links[frame.index++];
+        if (link.type === 1) {
+          stack.push({
+            hash: link.hash.toHex(),
+            depth: frame.depth + 1,
+            index: 0,
+          });
+        } else if (link.type === 0) {
+          if (!Number.isSafeInteger(total + link.size)) {
+            throw new BudgetExceeded("file output size is not a safe integer");
+          }
+          total += link.size;
+          budget.ensureOutputAvailable(total);
+          return { hash: link.hash.toHex(), size: link.size };
+        } else throw new Error("invalid file-manifest child type");
+      }
+      if (total !== expectedSize) {
+        throw new Error(
+          "file manifest size differs from authenticated directory link",
         );
-        if (frame.manifest.type !== "file") {
-          throw new Error("file link did not resolve to a file manifest");
-        }
-        budget.debitLinks(frame.manifest.links.length);
       }
-      if (frame.index >= frame.manifest.links.length) {
-        stack.pop();
-        continue;
-      }
-      const link = frame.manifest.links[frame.index++];
-      if (link.type === 1) {
-        stack.push({
-          hash: link.hash.toHex(),
-          depth: frame.depth + 1,
-          index: 0,
-        });
-      } else if (link.type === 0) {
-        if (!Number.isSafeInteger(total + link.size)) {
-          throw new BudgetExceeded("file output size is not a safe integer");
-        }
-        total += link.size;
-        budget.ensureOutputAvailable(total);
-        chunks.push({ hash: link.hash.toHex(), size: link.size });
-      } else throw new Error("invalid file-manifest child type");
-    }
-    if (total !== expectedSize) {
-      throw new Error(
-        "file manifest size differs from authenticated directory link",
-      );
-    }
-    let index = 0;
+      return undefined;
+    };
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     return new ReadableStream<Uint8Array>({
       pull: async (controller) => {
         while (true) {
           if (!reader) {
-            if (index >= chunks.length) {
+            const chunk = await nextChunk();
+            if (!chunk) {
               controller.close();
               return;
             }
             reader = (await this.#rawStream(
-              chunks[index].hash,
-              chunks[index].size,
+              chunk.hash,
+              chunk.size,
               budget,
               signal,
             )).getReader();
-            index++;
           }
           const next = await reader.read();
           if (next.done) {

@@ -145,3 +145,15 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 2. Deterministic Merged Read Cache | 3/3 | Complete    | 2026-08-12 |
 | 3. Signer-Gated Writable Cache | 3/3 | Complete    | 2026-08-12 |
 | 4. Availability-Gated Publication Loop | 4/4 | Complete    | 2026-08-12 |
+
+## Backlog
+
+### Phase 999.1: Human-readable console logging for MVP debugging (BACKLOG)
+
+**Goal:** Replace JSON-formatted console output with concise human-readable messages so operators and developers can debug the MVP directly from its terminal output, while preserving structured internal diagnostic types and secret-redaction guarantees.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (promote with `$gsd-review-backlog` when ready)

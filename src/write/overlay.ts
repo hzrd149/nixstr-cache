@@ -12,6 +12,10 @@ export interface SignerOverlaySnapshot {
   readonly entries: ReadonlyMap<string, SignerOverlayEntry>;
   readonly storePaths: ReadonlySet<string>;
 }
+export interface LeasedSignerOverlaySnapshot {
+  readonly snapshot: SignerOverlaySnapshot;
+  release(): void;
+}
 
 export class SignerOverlay {
   #snapshot: SignerOverlaySnapshot;
@@ -20,6 +24,11 @@ export class SignerOverlay {
   }
   current(): SignerOverlaySnapshot {
     return this.#snapshot;
+  }
+  acquire(): LeasedSignerOverlaySnapshot {
+    const snapshot = this.#snapshot;
+    const release = this.repository.acquireGeneration(snapshot.generation);
+    return Object.freeze({ snapshot, release });
   }
   refresh(): SignerOverlaySnapshot {
     return this.#snapshot = this.#load();

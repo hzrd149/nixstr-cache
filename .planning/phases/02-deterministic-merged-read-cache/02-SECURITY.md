@@ -2,6 +2,8 @@
 phase: 02-deterministic-merged-read-cache
 date: 2026-08-12
 verdict: secured
+threats_open: 0
+asvs_level: 1
 ---
 
 # Phase 2 Security Review
@@ -30,4 +32,3 @@ Phase 2 introduced ordered multi-publisher selection, deterministic merging, bou
 ## Verification
 
 `deno task verify` passed on 2026-08-12: formatting, lint, type checking, protocol tests, integration tests, and both stock-Nix E2Es.
-

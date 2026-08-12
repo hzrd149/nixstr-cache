@@ -231,6 +231,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       return new Response("cache unavailable\n", { status: 503 });
     }
     const path = narinfoMatch ? `${narinfoMatch[1]}.narinfo` : narMatch![1];
+    let releaseOverlay: (() => void) | undefined;
     try {
       if (narinfoMatch) {
         const signerEntry = overlaySnapshot?.entries.get(path);
@@ -275,7 +276,9 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           request.method,
         );
       } else if (overlaySnapshot?.entries.has(path)) {
-        resolved = await dependencies.overlay!.resolver(overlaySnapshot)
+        const leased = dependencies.overlay!.acquire();
+        releaseOverlay = leased.release;
+        resolved = await dependencies.overlay!.resolver(leased.snapshot)
           .resolve("", path, request.method);
       }
       const pinned = routes.get(path);
@@ -305,13 +308,17 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
         if (!resolved) throw new VerifiedAbsent(path);
       }
       if (request.method === "HEAD") {
+        releaseOverlay?.();
         return new Response(null, {
           status: 200,
           headers: { "content-length": String(resolved.size) },
         });
       }
       if (!resolved.body) throw new Error("GET resolution omitted body");
-      return new Response(resolved.body, {
+      const body = releaseOverlay
+        ? releaseOnTerminal(resolved.body, releaseOverlay)
+        : resolved.body;
+      return new Response(body, {
         status: 200,
         headers: {
           "content-type": "application/x-nix-nar",
@@ -319,7 +326,42 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
         },
       });
     } catch (error) {
+      releaseOverlay?.();
       return mapped(error);
     }
   };
+}
+
+function releaseOnTerminal(
+  body: ReadableStream<Uint8Array>,
+  release: () => void,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    release();
+  };
+  return new ReadableStream({
+    async pull(controller) {
+      try {
+        const next = await reader.read();
+        if (next.done) {
+          finish();
+          controller.close();
+        } else controller.enqueue(next.value);
+      } catch (error) {
+        finish();
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason);
+      } finally {
+        finish();
+      }
+    },
+  });
 }
