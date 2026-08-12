@@ -8,6 +8,7 @@ import type { SelectedPublication } from "../nostr/selection.ts";
 import type { MergedSelectionSnapshot } from "../nostr/selection.ts";
 import { classifyEndorsements, parseNarInfo } from "../protocol/narinfo.ts";
 import type { SignerOverlay } from "../write/overlay.ts";
+import type { HealthSnapshotProvider } from "../operations/health.ts";
 import {
   WriteConflict,
   type WriteRepository,
@@ -38,6 +39,7 @@ export interface NixHandlerDependencies {
   readonly diagnostics?: DiagnosticSink;
   readonly routes?: WinnerRouteRegistry;
   readonly overlay?: SignerOverlay;
+  readonly health?: HealthSnapshotProvider;
   readonly write?: {
     current(): {
       readonly ready: boolean;
@@ -89,6 +91,25 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
     new WinnerRouteRegistry(1024, 5 * 60_000);
   const signerRoutes = new SignerRouteRegistry(1024, 5 * 60_000);
   return async (request: Request): Promise<Response> => {
+    const pathname = new URL(request.url).pathname;
+    if (
+      pathname === "/health" &&
+      (request.method === "GET" || request.method === "HEAD")
+    ) {
+      if (!dependencies.health) {
+        return new Response("not found\n", { status: 404 });
+      }
+      const bytes = new TextEncoder().encode(
+        JSON.stringify(dependencies.health.current()),
+      );
+      return new Response(request.method === "HEAD" ? null : bytes, {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "content-length": String(bytes.length),
+        },
+      });
+    }
     const snapshot = dependencies.selection.current();
     const overlaySnapshot = dependencies.overlay?.current();
     if (request.method === "PUT") {
@@ -158,7 +179,6 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
         headers: { allow: "GET, HEAD" },
       });
     }
-    const pathname = new URL(request.url).pathname;
     if (pathname === "/nix-cache-info") return text(CACHE_INFO, request.method);
     const narinfoMatch = /^\/([0-9a-z]{32})\.narinfo$/.exec(pathname);
     const narMatch = /^\/(nar\/[A-Za-z0-9._+\/-]+)$/.exec(pathname);

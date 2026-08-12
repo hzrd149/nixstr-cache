@@ -41,6 +41,11 @@ import {
   type SignerCapability,
 } from "../signer/capability.ts";
 import type { RawPublication } from "../protocol/publication.ts";
+import {
+  createJsonDiagnosticSink,
+  type OperationalDiagnosticSink,
+} from "../operations/diagnostics.ts";
+import { createHealthSnapshotProvider } from "../operations/health.ts";
 
 export interface PublicationEventStream {
   readonly events: Observable<RawPublication>;
@@ -72,11 +77,13 @@ export interface ProductionHooks {
   ) => PublicationEventStream;
   readonly bind?: Bind;
   readonly signals?: readonly ("SIGINT" | "SIGTERM")[];
+  readonly diagnostics?: OperationalDiagnosticSink;
 }
 
 export function createProductionDependencies(
   hooks: ProductionHooks = {},
 ): AppDependencies {
+  const diagnostics = hooks.diagnostics ?? createJsonDiagnosticSink();
   const supervisors = new WeakMap<object, {
     readonly abort: AbortController;
     readonly tasks: Set<Promise<void>>;
@@ -114,9 +121,17 @@ export function createProductionDependencies(
         repository,
         publisherPubkeys: config.publisherPubkeys,
         identities: config.identities,
-        onReject: (_event, reason) =>
-          console.error(`publication rejected: ${reason}`),
-        onError: (error) => console.error("publication selection error", error),
+        onReject: (event, reason) =>
+          diagnostics.emit({
+            type: "event_rejection",
+            code: reason,
+            eventId: typeof event.id === "string" ? event.id : undefined,
+          }),
+        onError: () =>
+          diagnostics.emit({
+            type: "upstream_failure",
+            code: "selection_stream_failed",
+          }),
         onAdmit: localRelay
           ? (event) => void localRelay.acceptObserved(event)
           : undefined,
@@ -134,6 +149,7 @@ export function createProductionDependencies(
       let signer: SignerCapability | undefined;
       let signerReady: Promise<void> | undefined;
       if (config.writeIntent.mode !== "disabled") {
+        const signerIdentity = config.writeIntent.identity;
         signer = createSignerCapability({
           intent: config.writeIntent,
           localKeyPath: config.localKeyPath,
@@ -165,6 +181,24 @@ export function createProductionDependencies(
           },
         });
         signerReady = signer.start();
+        let previous = "disconnected";
+        const subscription = signer.state.subscribe((state) => {
+          if (state.status === previous) return;
+          previous = state.status;
+          diagnostics.emit({
+            type: "signer_transition",
+            code: state.status === "failed"
+              ? `signer_${state.code}`
+              : `signer_${state.status}`,
+            status: state.status,
+            cacheIdentity:
+              `${signerIdentity.kind}:${signerIdentity.pubkey}:${signerIdentity.identifier}`,
+          });
+        });
+        // Signer state is process-local and the subscription is closed with it.
+        void signerReady.finally(() => {
+          if (disposed) subscription.unsubscribe();
+        });
       }
       let disposed = false;
       const selectionHandle = {
@@ -260,14 +294,22 @@ export function createProductionDependencies(
         fetcher,
         quarantine: repository,
         spoolDirectory: config.spoolDirectory,
-        onLocalDiagnostic: (diagnostic) =>
-          console.warn("local cache diagnostic", diagnostic),
+        onLocalDiagnostic: (item) =>
+          diagnostics.emit({
+            type: "upstream_failure",
+            code: item.code,
+            endpoint: item.origin,
+          }),
         onVerifiedRemote: cacheSink
           ? (blob) => {
             const task = cacheSink.populate(blob, supervisor.abort.signal)
               .then((result) => {
                 if (!result.ok) {
-                  console.warn("local cache diagnostic", result.diagnostic);
+                  diagnostics.emit({
+                    type: "upstream_failure",
+                    code: result.diagnostic.code,
+                    endpoint: result.diagnostic.origin,
+                  });
                 }
               })
               .finally(() => supervisor.tasks.delete(task));
@@ -413,6 +455,7 @@ export function createProductionDependencies(
               return value % 11;
             },
           },
+          diagnostics,
         });
         const startTask = (signerReady ?? Promise.resolve()).then(() => {
           coordinator.start();
@@ -435,9 +478,65 @@ export function createProductionDependencies(
         routes: new WinnerRouteRegistry(4096, 5 * 60_000),
         overlay,
         diagnostics: {
-          emit: (diagnostic) =>
-            console.warn("merged cache diagnostic", diagnostic),
+          emit: (item) =>
+            diagnostics.emit({
+              type: "merge_conflict",
+              code: "narinfo_semantic_conflict",
+              storePathHash: item.storePathHash,
+              winnerIdentity: item.winnerIdentity,
+              loserIdentity: item.loserIdentity,
+              differingFields: item.differingFields,
+            }),
         },
+        health: createHealthSnapshotProvider(() => {
+          const selected = (selection as unknown as SelectionView).current();
+          const signerState = signer?.current();
+          const saga = writeRepository?.publicationSaga();
+          const endpointWork = writeRepository?.endpointWork() ?? [];
+          const repairing = Boolean(
+            saga?.committed &&
+              endpointWork.some((item) => item.status !== "complete"),
+          );
+          const publication = !saga
+            ? { phase: "idle" as const, completeReplica: true }
+            : repairing
+            ? {
+              phase: "repairing" as const,
+              completeReplica: Boolean(saga.completeServer),
+            }
+            : !saga.completeServer
+            ? { phase: "replicating" as const, completeReplica: false }
+            : !saga.acknowledgedRelay
+            ? { phase: "awaiting_relay" as const, completeReplica: true }
+            : { phase: "idle" as const, completeReplica: true };
+          const destinations = new Set([
+            ...(config.preferredBlossomUrl
+              ? [config.preferredBlossomUrl.origin]
+              : []),
+            ...(config.localBlossomUrl ? [config.localBlossomUrl.origin] : []),
+            ...selected.flatMap((item) => item.bud03Servers),
+          ]).size;
+          return {
+            process: { repositoryHealthy: writeRepository?.health() ?? true },
+            read: {
+              selectedPublications: selected.length,
+              overlayEntries: overlay?.current().entries.size ?? 0,
+            },
+            write: config.writeIntent.mode === "disabled"
+              ? { enabled: false }
+              : {
+                enabled: true,
+                repositoryHealthy: writeRepository?.health() ?? false,
+                signerStatus: signerState?.status ?? "disconnected",
+                signerOwned: signerState?.status === "ready" ||
+                  (signerState?.status === "failed" &&
+                    signerState.code !== "ownership_mismatch"),
+                destinations,
+                relays: config.relayUrls.length,
+                publication,
+              },
+          };
+        }),
         write: signer && writeRepository
           ? {
             current: () => {

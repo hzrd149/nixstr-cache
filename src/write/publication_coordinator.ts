@@ -9,6 +9,7 @@ import type { RawPublication } from "../protocol/publication.ts";
 import { validatePublication } from "../protocol/publication.ts";
 import type { SignerCapability } from "../signer/capability.ts";
 import type { PublicationSelector } from "../nostr/selection.ts";
+import type { OperationalDiagnosticSink } from "../operations/diagnostics.ts";
 
 export interface ReplicaPublisher {
   prove(server: string, entry: PendingInventoryEntry): Promise<boolean>;
@@ -40,6 +41,7 @@ export interface PublicationCoordinatorOptions {
     readonly jitter: (kind: "replica" | "relay", target: string) => number;
   };
   readonly refreshLeadSeconds?: number;
+  readonly diagnostics?: OperationalDiagnosticSink;
 }
 
 function exactTemplate(
@@ -106,6 +108,13 @@ export class PublicationCoordinator {
       : o.blossomServers;
     let saga = o.repository.claimPublication(destinations);
     if (!saga) return;
+    o.diagnostics?.emit({
+      type: "batch_transition",
+      code: "batch_claimed",
+      batchId: saga.batchId,
+      count: o.repository.publicationInventory(saga.batchId).length,
+      rootHash: saga.candidate.rootHex,
+    });
     o.repository.ensureEndpointWork(
       saga.batchId,
       "replica",
@@ -197,6 +206,13 @@ export class PublicationCoordinator {
     if (!saga.committed) {
       o.repository.commitPublication(saga.batchId);
       saga = o.repository.publicationSaga()!;
+      o.diagnostics?.emit({
+        type: "promotion",
+        code: "publication_promoted",
+        batchId: saga.batchId,
+        eventId: saga.signedEvent!.id,
+        rootHash: saga.candidate.rootHex,
+      });
     }
     if (!saga.admitted) {
       o.selector.accept(saga.signedEvent!);
@@ -233,7 +249,15 @@ export class PublicationCoordinator {
         Number.MAX_SAFE_INTEGER,
       )
         .find((row) => row.kind === kind && row.target === target);
-    if (claimed) this.#outcome(claimed, ok, ok ? "ok" : "unavailable");
+    if (claimed) {
+      this.#outcome(claimed, ok, ok ? "ok" : "unavailable");
+      this.#emitEndpoint(
+        claimed,
+        ok,
+        ok ? "ok" : kind === "relay" ? "rejected" : "unavailable",
+        0,
+      );
+    }
   }
   #outcome(
     work: import("../persistence/write_repository.ts").EndpointWork,
@@ -255,6 +279,38 @@ export class PublicationCoordinator {
         retry.jitter(work.kind, work.target),
     });
   }
+  #emitEndpoint(
+    work: import("../persistence/write_repository.ts").EndpointWork,
+    ok: boolean,
+    code: import("../persistence/write_repository.ts").EndpointWorkCode,
+    durationMs: number,
+  ): void {
+    const saga = this.options.repository.publicationSaga();
+    if (work.kind === "replica") {
+      this.options.diagnostics?.emit({
+        type: "replica_attempt",
+        code: ok ? "replica_complete" : `replica_${code}`,
+        rootHash: saga?.candidate.rootHex,
+        endpoint: work.target,
+        attempt: work.attempts + 1,
+        count: saga
+          ? this.options.repository.publicationInventory(saga.batchId).length
+          : undefined,
+        durationMs,
+        ok,
+      });
+    } else {
+      this.options.diagnostics?.emit({
+        type: "relay_acknowledgement",
+        code: ok ? "relay_acknowledged" : `relay_${code}`,
+        eventId: saga?.signedEvent?.id,
+        endpoint: work.target,
+        attempt: work.attempts + 1,
+        durationMs,
+        ok,
+      });
+    }
+  }
   async #repair(): Promise<void> {
     const o = this.options;
     const saga = o.repository.publicationSaga();
@@ -262,6 +318,7 @@ export class PublicationCoordinator {
     const retry = this.#retryOptions();
     const due = o.repository.claimDueWork(o.now(), retry.concurrency);
     await Promise.all(due.map(async (work) => {
+      const started = Date.now();
       if (work.kind === "replica") {
         let ok = true;
         for (const entry of o.repository.publicationInventory(work.batchId)) {
@@ -274,6 +331,12 @@ export class PublicationCoordinator {
           ok && o.repository.serverComplete(work.batchId, work.target),
           "unavailable",
         );
+        this.#emitEndpoint(
+          work,
+          ok && o.repository.serverComplete(work.batchId, work.target),
+          "unavailable",
+          Date.now() - started,
+        );
       } else {
         const outcomes = await o.publishRelays(saga.signedEvent!, [
           work.target,
@@ -282,6 +345,12 @@ export class PublicationCoordinator {
           work,
           outcomes.some((x) => x.relay === work.target && x.ok),
           "rejected",
+        );
+        this.#emitEndpoint(
+          work,
+          outcomes.some((x) => x.relay === work.target && x.ok),
+          "rejected",
+          Date.now() - started,
         );
       }
     }));
