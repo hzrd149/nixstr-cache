@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 01
 current_phase_name: verified-nix-substitution-walking-slice
-status: executing
-stopped_at: Completed 01-05-PLAN.md
-last_updated: "2026-08-12T11:49:07.593Z"
+status: verifying
+stopped_at: Completed 01-06-PLAN.md
+last_updated: "2026-08-12T11:58:07.575Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 01 execution started
 progress:
   total_phases: 1
   completed_phases: 1
   total_plans: 6
-  completed_plans: 5
+  completed_plans: 6
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 
 Phase: 01 (verified-nix-substitution-walking-slice) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-12 — Phase 01 execution started
 
 Progress: [██████████] 100%
@@ -62,6 +62,7 @@ Progress: [██████████] 100%
 | Phase 01 P03 | 8 min | 3 tasks | 8 files |
 | Phase 01 P04 | 14 min | 3 tasks | 8 files |
 | Phase 01 P05 | 6 min | 2 tasks | 5 files |
+| Phase 01 P06 | 3 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Capture selection once at HTTP handler entry and pass the immutable snapshot through resolution.
 - [Phase ?]: Generate signed Nix E2E fixtures ephemerally so private signing keys never enter the repository.
 - [Phase ?]: Use a fresh isolated destination store for every stock-Nix substitution proof.
+- [Phase ?]: Use the exact corrected ROADMAP goal as the User Flow Coverage contract; do not infer a different outcome.
+- [Phase ?]: Assign a passing verdict only after fresh full-matrix probes and repository traceability support every must-have and requirement.
 
 ### Pending Todos
 
@@ -103,6 +106,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T11:13:31.381Z
-Stopped at: Completed 01-05-PLAN.md
+Last session: 2026-08-12T11:58:07.561Z
+Stopped at: Completed 01-06-PLAN.md
 Resume file: None
