@@ -86,25 +86,30 @@ const compareUtf8 = (a: string, b: string) => {
 const hexBytes = (hex: string) => Uint8Array.fromHex(hex);
 
 export class HashtreeWriter {
-  readonly #owners: DatabaseSync;
+  #owners?: DatabaseSync;
   constructor(readonly root: string, readonly limits: WriterLimits) {
     if (limits.maxLinks < 2) {
       throw new RangeError("maxLinks must be at least two");
     }
     Deno.mkdirSync(root, { recursive: true, mode: 0o700 });
-    this.#owners = new DatabaseSync(`${root}/.blob-owners.sqlite`);
-    this.#owners.exec(`PRAGMA journal_mode=WAL;
+  }
+  #ownership(): DatabaseSync {
+    if (this.#owners) return this.#owners;
+    const owners = this.#owners = new DatabaseSync(
+      `${this.root}/.blob-owners.sqlite`,
+    );
+    owners.exec(`PRAGMA journal_mode=WAL;
       CREATE TABLE IF NOT EXISTS content_blobs(hash TEXT PRIMARY KEY,size INTEGER NOT NULL,path TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS blob_owners(owner TEXT NOT NULL,hash TEXT NOT NULL,PRIMARY KEY(owner,hash),FOREIGN KEY(hash) REFERENCES content_blobs(hash));
       CREATE TABLE IF NOT EXISTS writer_runs(owner TEXT PRIMARY KEY,index_path TEXT NOT NULL,session TEXT NOT NULL);`);
-    const abandoned = this.#owners.prepare(
+    const abandoned = owners.prepare(
       "SELECT owner,index_path FROM writer_runs WHERE session<>?",
     ).all(writerSession) as unknown as { owner: string; index_path: string }[];
     for (const run of abandoned) {
-      this.#owners.prepare("DELETE FROM blob_owners WHERE owner=?").run(
+      owners.prepare("DELETE FROM blob_owners WHERE owner=?").run(
         run.owner,
       );
-      this.#owners.prepare("DELETE FROM writer_runs WHERE owner=?").run(
+      owners.prepare("DELETE FROM writer_runs WHERE owner=?").run(
         run.owner,
       );
       for (const suffix of ["", "-wal", "-shm"]) {
@@ -115,14 +120,14 @@ export class HashtreeWriter {
         }
       }
     }
-    void this.#sweepUnowned();
+    return owners;
   }
   async build(
     files: LogicalFileSource,
     _base?: HashtreeBuild,
     signal?: AbortSignal,
   ): Promise<HashtreeBuild> {
-    const owners = this.#owners;
+    const owners = this.#ownership();
     const sweepUnowned = () => this.#sweepUnowned();
     const runOwner = `run:${crypto.randomUUID()}`;
     const indexPath = `${this.root}/inventory-${crypto.randomUUID()}.sqlite`;
@@ -515,10 +520,10 @@ export class HashtreeWriter {
       });
     } catch (error) {
       index.close();
-      this.#owners.prepare("DELETE FROM blob_owners WHERE owner=?").run(
+      owners.prepare("DELETE FROM blob_owners WHERE owner=?").run(
         runOwner,
       );
-      this.#owners.prepare("DELETE FROM writer_runs WHERE owner=?").run(
+      owners.prepare("DELETE FROM writer_runs WHERE owner=?").run(
         runOwner,
       );
       await this.#sweepUnowned();
@@ -536,7 +541,8 @@ export class HashtreeWriter {
   }
 
   async #sweepUnowned(): Promise<void> {
-    const rows = this.#owners.prepare(
+    const owners = this.#ownership();
+    const rows = owners.prepare(
       "SELECT hash,path FROM content_blobs b WHERE NOT EXISTS(SELECT 1 FROM blob_owners o WHERE o.hash=b.hash)",
     ).all() as unknown as { hash: string; path: string }[];
     for (const row of rows) {
@@ -545,7 +551,7 @@ export class HashtreeWriter {
       } catch (error) {
         if (!(error instanceof Deno.errors.NotFound)) continue;
       }
-      this.#owners.prepare(
+      owners.prepare(
         "DELETE FROM content_blobs WHERE hash=? AND NOT EXISTS(SELECT 1 FROM blob_owners WHERE hash=?)",
       ).run(row.hash, row.hash);
     }
