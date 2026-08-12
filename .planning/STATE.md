@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 04
 status: completed
-stopped_at: Completed quick task 260812-obg
-last_updated: "2026-08-12T17:48:20.678Z"
+stopped_at: Completed quick task 260812-osc
+last_updated: "2026-08-12T17:57:55.727Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 04 complete
 progress:
@@ -82,6 +82,7 @@ Progress: [██████████] 100%
 | Phase 04 P03 | 8min | 2 tasks | 6 files |
 | Phase 04 P04 | 11min | 3 tasks | 7 files |
 | Phase quick P260812-obg | 35min | 3 tasks | 11 files |
+| Phase quick P260812-osc | 24min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -144,6 +145,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Quick 260812-nes]: Reclaim candidate content only after transient run and durable batch/history ownership both reach zero.
 - [Phase ?]: Candidate blob ownership is consolidated into WriteRepository so pending admission and durable batch ownership commit atomically.
 - [Phase ?]: Signer route pins own exact-generation leases through response terminal state.
+- [Phase ?]: Route registries are handler-owned disposable resources with timer-driven signer lease expiry.
+- [Phase ?]: Writer run index cleanup uses durable tombstones until SQLite, WAL, and SHM paths are absent.
 
 ### Pending Todos
 
@@ -175,6 +178,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T17:48:20.664Z
-Stopped at: Completed quick task 260812-obg
+Last session: 2026-08-12T17:57:55.713Z
+Stopped at: Completed quick task 260812-osc
 Resume file: None

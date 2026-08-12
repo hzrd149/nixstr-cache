@@ -1,8 +1,8 @@
 ---
 phase: 04-availability-gated-publication-loop
-reviewed: 2026-08-12T18:12:00Z
-re_review_of: 2026-08-12T17:48:00Z
-head: 020ae43
+reviewed: 2026-08-12T18:58:00Z
+re_review_of: 2026-08-12T18:34:00Z
+head: 42fc03f
 depth: deep
 files_reviewed: 55
 files_reviewed_list:
@@ -69,6 +69,110 @@ status: passed
 ---
 
 # Phase 04: Milestone Code Re-review Report
+
+## Zero-Warning Lifecycle Re-review — 2026-08-12
+
+**HEAD:** `42fc03f`  
+**Status:** passed
+
+Fresh deep review closes WR-06, WR-07, and WR-08 without reopening any prior
+finding. `SignerRouteRegistry` now schedules one earliest-expiry timer and all
+removal paths converge on exact-once lease release; the callable HTTP handler
+closes both registries during daemon drain and rejects post-close work.
+`HashtreeWriter.build()` registers synchronously before asynchronous work and
+memoized close drains admitted builds plus returned handles before ledger
+checkpoint/closure. Repository run release and abandonment now journal exact
+index paths before dropping liveness, retain deletion failures, and retry base,
+WAL, and SHM absence on reopen.
+
+| Finding | Result | Discriminating evidence |
+|---|---|---|
+| WR-06 | Closed | Fake-timer exact-once expiry/replacement/eviction/take/close coverage and idempotent handler shutdown test. |
+| WR-07 | Closed | A gated direct build keeps close pending; post-closing admission rejects before side effects; close then disposes the returned handle. |
+| WR-08 | Closed | Injected permission failure retains `writer_run_cleanup`; a clean reopen removes remaining exact paths and tombstone. |
+
+`deno task verify` passed at this HEAD: 23 protocol tests, 100 integration
+tests, and both stock-Nix E2Es. Review result: zero critical findings and zero
+warnings. The 18:34 warning report remains below as historical evidence.
+
+## Final Deep Re-review — 2026-08-12
+
+**HEAD:** `968cca6`  
+**Status:** issues_found
+
+All historical Critical findings CR-01 through CR-06 are closed. WR-01 through
+WR-03 are also closed. The focused production lifecycle suites passed 39/39,
+including ownership, quota, rollover, repair, cancellation, lazy streaming,
+exact-generation pinning, and the writer test that previously failed with a
+disk I/O error. Three cleanup/lifecycle warnings remain in the final code.
+
+### WR-06: Signer route leases have no terminal handler-shutdown cleanup
+
+**File:** `src/nix/http_handler.ts:91-95`, `src/nix/http_handler.ts:239-248`, `src/nix/merged_cache.ts:217-251`
+
+**Issue:** A signer narinfo response transfers its generation lease into
+`SignerRouteRegistry`, but the registry is local to the handler and its
+`close()` method is never exposed or called by daemon shutdown. Expired entries
+are purged only on a later `set()`/`take()`; there is no timer. A client that
+fetches narinfo and never fetches the referenced NAR can therefore retain an
+old generation for the entire daemon lifetime, preventing pruning. Entry count
+is bounded, but retained historical rows and generation contents can be large.
+
+**Fix:** Give the HTTP handler an explicit dispose hook and call
+`signerRoutes.close()` during daemon shutdown. Alternatively schedule bounded
+TTL eviction independent of later requests. Test narinfo-without-NAR followed
+by rollover and shutdown, asserting the exact-generation lease is released and
+the old generation becomes prunable.
+
+### WR-07: HashtreeWriter.close() does not actually wait for direct active builds
+
+**File:** `src/hashtree/writer.ts:96`, `src/hashtree/writer.ts:138-558`, `src/hashtree/writer.ts:560-569`
+
+**Issue:** `close()` waits on `#active`, but `build()` never inserts or removes
+any promise from that set. Production currently avoids the race because the
+batch scheduler drains its serial queue before calling writer close, but the
+public writer lifecycle itself can close its ledger while a direct build is
+still recording ownership, causing SQLite errors or incomplete cleanup.
+
+**Fix:** Wrap each build in a tracked operation promise (or maintain an active
+counter plus drain promise), remove it in `finally`, and make `close()` reject
+new builds before awaiting all existing builds. Add a test that blocks a build,
+calls close concurrently, verifies close remains pending, then releases the
+build and confirms clean closure.
+
+### WR-08: Failed run-index deletion loses its durable retry record
+
+**File:** `src/persistence/write_repository.ts:224-257`, `src/hashtree/writer.ts:515-535`
+
+**Issue:** Restart reconciliation deletes each `writer_runs` row before removing
+the associated index/WAL/SHM files. If filesystem deletion fails, the comment
+says “retry next open,” but the path is no longer stored and cannot be retried.
+Build disposal has the same ordering after `releaseWriterRun()`. Persistent
+permission or transient filesystem failures can therefore accumulate orphaned
+index files without durable cleanup state.
+
+**Fix:** Retain a cleanup-pending row until all index files are absent, or move
+index paths into a dedicated cleanup journal. Delete the durable record only
+after successful/NotFound cleanup and retry pending rows on every open.
+
+### Final Closure Matrix
+
+| Historical finding | Final result |
+|---|---|
+| CR-01 saga rollover | Closed |
+| CR-02 writer run/blob cleanup | Closed for normal/crash zero-owner paths; WR-08 remains for index deletion failures |
+| CR-03 storage reclamation | Closed |
+| CR-04 atomic ownership handoff | Closed in the shared repository transaction |
+| CR-05 abandoned-owner sweeping | Closed |
+| CR-06 live quota | Closed; distinct physical digests including current overlay are charged |
+| WR-01 lazy traversal | Closed |
+| WR-02 cancellation | Closed |
+| WR-03 discriminating tests | Closed |
+| WR-04 exact-generation leases | Partially closed; exact lease transfer works, shutdown/idle cleanup remains WR-06 |
+| WR-05 writer close | Partially closed; normal scheduler closure works, direct active-build drain remains WR-07 |
+
+The prior closure reports are retained below as historical evidence and are
+superseded by this final verdict.
 
 ## Deep Re-review Closure — 2026-08-12
 
