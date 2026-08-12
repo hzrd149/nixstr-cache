@@ -347,3 +347,85 @@ Deno.test("corrupt stored selections are cleared in isolation without policy los
     await Deno.remove(path);
   }
 });
+
+Deno.test("two identities update expire and restore independently without snapshot mutation", async () => {
+  const path = await tempDb();
+  let now = 100;
+  const timers: Array<{ callback: () => void; delay: number }> = [];
+  const activeTimers = new Set<number>();
+  const identities = [
+    `17091:${publisher}:`,
+    `37091:${namedPublisher}:named`,
+  ];
+  try {
+    const events = new Subject<RawPublication>();
+    let repository = new StateRepository(path);
+    const selector = startPublicationSelection({
+      publisherPubkeys: [publisher, namedPublisher],
+      identities,
+      events,
+      repository,
+      now: () => now,
+      schedule: (callback, delay) => {
+        timers.push({ callback, delay });
+        activeTimers.add(timers.length);
+        return timers.length;
+      },
+      cancelSchedule: (handle) => activeTimers.delete(handle as number),
+    });
+    const firstDefault = event(90, { content: "default-v1", expires: 120 });
+    const expiringNamed = finalizeEvent({
+      kind: 37091,
+      created_at: 99,
+      content: "named-v1",
+      tags: [
+        ["d", "named"],
+        ["htree", `htree://${nhash}`],
+        ["expiration", "110"],
+      ],
+    }, namedSecret);
+    events.next(expiringNamed);
+    events.next(firstDefault);
+    assertEquals(activeTimers.size, 1);
+    const captured = selector.current();
+    assertEquals(captured.map(cacheIdentity), identities);
+
+    const secondDefault = event(91, { content: "default-v2", expires: 120 });
+    events.next(secondDefault);
+    const updated = selector.current();
+    assertEquals(updated.map((item) => item.event.id), [
+      secondDefault.id,
+      expiringNamed.id,
+    ]);
+    assertEquals(captured.map((item) => item.event.id), [
+      firstDefault.id,
+      expiringNamed.id,
+    ]);
+    assertEquals(Object.isFrozen(updated), true);
+
+    now = 110;
+    timers.find((timer) => timer.delay === 10_000)?.callback();
+    assertEquals(selector.current().map(cacheIdentity), [identities[0]]);
+    events.next(namedEvent(98, "named"));
+    assertEquals(selector.current().map(cacheIdentity), [identities[0]]);
+    selector.dispose();
+    repository.close();
+
+    repository = new StateRepository(path);
+    const restarted = startPublicationSelection({
+      publisherPubkeys: [publisher, namedPublisher],
+      identities,
+      events: new Subject<RawPublication>(),
+      repository,
+      now: () => now,
+    });
+    assertEquals(restarted.current().map(cacheIdentity), [identities[0]]);
+    assertEquals(restarted.current()[0].event.id, secondDefault.id);
+    restarted.accept(firstDefault);
+    assertEquals(restarted.current()[0].event.id, secondDefault.id);
+    restarted.dispose();
+    repository.close();
+  } finally {
+    await Deno.remove(path);
+  }
+});
