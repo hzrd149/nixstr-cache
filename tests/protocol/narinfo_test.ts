@@ -1,7 +1,9 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import {
+  appendNarInfoSignatures,
   classifyEndorsements,
+  differingNarInfoFields,
   parseNarInfo,
   serializeNarInfo,
 } from "../../src/protocol/narinfo.ts";
@@ -70,5 +72,41 @@ Deno.test("endorsement uses key bytes independently of signature names", async (
       encoded: "",
       bytes: new Uint8Array(31),
     }])
+  );
+});
+
+Deno.test("narinfo semantic projection covers optional presence and parsed scalars", () => {
+  const first = parseNarInfo([
+    base[2],
+    base[0],
+    base[1],
+    base[3],
+    "FileSize: 03",
+    base[5],
+    "NarSize: 03",
+    base[7],
+    "Deriver: unknown-deriver",
+    "System: x86_64-linux",
+    "CA: fixed:r:sha256:abc",
+    "",
+  ].join("\n"));
+  const second = parseNarInfo([
+    ...base,
+    "CA: fixed:r:sha256:abc",
+    "System: x86_64-linux",
+    "Deriver: unknown-deriver",
+    "",
+  ].join("\n"));
+  assertEquals(differingNarInfoFields(first, second), []);
+  const absent = parseNarInfo([...base, "System: x86_64-linux", ""].join("\n"));
+  assertEquals(differingNarInfoFields(first, absent), ["CA", "Deriver"]);
+});
+
+Deno.test("signature append preserves winner layout and duplicate occurrences", () => {
+  const signature = "Sig: duplicate:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+  const winner = parseNarInfo([...base, signature, "System: x86_64-linux", ""].join("\n"));
+  assertEquals(
+    appendNarInfoSignatures(winner, [signature, signature]),
+    [...base, signature, "System: x86_64-linux", signature, signature, ""].join("\n"),
   );
 });
