@@ -8,7 +8,9 @@
     "lint": "deno lint",
     "check": "deno check main.ts",
     "test": "deno test",
-    "test:address-pinning": "deno test --allow-net=127.0.0.1 --allow-read --allow-write tests/integration/address_pinning_test.ts"
+    "test:address-pinning": "deno test --allow-net=127.0.0.1 --allow-read --allow-write tests/integration/address_pinning_test.ts",
+    "test:integration": "deno test --allow-net=127.0.0.1 --allow-read --allow-write tests/integration",
+    "test:nix-e2e": "deno test --allow-run=nix,nix-store,deno --allow-net=127.0.0.1 --allow-read --allow-write tests/e2e/nix_substitution_test.ts"
   },
   "imports": {
     "@db/sqlite": "jsr:@db/sqlite@0.13.0",

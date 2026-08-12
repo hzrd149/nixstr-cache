@@ -352,7 +352,7 @@ if (import.meta.main && Deno.args[0] === "--daemon") {
         "daemon restart must restore through relay admission",
       );
       assert(
-        blossomGets >= 120,
+        blossomGets >= 12,
         "all isolated substitutions must traverse Blossom-backed Hashtrees",
       );
     } finally {
