@@ -41,7 +41,8 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
     "nixstr-cache walking slice\n",
   );
   let relay: Deno.HttpServer | undefined,
-    blossom: Deno.HttpServer | undefined;
+    blossom: Deno.HttpServer | undefined,
+    localBlossom: Deno.HttpServer | undefined;
   let child: Deno.ChildProcess | undefined;
   try {
     const storePath = (await command([
@@ -102,12 +103,13 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
     });
     blobs.set(hex(rootManifest), rootManifest);
 
-    let blossomGets = 0, relayRequests = 0;
+    let blossomGets = 0, relayRequests = 0, remoteOnline = true;
     const blossomPaths: string[] = [];
     blossom = Deno.serve({ hostname: "127.0.0.1", port: 0 }, (request) => {
       blossomGets++;
       const pathname = new URL(request.url).pathname;
       blossomPaths.push(`${request.method} ${pathname}`);
+      if (!remoteOnline) return new Response(null, { status: 503 });
       const body = blobs.get(pathname.slice(1));
       return body
         ? new Response(body.slice(), {
@@ -117,22 +119,56 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
     });
     const blossomAddress = blossom.addr as Deno.NetAddr;
     const blossomUrl = `http://127.0.0.1:${blossomAddress.port}`;
+    const localBlobs = new Map<string, Uint8Array>();
+    const localPaths: string[] = [];
+    localBlossom = Deno.serve(
+      { hostname: "127.0.0.1", port: 0 },
+      async (request) => {
+        const pathname = new URL(request.url).pathname;
+        localPaths.push(`${request.method} ${pathname}`);
+        if (request.method === "PUT" && pathname === "/upload") {
+          const hash = request.headers.get("x-sha-256");
+          assert(hash);
+          const body = new Uint8Array(await request.arrayBuffer());
+          assertEquals(hex(body), hash);
+          localBlobs.set(hash, body);
+          const descriptor = new TextEncoder().encode(
+            JSON.stringify({ sha256: hash }),
+          );
+          return new Response(descriptor, {
+            status: 201,
+            headers: { "content-length": String(descriptor.length) },
+          });
+        }
+        const body = localBlobs.get(pathname.slice(1));
+        return body
+          ? new Response(body.slice(), {
+            headers: { "content-length": String(body.length) },
+          })
+          : new Response(null, { status: 404 });
+      },
+    );
+    const localAddress = localBlossom.addr as Deno.NetAddr;
+    const localUrl = `http://127.0.0.1:${localAddress.port}`;
     const nhash = bech32.encode(
       "nhash",
       bech32.toWords(Uint8Array.from([0, 32, ...bytes32(hex(rootManifest))])),
       200,
     );
     const publicText = await Deno.readTextFile(publicKey);
-    const event = finalizeEvent({
-      kind: 17091,
-      created_at: Math.floor(Date.now() / 1000),
-      content: "",
-      tags: [
-        ["htree", `htree://${nhash}`],
-        ["nixSigKey", publicText.trim()],
-        ["blossom", blossomUrl],
-      ],
-    }, generateSecretKey());
+    const makeEvent = () =>
+      finalizeEvent({
+        kind: 17091,
+        created_at: Math.floor(Date.now() / 1000),
+        content: "",
+        tags: [
+          ["htree", `htree://${nhash}`],
+          ["nixSigKey", publicText.trim()],
+          ["blossom", blossomUrl],
+        ],
+      }, generateSecretKey());
+    const event = makeEvent();
+    const secondEvent = makeEvent();
     relay = Deno.serve({ hostname: "127.0.0.1", port: 0 }, (request) => {
       if (request.headers.get("upgrade") !== "websocket") {
         return new Response(null, { status: 426 });
@@ -143,6 +179,7 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
         const frame = JSON.parse(String(message.data));
         if (frame[0] !== "REQ") return;
         socket.send(JSON.stringify(["EVENT", frame[1], event]));
+        socket.send(JSON.stringify(["EVENT", frame[1], secondEvent]));
         socket.send(JSON.stringify(["EOSE", frame[1]]));
       };
       return response;
@@ -166,9 +203,11 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
         env: {
           NIXSTR_BIND_HOST: "127.0.0.1",
           NIXSTR_BIND_PORT: String(daemonPort),
-          NIXSTR_PUBLISHER_PUBKEYS: event.pubkey,
+          NIXSTR_CACHE_IDENTITIES:
+            `17091:${event.pubkey}:,17091:${secondEvent.pubkey}:`,
           NIXSTR_RELAY_URLS: `ws://127.0.0.1:${relayAddress.port}`,
           NIXSTR_PREFERRED_BLOSSOM_URL: blossomUrl,
+          NIXSTR_LOCAL_BLOSSOM_URL: localUrl,
           NIXSTR_DATABASE_PATH: `${root}/state.sqlite`,
           NIXSTR_SPOOL_DIRECTORY: spool,
         },
@@ -236,6 +275,19 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
       await substitute("destination-first"),
       "nixstr-cache walking slice\n",
     );
+    for (
+      let attempt = 0;
+      attempt < 200 && localBlobs.size < blobs.size;
+      attempt++
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assertEquals(
+      localBlobs.size,
+      blobs.size,
+      "every verified blob must populate locally",
+    );
+    remoteOnline = false;
     child.kill("SIGTERM");
     assertEquals((await child.status).success, true);
     child = await startDaemon();
@@ -251,15 +303,13 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
       ["nixstr-cache walking slice\n", "nixstr-cache walking slice\n"],
     );
     assertMatch(blossomPaths.join("\n"), /GET \/[0-9a-f]{64}/);
-    assertMatch(blossomPaths.join("\n"), /PUT \/upload/);
+    assertMatch(localPaths.join("\n"), /PUT \/upload/);
+    assertMatch(localPaths.join("\n"), /GET \/[0-9a-f]{64}/);
     assert(
       relayRequests >= 2,
       "daemon restart must restore through relay admission",
     );
-    assert(
-      blossomGets >= 12,
-      "all isolated substitutions must traverse Blossom-backed Hashtrees",
-    );
+    assert(blossomGets >= 4, "first substitution must traverse remote Blossom");
     child.kill("SIGTERM");
     assertEquals((await child.status).success, true);
     child = undefined;
@@ -273,6 +323,7 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
     }
     await relay?.shutdown();
     await blossom?.shutdown();
+    await localBlossom?.shutdown();
     await Deno.chmod(root, 0o700).catch(() => {});
     await Deno.remove(root, { recursive: true }).catch(() => {});
   }
