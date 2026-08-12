@@ -1,8 +1,4 @@
-import {
-  assertEquals,
-  assertExists,
-  assertInstanceOf,
-} from "@std/assert";
+import { assertEquals, assertExists, assertInstanceOf } from "@std/assert";
 import { bech32 } from "@scure/base";
 import { finalizeEvent, generateSecretKey } from "npm:nostr-tools@2.19.4";
 import {
@@ -20,12 +16,16 @@ const secret = generateSecretKey();
 const root = new Uint8Array(32).fill(7);
 
 function nhash(records: Array<[number, Uint8Array]>): string {
-  const bytes = records.flatMap(([type, value]) => [type, value.length, ...value]);
+  const bytes = records.flatMap((
+    [type, value],
+  ) => [type, value.length, ...value]);
   return bech32.encode("nhash", bech32.toWords(Uint8Array.from(bytes)), 200);
 }
 
 function event(
-  overrides: Partial<{ kind: number; created_at: number; tags: string[][]; content: string }> = {},
+  overrides: Partial<
+    { kind: number; created_at: number; tags: string[][]; content: string }
+  > = {},
 ) {
   return finalizeEvent({
     kind: overrides.kind ?? 17091,
@@ -48,12 +48,14 @@ Deno.test("strict plaintext nhash accepts exactly one canonical type-0 root", ()
     })(),
     UnsupportedEncryptedRootError,
   );
-  for (const records of [
-    [] as Array<[number, Uint8Array]>,
-    [[0, root], [0, root]] as Array<[number, Uint8Array]>,
-    [[1, root]] as Array<[number, Uint8Array]>,
-    [[0, root.subarray(1)]] as Array<[number, Uint8Array]>,
-  ]) {
+  for (
+    const records of [
+      [] as Array<[number, Uint8Array]>,
+      [[0, root], [0, root]] as Array<[number, Uint8Array]>,
+      [[1, root]] as Array<[number, Uint8Array]>,
+      [[0, root.subarray(1)]] as Array<[number, Uint8Array]>,
+    ]
+  ) {
     let caught: unknown;
     try {
       decodePlaintextNhash(nhash(records));
@@ -65,10 +67,23 @@ Deno.test("strict plaintext nhash accepts exactly one canonical type-0 root", ()
 });
 
 Deno.test("publication validates signature, time boundaries, expiry, and tag multiplicity", () => {
-  assertEquals(validatePublication(event({ created_at: NOW + 900 }), NOW).ok, true);
-  assertEquals(validatePublication(event({ created_at: NOW + 901 }), NOW).ok, false);
-  assertEquals(validatePublication(event({ tags: [["expiration", String(NOW)]] }), NOW).ok, false);
-  assertEquals(validatePublication(event({ tags: [["htree", "x"], ["htree", "y"]] }), NOW).ok, false);
+  assertEquals(
+    validatePublication(event({ created_at: NOW + 900 }), NOW).ok,
+    true,
+  );
+  assertEquals(
+    validatePublication(event({ created_at: NOW + 901 }), NOW).ok,
+    false,
+  );
+  assertEquals(
+    validatePublication(event({ tags: [["expiration", String(NOW)]] }), NOW).ok,
+    false,
+  );
+  assertEquals(
+    validatePublication(event({ tags: [["htree", "x"], ["htree", "y"]] }), NOW)
+      .ok,
+    false,
+  );
   const tampered = { ...event(), content: "tampered" };
   assertEquals(validatePublication(tampered, NOW).ok, false);
 });
@@ -105,10 +120,21 @@ Deno.test("default and named publications preserve raw identity and ordered vali
 
 Deno.test("invalid d and nixSigKey values are rejected with structured codes", () => {
   const cases = [
-    event({ kind: 17091, tags: [["d", "named"], ["htree", `htree://${nhash([[0, root]])}`]] }),
+    event({
+      kind: 17091,
+      tags: [["d", "named"], ["htree", `htree://${nhash([[0, root]])}`]],
+    }),
     event({ kind: 37091, tags: [["htree", `htree://${nhash([[0, root]])}`]] }),
-    event({ kind: 37091, tags: [["d", ""], ["htree", `htree://${nhash([[0, root]])}`]] }),
-    event({ tags: [["htree", `htree://${nhash([[0, root]])}`], ["nixSigKey", "bad:key:extra"]] }),
+    event({
+      kind: 37091,
+      tags: [["d", ""], ["htree", `htree://${nhash([[0, root]])}`]],
+    }),
+    event({
+      tags: [["htree", `htree://${nhash([[0, root]])}`], [
+        "nixSigKey",
+        "bad:key:extra",
+      ]],
+    }),
   ];
   for (const candidate of cases) {
     const result = validatePublication(candidate, NOW);
