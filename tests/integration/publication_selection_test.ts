@@ -5,6 +5,7 @@ import { Subject } from "rxjs";
 import { EventStore } from "applesauce-core";
 import { StateRepository } from "../../src/persistence/state_repository.ts";
 import {
+  cacheIdentity,
   RawPublication,
   validatePublication,
 } from "../../src/protocol/publication.ts";
@@ -100,18 +101,18 @@ Deno.test("selection commits before emission, survives restart, and rejects stal
       now: () => 100,
     });
     const emissions: string[] = [];
-    selector.selected$.subscribe((selected) =>
-      selected && emissions.push(selected.event.id)
-    );
+    selector.selected$.subscribe((selected) => {
+      if (selected[0]) emissions.push(selected[0].event.id);
+    });
     const newest = event(90, { content: "new" });
     events.next(newest);
     assertEquals(
-      repository.loadSelection(selector.identity!)?.event.id,
+      repository.loadSelection(authorization.identities[0])?.event.id,
       newest.id,
     );
     assertEquals(emissions, [newest.id]);
     events.next(event(89, { content: "old" }));
-    assertEquals(selector.current()?.event.id, newest.id);
+    assertEquals(selector.current()[0]?.event.id, newest.id);
     selector.dispose();
     repository.close();
 
@@ -123,7 +124,7 @@ Deno.test("selection commits before emission, survives restart, and rejects stal
       identities: [`17091:${newest.pubkey}:`],
       now: () => 100,
     });
-    assertEquals(restarted.current()?.event.id, newest.id);
+    assertEquals(restarted.current()[0]?.event.id, newest.id);
     restarted.dispose();
     restartedRepository.close();
   } finally {
@@ -173,12 +174,12 @@ Deno.test("expiry clears availability without selecting older state", async () =
     });
     const expiring = event(90, { expires: 110 });
     events.next(expiring);
-    assertEquals(selector.current()?.event.id, expiring.id);
+    assertEquals(selector.current()[0]?.event.id, expiring.id);
     now = 110;
     expiryCallback?.();
-    assertEquals(selector.current(), undefined);
+    assertEquals(selector.current(), []);
     events.next(event(89));
-    assertEquals(selector.current(), undefined);
+    assertEquals(selector.current(), []);
     repository.close();
     selector.dispose();
   } finally {
@@ -229,7 +230,7 @@ Deno.test("transaction failure cannot emit an uncommitted selection", async () =
       onError: (error) => errors.push(error),
     });
     events.next(event(90));
-    assertEquals(selector.current(), undefined);
+    assertEquals(selector.current(), []);
     assertEquals(errors.length, 1);
     selector.dispose();
     repository.close();
@@ -261,7 +262,7 @@ Deno.test("EventStore admission follows repository commit and disposal is termin
     });
     selector.accept(candidate);
     assertEquals(store.hasEvent(candidate.id), true);
-    assertEquals(selector.current()?.event.id, candidate.id);
+    assertEquals(selector.current()[0]?.event.id, candidate.id);
     selector.dispose();
     selector.dispose();
     assertEquals(disposed, 1);

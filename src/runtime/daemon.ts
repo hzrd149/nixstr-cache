@@ -34,7 +34,7 @@ export function createPublicationEventStream(
   const pool = new RelayPool();
   const events = pool.subscription(
     config.relayUrls.map(String),
-    [{ kinds: [17091, 10063], authors: [...config.publisherPubkeys] }],
+    [{ kinds: [17091, 37091, 10063], authors: [...config.publisherPubkeys] }],
   ) as Observable<RawPublication>;
   let disposed = false;
   return {
@@ -126,7 +126,13 @@ export function createProductionDependencies(
       });
       return createNixHttpHandler({
         decodedMetadataBytes: config.limits.decodedMetadataBytes,
-        selection: selection as unknown as SelectionView,
+        selection: {
+          current: () =>
+            (selection as unknown as {
+              current(): readonly import("../nostr/selection.ts").SelectedPublication[];
+            })
+              .current()[0],
+        } satisfies SelectionView,
         resolverFor(snapshot) {
           const sources = buildSourcePlan({
             configured: config.preferredBlossomUrl,

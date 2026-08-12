@@ -63,19 +63,27 @@ Deno.test("BUD-03 server list is authenticated, ordered, reactive, and immutable
       ["server", "https://three.example", "extra"],
     ]));
     const captured = selector.current();
-    assertEquals(captured?.bud03Servers, [
+    assertEquals(captured[0]?.bud03Servers, [
       "https://one.example",
       "https://two.example/path",
     ]);
     events.next(servers(90, [["server", "https://stale.example"]]));
-    assertEquals(selector.current()?.bud03Servers, captured?.bud03Servers);
+    assertEquals(
+      selector.current()[0]?.bud03Servers,
+      captured[0]?.bud03Servers,
+    );
     events.next(
       servers(92, [["server", "https://new.example"]], generateSecretKey()),
     );
-    assertEquals(selector.current()?.bud03Servers, captured?.bud03Servers);
+    assertEquals(
+      selector.current()[0]?.bud03Servers,
+      captured[0]?.bud03Servers,
+    );
     events.next(servers(93, [["server", "https://fresh.example"]]));
-    assertEquals(selector.current()?.bud03Servers, ["https://fresh.example"]);
-    assertEquals(captured?.bud03Servers, [
+    assertEquals(selector.current()[0]?.bud03Servers, [
+      "https://fresh.example",
+    ]);
+    assertEquals(captured[0]?.bud03Servers, [
       "https://one.example",
       "https://two.example/path",
     ]);

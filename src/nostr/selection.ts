@@ -22,11 +22,11 @@ import {
 export interface SelectedPublication extends ValidatedPublication {
   readonly bud03Servers: readonly string[];
 }
+export type MergedSelectionSnapshot = readonly SelectedPublication[];
 
 export interface PublicationSelector {
-  readonly selected$: Observable<SelectedPublication | undefined>;
-  readonly identity?: string;
-  current(): SelectedPublication | undefined;
+  readonly selected$: Observable<MergedSelectionSnapshot>;
+  current(): MergedSelectionSnapshot;
   accept(event: RawPublication): void;
   dispose(): void;
 }
@@ -34,7 +34,7 @@ export interface PublicationSelector {
 type TimerHandle = number | ReturnType<typeof setTimeout>;
 interface ModelOptions {
   publishers: ReadonlySet<string>;
-  identities: ReadonlySet<string>;
+  identities: readonly string[];
   now: () => number;
   refresh$: Observable<void>;
 }
@@ -42,7 +42,7 @@ interface ModelOptions {
 /** Authoritative reactive cache view derived exclusively from admitted store events. */
 export function CacheSelectionModel(
   options: ModelOptions,
-): Model<SelectedPublication | undefined> {
+): Model<MergedSelectionSnapshot> {
   return (store) =>
     combineLatest([
       store.timeline([{ kinds: [17091, 37091] }]),
@@ -58,30 +58,36 @@ export function CacheSelectionModel(
           .map((result) => result.value)
           .filter((publication) =>
             options.publishers.has(publication.event.pubkey) &&
-            options.identities.has(cacheIdentity(publication))
-          )
-          .sort((a, b) =>
-            b.event.created_at - a.event.created_at ||
-            a.event.id.localeCompare(b.event.id)
+            options.identities.includes(cacheIdentity(publication))
           );
-        const publication = publications[0];
-        if (!publication) return undefined;
-        const serverEvents = serverEventList
-          .filter((event) => event.pubkey === publication.event.pubkey)
-          .sort((a, b) =>
-            b.created_at - a.created_at || a.id.localeCompare(b.id)
-          );
-        const bud03Servers = serverEvents.length
-          ? projectBlossomServers(serverEvents[0], options.publishers)
-          : [];
-        return Object.freeze({
-          ...publication,
-          bud03Servers: Object.freeze([...bud03Servers]),
-        });
+        return Object.freeze(options.identities.flatMap((identity) => {
+          const publication = publications
+            .filter((item) => cacheIdentity(item) === identity)
+            .sort((a, b) =>
+              b.event.created_at - a.event.created_at ||
+              a.event.id.localeCompare(b.event.id)
+            )[0];
+          if (!publication) return [];
+          const serverEvents = serverEventList
+            .filter((event) => event.pubkey === publication.event.pubkey)
+            .sort((a, b) =>
+              b.created_at - a.created_at || a.id.localeCompare(b.id)
+            );
+          const bud03Servers = serverEvents.length
+            ? projectBlossomServers(serverEvents[0], options.publishers)
+            : [];
+          return [Object.freeze({
+            ...publication,
+            bud03Servers: Object.freeze([...bud03Servers]),
+          })];
+        }));
       }),
       distinctUntilChanged((a, b) =>
-        a?.event.id === b?.event.id &&
-        JSON.stringify(a?.bud03Servers) === JSON.stringify(b?.bud03Servers)
+        a.length === b.length && a.every((item, index) =>
+          item.event.id === b[index].event.id &&
+          JSON.stringify(item.bud03Servers) ===
+            JSON.stringify(b[index].bud03Servers)
+        )
       ),
     );
 }
@@ -109,7 +115,7 @@ export function startPublicationSelection(
   const cancelSchedule = options.cancelSchedule ??
     ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
   const publishers = new Set(options.publisherPubkeys);
-  const identities = new Set(options.identities);
+  const identitySet = new Set(options.identities);
   const store = options.eventStore ?? new EventStore({
     keepExpired: true,
     keepOldVersions: true,
@@ -121,29 +127,29 @@ export function startPublicationSelection(
   const refresh = new Subject<void>();
   const selected$ = store.model(CacheSelectionModel, {
     publishers,
-    identities,
+    identities: Object.freeze([...options.identities]),
     now,
     refresh$: refresh,
   });
-  let current: SelectedPublication | undefined;
-  let identity: string | undefined;
-  let expirationHandle: TimerHandle | undefined;
+  let current: MergedSelectionSnapshot = Object.freeze([]);
+  const expirationHandles = new Set<TimerHandle>();
   let disposed = false;
 
   const clearExpiration = () => {
-    if (expirationHandle !== undefined) cancelSchedule(expirationHandle);
-    expirationHandle = undefined;
+    for (const handle of expirationHandles) cancelSchedule(handle);
+    expirationHandles.clear();
   };
   const modelSubscription = selected$.subscribe({
     next(value) {
       current = value;
-      identity = value ? cacheIdentity(value) : identity;
       clearExpiration();
-      if (value?.expiresAt !== undefined) {
-        expirationHandle = schedule(() => {
-          expirationHandle = undefined;
+      for (const publication of value) {
+        if (publication.expiresAt === undefined) continue;
+        const handle = schedule(() => {
+          expirationHandles.delete(handle);
           refresh.next();
-        }, Math.max(0, value.expiresAt - now()) * 1000);
+        }, Math.max(0, publication.expiresAt - now()) * 1000);
+        expirationHandles.add(handle);
       }
     },
     error: options.onError,
@@ -163,7 +169,7 @@ export function startPublicationSelection(
     if (!publishers.has(result.value.event.pubkey)) {
       return void options.onReject?.(event, "unauthorized-publisher");
     }
-    if (!identities.has(cacheIdentity(result.value))) {
+    if (!identitySet.has(cacheIdentity(result.value))) {
       return void options.onReject?.(event, "unauthorized-identity");
     }
     try {
@@ -187,7 +193,7 @@ export function startPublicationSelection(
     const result = validatePublication(stored.event as RawPublication, now());
     if (
       result.ok && publishers.has(result.value.event.pubkey) &&
-      identities.has(cacheIdentity(result.value))
+      identitySet.has(cacheIdentity(result.value))
     ) add(result.value.event);
   }
   const sourceSubscription: Subscription = options.events.subscribe({
@@ -196,9 +202,6 @@ export function startPublicationSelection(
   });
   return {
     selected$,
-    get identity() {
-      return identity;
-    },
     current: () => current,
     accept,
     dispose() {

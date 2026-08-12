@@ -51,10 +51,13 @@ Deno.test("operator config rejects malformed duplicate and excessive identities 
   ];
   for (const identities of invalidLists) {
     let sideEffects = 0;
-    const parsed = parseConfig(validRaw({
-      cacheIdentities: identities.join(","),
-      publisherPubkeys: undefined,
-    }), { onSideEffect: () => sideEffects++ });
+    const parsed = parseConfig(
+      validRaw({
+        cacheIdentities: identities.join(","),
+        publisherPubkeys: undefined,
+      }),
+      { onSideEffect: () => sideEffects++ },
+    );
     assert(!parsed.ok, identities.join(","));
     assertEquals(sideEffects, 0);
     assert(

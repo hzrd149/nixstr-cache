@@ -20,6 +20,7 @@ export interface RawConfig {
   readonly bindHost?: string;
   readonly bindPort?: string;
   readonly publisherPubkeys?: string;
+  readonly cacheIdentities?: string;
   readonly relayUrls?: string;
   readonly preferredBlossomUrl?: string;
   readonly databasePath?: string;
@@ -29,11 +30,15 @@ export interface RawConfig {
   readonly limits?: Partial<Record<keyof Limits, string>>;
 }
 
-export interface WritableIdentity {
+export interface CacheIdentity {
   readonly kind: 17091 | 37091;
   readonly pubkey: string;
   readonly identifier: string;
 }
+
+export type WritableIdentity = CacheIdentity;
+
+export const MAX_CACHE_IDENTITIES = 32;
 
 export type WriteIntent =
   | { readonly mode: "disabled" }
@@ -182,25 +187,49 @@ export function parseConfig(
     });
   }
 
-  const publisherValues = (raw.publisherPubkeys ?? "").split(",").map((value) =>
-    value.trim()
+  const legacyPublisherValues = (raw.publisherPubkeys ?? "").split(",").map(
+    (value) => value.trim(),
   ).filter(Boolean);
-  if (publisherValues.length === 0) {
+  const identityValues = raw.cacheIdentities === undefined
+    ? legacyPublisherValues.map((pubkey) => `17091:${pubkey}:`)
+    : raw.cacheIdentities.split(",").map((value) => value.trim()).filter(
+      Boolean,
+    );
+  if (identityValues.length === 0) {
     diagnostics.push({
-      field: "publisherPubkeys",
+      field: "cacheIdentities",
       code: "required",
-      message: "at least one publisher pubkey is required",
+      message: "at least one cache identity is required",
     });
   }
-  for (const [index, value] of publisherValues.entries()) {
-    if (!/^[0-9a-f]{64}$/.test(value)) {
+  if (identityValues.length > MAX_CACHE_IDENTITIES) {
+    diagnostics.push({
+      field: "cacheIdentities",
+      code: "out_of_range",
+      message: `cache identities must not exceed ${MAX_CACHE_IDENTITIES}`,
+    });
+  }
+  const parsedIdentities: CacheIdentity[] = [];
+  const seenIdentities = new Set<string>();
+  for (const [index, value] of identityValues.entries()) {
+    const parsed = parseCacheIdentity(
+      value,
+      `cacheIdentities[${index}]`,
+      diagnostics,
+    );
+    if (seenIdentities.has(value)) {
       diagnostics.push({
-        field: `publisherPubkeys[${index}]`,
+        field: `cacheIdentities[${index}]`,
         code: "invalid",
-        message: "publisher pubkeys must be 32-byte lowercase hex",
+        message: "cache identities must be unique",
       });
     }
+    seenIdentities.add(value);
+    if (parsed) parsedIdentities.push(parsed);
   }
+  const publisherValues = [
+    ...new Set(parsedIdentities.map((item) => item.pubkey)),
+  ];
 
   const relayValues = (raw.relayUrls ?? "").split(",").map((value) =>
     value.trim()
@@ -288,9 +317,7 @@ export function parseConfig(
       preferredBlossomUrl,
       databasePath: databasePath!,
       spoolDirectory: spoolDirectory!,
-      identities: Object.freeze(
-        publisherValues.map((pubkey) => `17091:${pubkey}:`),
-      ),
+      identities: Object.freeze([...identityValues]),
       writeIntent,
       limits: Object.freeze(limits as unknown as Limits),
     }),
@@ -301,13 +328,21 @@ function parseWritableIdentity(
   value: string,
   diagnostics: ConfigDiagnostic[],
 ): WritableIdentity | undefined {
+  return parseCacheIdentity(value, "writableIdentity", diagnostics);
+}
+
+export function parseCacheIdentity(
+  value: string,
+  field = "cacheIdentity",
+  diagnostics: ConfigDiagnostic[] = [],
+): CacheIdentity | undefined {
   const match = /^(17091|37091):([0-9a-f]{64}):(.*)$/.exec(value);
   if (!match) {
     diagnostics.push({
-      field: "writableIdentity",
+      field,
       code: "invalid",
       message:
-        "writableIdentity must be a raw kind-17091 or kind-37091 cache identity",
+        "cache identity must be a raw kind-17091 or kind-37091 cache identity",
     });
     return;
   }
@@ -326,11 +361,11 @@ function parseWritableIdentity(
     (kind === 37091 && !validNamedIdentifier)
   ) {
     diagnostics.push({
-      field: "writableIdentity",
+      field,
       code: "invalid",
       message: kind === 17091
-        ? "kind-17091 writableIdentity must have an empty identifier"
-        : "kind-37091 writableIdentity must have one valid non-empty identifier",
+        ? "kind-17091 cache identity must have an empty identifier"
+        : "kind-37091 cache identity must have one valid non-empty identifier",
     });
     return;
   }
