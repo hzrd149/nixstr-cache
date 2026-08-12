@@ -6,6 +6,9 @@ import {
   WriteRepository,
 } from "../../src/persistence/write_repository.ts";
 import { createNixHttpHandler } from "../../src/nix/http_handler.ts";
+import { EligibilityModel } from "../../src/write/eligibility.ts";
+import { SignerOverlay } from "../../src/write/overlay.ts";
+import { parseNarInfo } from "../../src/protocol/narinfo.ts";
 
 const chunks = (parts: string[]) =>
   new ReadableStream<Uint8Array>({
@@ -184,6 +187,52 @@ Deno.test("PUT is fail closed and stock routes are immutable", async () => {
     }),
   );
   assertEquals(response.status, 415);
+  repository.close();
+  await Deno.remove(root, { recursive: true });
+});
+
+Deno.test("complete object commits to signer-first immutable overlay", async () => {
+  const root = await Deno.makeTempDir();
+  const repository = new WriteRepository(`${root}/write.db`, `${root}/spool`, {
+    perBodyBytes: 4096,
+    aggregateBytes: 32768,
+  });
+  const storeHash = "0123456789abcdfghijklmnpqrsvwxyz";
+  const narinfo = [
+    `StorePath: /nix/store/${storeHash}-demo`,
+    "URL: nar/signer.nar",
+    "Compression: none",
+    "FileHash: sha256:abc",
+    "FileSize: 6",
+    "NarHash: sha256:abc",
+    "NarSize: 6",
+    "References: lowerlowerlowerlowerlowerlower12-base",
+    "",
+  ].join("\n");
+  await repository.stage(`${storeHash}.narinfo`, new Blob([narinfo]).stream());
+  repository.recordNarInfo(`${storeHash}.narinfo`, parseNarInfo(narinfo));
+  const overlay = new SignerOverlay(repository);
+  const eligibility = new EligibilityModel(repository, overlay, {
+    maxVisited: 64,
+    maxMetadataBytes: 8192,
+    lowerHasStorePath: (path) => path.includes("lowerlower"),
+  });
+  assertEquals(await eligibility.changed(storeHash), false);
+  await repository.stage("nar/signer.nar", new Blob(["signer"]).stream());
+  assertEquals(await eligibility.changed("nar/signer.nar"), true);
+  const captured = overlay.current();
+  assertEquals(captured.generation, 1);
+  const handler = createNixHttpHandler({
+    decodedMetadataBytes: 4096,
+    selection: { current: () => [] },
+    overlay,
+    resolverFor: () => {
+      throw new Error("publisher must not be consulted");
+    },
+  });
+  assertEquals(await (await handler(new Request(`http://cache/${storeHash}.narinfo`))).text(), narinfo);
+  const response = await handler(new Request("http://cache/nar/signer.nar"));
+  assertEquals(await response.text(), "signer");
   repository.close();
   await Deno.remove(root, { recursive: true });
 });
