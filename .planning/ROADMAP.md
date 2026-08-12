@@ -28,7 +28,14 @@ The v1 journey starts with the smallest safe walking slice: a stock Nix client s
   3. Every publisher-controlled fetch is constrained by the configured network and traversal limits, and corrupt or oversized content is rejected before it can be parsed, cached, or served.
   4. Large manifests, chunks, and NARs pass through hashing, verification, temporary storage, and HTTP responses with backpressure and bounded memory.
   5. A real `nix` CLI substitutes an uncached store path through the daemon and successfully verifies the returned metadata and NAR.
-**Plans**: TBD
+**Plans:** 5 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Prove address-pinned transport and validated startup configuration.
+- [ ] 01-02-PLAN.md — Select one verified publication durably and reactively.
+- [ ] 01-03-PLAN.md — Resolve verified bounded Hashtree paths from hostile Blossom sources.
+- [ ] 01-04-PLAN.md — Serve snapshot-bound stock Nix GET/HEAD semantics.
+- [ ] 01-05-PLAN.md — Prove the walking slice with pinned stock Nix 2.34.7.
 
 ### Phase 2: Deterministic Merged Read Cache
 **Goal**: An operator can expose several trusted publishers as one predictable binary cache without hiding overlap conflicts.
@@ -74,7 +81,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Verified Nix Substitution Walking Slice | 0/TBD | Not started | - |
+| 1. Verified Nix Substitution Walking Slice | 0/5 | Planned | - |
 | 2. Deterministic Merged Read Cache | 0/TBD | Not started | - |
 | 3. Signer-Gated Writable Cache | 0/TBD | Not started | - |
 | 4. Availability-Gated Publication Loop | 0/TBD | Not started | - |
