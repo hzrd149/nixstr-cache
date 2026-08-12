@@ -8,7 +8,7 @@ status: verifying
 stopped_at: Completed 01-11-PLAN.md
 last_updated: "2026-08-12T13:13:06.434Z"
 last_activity: 2026-08-12
-last_activity_desc: Phase 01 final gap-closure plans 01-10 and 01-11 created
+last_activity_desc: "Completed quick task 260812-igi: Wire supported NIXSTR limit environment variables"
 progress:
   total_phases: 1
   completed_phases: 1
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: 01 (verified-nix-substitution-walking-slice) — EXECUTING
 Plan: 11 of 11
 Status: Phase complete — ready for verification
-Last activity: 2026-08-12 — Phase 01 final gap-closure plans 01-10 and 01-11 created
+Last activity: 2026-08-12 — Completed quick task 260812-igi: Wire supported NIXSTR limit environment variables
 
 Progress: [██████████] 100%
 
@@ -113,6 +113,12 @@ None yet.
 - [Phase 1]: Confirm an address-bound outbound transport strategy that closes DNS rebinding gaps while preserving HTTP Host and TLS SNI.
 - [Phase 3]: Confirm daemon-safe NIP-46 authorization and protected local-key lifecycle before enabling PUT.
 - [Phase 4]: Define concrete Blossom upload/completeness evidence and relay acknowledgement/reconciliation policy before publication.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260812-igi | Wire supported NIXSTR limit environment variables | 2026-08-12 | a7b6958 | [260812-igi-wire-supported-nixstr-limit-environment-](./quick/260812-igi-wire-supported-nixstr-limit-environment-/) |
 
 ## Deferred Items
 
