@@ -11,7 +11,7 @@
     "test": "deno test --allow-read=.,/tmp --allow-write=/tmp tests/protocol",
     "test:address-pinning": "deno test --allow-net=127.0.0.1 --allow-read=.,/tmp --allow-write=/tmp tests/integration/address_pinning_test.ts",
     "test:integration": "deno test --allow-env --allow-net=127.0.0.1 --allow-read=.,/tmp --allow-write=/tmp tests/integration",
-    "test:nix-e2e": "deno test --allow-run=nix,nix-store,deno --allow-net=127.0.0.1 --allow-read=.,/tmp --allow-write=/tmp tests/e2e/nix_substitution_test.ts",
+    "test:nix-e2e": "deno test --allow-run=nix,nix-store,deno --allow-net=127.0.0.1 --allow-read=.,/tmp --allow-write=/tmp tests/e2e/nix_substitution_test.ts tests/e2e/nix_publication_roundtrip_test.ts",
     "verify": "deno task fmt && deno task lint && deno task check && deno task test && deno task test:integration && deno task test:nix-e2e"
   },
   "imports": {
