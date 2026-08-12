@@ -1,6 +1,6 @@
 import { assertEquals, assertExists, assertInstanceOf } from "@std/assert";
 import { bech32 } from "@scure/base";
-import { finalizeEvent, generateSecretKey } from "npm:nostr-tools@2.19.4";
+import { finalizeEvent, generateSecretKey } from "nostr-tools";
 import {
   decodePlaintextNhash,
   NhashError,

@@ -14,7 +14,8 @@
     "jsr:@std/path@^1.1.5": "1.1.6",
     "npm:@scure/base@2.3.0": "2.3.0",
     "npm:applesauce-core@6.2.0": "6.2.0",
-    "npm:nostr-tools@2.19.4": "2.19.4"
+    "npm:nostr-tools@2.19.4": "2.19.4",
+    "npm:rxjs@7.8.2": "7.8.2"
   },
   "jsr": {
     "@db/sqlite@0.13.0": {
@@ -174,6 +175,7 @@
       "npm:applesauce-loaders@6.2.0",
       "npm:applesauce-relay@6.2.1",
       "npm:fast-check@4.9.0",
+      "npm:nostr-tools@2.19.4",
       "npm:rxjs@7.8.2"
     ]
   }

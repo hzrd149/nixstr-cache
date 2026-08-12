@@ -1,21 +1,38 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import { bech32 } from "@scure/base";
-import { finalizeEvent, generateSecretKey } from "npm:nostr-tools@2.19.4";
+import { finalizeEvent, generateSecretKey } from "nostr-tools";
 import { Subject } from "rxjs";
 import { StateRepository } from "../../src/persistence/state_repository.ts";
-import { RawPublication, validatePublication } from "../../src/protocol/publication.ts";
+import {
+  RawPublication,
+  validatePublication,
+} from "../../src/protocol/publication.ts";
 import { startPublicationSelection } from "../../src/nostr/selection.ts";
 
 const secret = generateSecretKey();
 const root = new Uint8Array(32).fill(4);
-const nhash = bech32.encode("nhash", bech32.toWords(Uint8Array.from([0, 32, ...root])), 200);
+const nhash = bech32.encode(
+  "nhash",
+  bech32.toWords(Uint8Array.from([0, 32, ...root])),
+  200,
+);
 const key = `cache:${btoa(String.fromCharCode(...new Uint8Array(32)))}`;
 
-function event(createdAt: number, options: { signed?: boolean; expires?: number; content?: string } = {}): RawPublication {
+function event(
+  createdAt: number,
+  options: { signed?: boolean; expires?: number; content?: string } = {},
+): RawPublication {
   const tags = [["htree", `htree://${nhash}`]];
   if (options.signed !== false) tags.push(["nixSigKey", key]);
-  if (options.expires !== undefined) tags.push(["expiration", String(options.expires)]);
-  return finalizeEvent({ kind: 17091, created_at: createdAt, content: options.content ?? "", tags }, secret);
+  if (options.expires !== undefined) {
+    tags.push(["expiration", String(options.expires)]);
+  }
+  return finalizeEvent({
+    kind: 17091,
+    created_at: createdAt,
+    content: options.content ?? "",
+    tags,
+  }, secret);
 }
 
 async function tempDb(): Promise<string> {
@@ -27,12 +44,21 @@ Deno.test("selection commits before emission, survives restart, and rejects stal
   try {
     const events = new Subject<RawPublication>();
     const repository = new StateRepository(path);
-    const selector = startPublicationSelection({ events, repository, now: () => 100 });
+    const selector = startPublicationSelection({
+      events,
+      repository,
+      now: () => 100,
+    });
     const emissions: string[] = [];
-    selector.selected$.subscribe((selected) => selected && emissions.push(selected.event.id));
+    selector.selected$.subscribe((selected) =>
+      selected && emissions.push(selected.event.id)
+    );
     const newest = event(90, { content: "new" });
     events.next(newest);
-    assertEquals(repository.loadSelection(selector.identity!)?.event.id, newest.id);
+    assertEquals(
+      repository.loadSelection(selector.identity!)?.event.id,
+      newest.id,
+    );
     assertEquals(emissions, [newest.id]);
     events.next(event(89, { content: "old" }));
     assertEquals(selector.current()?.event.id, newest.id);
@@ -66,7 +92,10 @@ Deno.test("equal timestamps use lowest event id and never roll back after restar
     assertEquals(repository.accept(loser).accepted, true);
     assertEquals(repository.accept(winner).accepted, true);
     assertEquals(repository.accept(loser).accepted, false);
-    assertEquals(repository.loadSelection(`17091:${winner.event.pubkey}:`)?.event.id, winner.event.id);
+    assertEquals(
+      repository.loadSelection(`17091:${winner.event.pubkey}:`)?.event.id,
+      winner.event.id,
+    );
     repository.close();
   } finally {
     await Deno.remove(path);
@@ -114,7 +143,10 @@ Deno.test("signed history requires durable explicit unsigned consent", async () 
     if (!signed.ok || !unsigned.ok) throw new Error("fixture invalid");
     const identity = `17091:${signed.value.event.pubkey}:`;
     assertEquals(repository.accept(signed.value).accepted, true);
-    assertEquals(repository.accept(unsigned.value).reason, "downgrade-consent-required");
+    assertEquals(
+      repository.accept(unsigned.value).reason,
+      "downgrade-consent-required",
+    );
     repository.setUnsignedConsent(identity, true);
     assertEquals(repository.accept(unsigned.value).accepted, true);
     repository.close();
@@ -131,9 +163,18 @@ Deno.test("transaction failure cannot emit an uncommitted selection", async () =
   const path = await tempDb();
   try {
     const events = new Subject<RawPublication>();
-    const repository = new StateRepository(path, { beforeCommit: () => { throw new Error("injected"); } });
+    const repository = new StateRepository(path, {
+      beforeCommit: () => {
+        throw new Error("injected");
+      },
+    });
     const errors: unknown[] = [];
-    const selector = startPublicationSelection({ events, repository, now: () => 100, onError: (error) => errors.push(error) });
+    const selector = startPublicationSelection({
+      events,
+      repository,
+      now: () => 100,
+      onError: (error) => errors.push(error),
+    });
     events.next(event(90));
     assertEquals(selector.current(), undefined);
     assertEquals(errors.length, 1);

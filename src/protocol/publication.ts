@@ -1,4 +1,4 @@
-import { verifyEvent } from "npm:nostr-tools@2.19.4";
+import { verifyEvent } from "nostr-tools";
 import {
   decodePlaintextNhash,
   NhashError,
@@ -71,8 +71,11 @@ const reject = (
 
 function validLabel(value: string): boolean {
   const bytes = encoder.encode(value);
-  return bytes.length > 0 && bytes.length <= 64 &&
-    !/[\s\x00-\x1f\x7f]/u.test(value);
+  return bytes.length > 0 && bytes.length <= 64 && !Array.from(value).some(
+    (character) =>
+      /\s/u.test(character) || character.charCodeAt(0) < 32 ||
+      character.charCodeAt(0) === 127,
+  );
 }
 
 function parseNixKeys(
