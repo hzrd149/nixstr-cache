@@ -1,5 +1,5 @@
 import type { PrivateKeySigner } from "applesauce-signers/signers/private-key-signer";
-import { getPublicKey } from "nostr-tools";
+import process from "node:process";
 import { BehaviorSubject, type Observable } from "rxjs";
 import type { WriteIntent } from "../config/config.ts";
 
@@ -47,6 +47,23 @@ async function readProtected(path: string): Promise<Uint8Array> {
 
 class ProtectedSourceError extends Error {}
 
+async function privateKeySignerFromKey(
+  key: Uint8Array,
+): Promise<PrivateKeySigner> {
+  // debug's Node entrypoint enumerates process.env at module initialization.
+  // It is irrelevant to signing and would otherwise widen the daemon permission set.
+  const environment = process.env;
+  try {
+    process.env = {};
+    const { PrivateKeySigner } = await import(
+      "applesauce-signers/signers/private-key-signer"
+    );
+    return PrivateKeySigner.fromKey(key);
+  } finally {
+    process.env = environment;
+  }
+}
+
 export function createSignerCapability(
   options: SignerCapabilityOptions,
 ): SignerCapability {
@@ -69,11 +86,9 @@ export function createSignerCapability(
           owned = await readProtected(options.localKeyPath);
           if (owned.length !== 32) throw new TypeError("invalid local key");
           // Keep the phase-3 boundary status-only; publication APIs are omitted.
-          const key = owned.slice();
-          retainedKey = key;
-          active = {
-            getPublicKey: () => Promise.resolve(getPublicKey(key)),
-          } satisfies Pick<PrivateKeySigner, "getPublicKey">;
+          const signer = await privateKeySignerFromKey(owned.slice());
+          retainedKey = signer.key;
+          active = signer satisfies Pick<PrivateKeySigner, "getPublicKey">;
         } else {
           if (!options.nip46SessionPath || !options.createNip46Signer) {
             throw new ProtectedSourceError();
