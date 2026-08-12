@@ -76,6 +76,7 @@ async function daemon(fixturePath: string): Promise<void> {
   });
   const sources = buildSourcePlan({ configured: fixture.blossomUrl });
   const handler = createNixHttpHandler({
+    decodedMetadataBytes: 1024 * 1024,
     selection: selector,
     resolverFor: () => {
       const resolver = new PathResolver(blobs, sources, {

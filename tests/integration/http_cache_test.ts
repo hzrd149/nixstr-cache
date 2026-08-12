@@ -185,7 +185,7 @@ Deno.test("http cache maps methods, absence, availability, deadline and upstream
 });
 
 Deno.test("metadata bound|GET/HEAD: descriptor over limit rejects before body read", async () => {
-  let pulls = 0;
+  let cancelled = false;
   const handler = createNixHttpHandler({
     decodedMetadataBytes: 8,
     selection: { current: () => snapshot("x") },
@@ -196,8 +196,8 @@ Deno.test("metadata bound|GET/HEAD: descriptor over limit rejects before body re
           size: 9,
           type: 0,
           body: new ReadableStream({
-            pull() {
-              pulls++;
+            cancel() {
+              cancelled = true;
             },
           }),
         }),
@@ -207,7 +207,7 @@ Deno.test("metadata bound|GET/HEAD: descriptor over limit rejects before body re
     new Request("http://cache/0123456789abcdfghijklmnpqrsvwxyz.narinfo"),
   );
   assertEquals(result.status, 502);
-  assertEquals(pulls, 0);
+  assertEquals(cancelled, true);
 });
 
 Deno.test("metadata bound|GET/HEAD: streamed overflow cancels before parsing", async () => {

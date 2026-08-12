@@ -16,6 +16,7 @@ export interface SelectionView {
 }
 
 export interface NixHandlerDependencies {
+  readonly decodedMetadataBytes: number;
   readonly selection: SelectionView;
   readonly resolverFor: (
     snapshot: SelectedPublication,
@@ -65,6 +66,46 @@ function mapped(error: unknown): Response {
   return new Response("bad gateway\n", { status: 502 });
 }
 
+async function readBoundedText(
+  body: ReadableStream<Uint8Array>,
+  limit: number,
+): Promise<string> {
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let complete = false;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) {
+        complete = true;
+        break;
+      }
+      if (next.value.byteLength > limit - total) {
+        throw new BudgetExceeded("decoded metadata byte budget exceeded");
+      }
+      total += next.value.byteLength;
+      chunks.push(next.value);
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (error) {
+    if (!complete) {
+      try {
+        await reader.cancel(error);
+      } catch { /* preserve the read/decode error */ }
+    }
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
   return async (request: Request): Promise<Response> => {
     const snapshot = dependencies.selection.current();
@@ -99,9 +140,17 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       }
       if (!resolved.body) throw new Error("GET resolution omitted body");
       if (narinfoMatch) {
-        const bytes = await new Response(resolved.body).bytes();
+        if (resolved.size > dependencies.decodedMetadataBytes) {
+          await resolved.body.cancel(
+            "decoded metadata descriptor exceeds limit",
+          );
+          throw new BudgetExceeded("decoded metadata byte budget exceeded");
+        }
         const record = parseNarInfo(
-          new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+          await readBoundedText(
+            resolved.body,
+            dependencies.decodedMetadataBytes,
+          ),
         );
         const endorsements = await classifyEndorsements(
           record,
