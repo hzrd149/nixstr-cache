@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 01
 current_phase_name: verified-nix-substitution-walking-slice
-status: executing
-stopped_at: Completed 01-10-PLAN.md
-last_updated: "2026-08-12T13:08:16.470Z"
+status: verifying
+stopped_at: Completed 01-11-PLAN.md
+last_updated: "2026-08-12T13:13:06.434Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 01 final gap-closure plans 01-10 and 01-11 created
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 
 Phase: 01 (verified-nix-substitution-walking-slice) — EXECUTING
 Plan: 11 of 11
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-12 — Phase 01 final gap-closure plans 01-10 and 01-11 created
 
-Progress: [█████████░] 91%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -67,6 +67,7 @@ Progress: [█████████░] 91%
 | Phase 01 P09 | 7 min | 2 tasks | 7 files |
 | Phase 01 P07 | 18 min | 3 tasks | 11 files |
 | Phase 01 P10 | 8 min | 3 tasks | 5 files |
+| Phase 01 P11 | 3min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Corrupt stored selections clear only event tuple fields and preserve signed-history and downgrade-consent policy.
 - [Phase ?]: Keep StateRepository authoritative for rollback and downgrade policy; EventStore receives only verified, authorized, durably accepted cache publications.
 - [Phase ?]: Project authenticated BUD-03 data inside CacheSelectionModel and preserve publisher trust in each request source plan.
+- [Phase ?]: Represent configured write capability as a discriminated writeIntent union; signer ownership and readiness remain Phase 3 responsibilities.
+- [Phase ?]: Parse writable cache identities into exact kind, lowercase pubkey, and raw identifier fields at startup.
 
 ### Pending Todos
 
@@ -120,6 +123,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T13:08:16.459Z
-Stopped at: Completed 01-10-PLAN.md
+Last session: 2026-08-12T13:13:06.423Z
+Stopped at: Completed 01-11-PLAN.md
 Resume file: None
