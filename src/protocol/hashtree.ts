@@ -25,6 +25,24 @@ export interface FanoutManifest {
 }
 export type Manifest = FileManifest | DirectoryManifest | FanoutManifest;
 
+/** Encode a validated manifest using the canonical BUD map field order. */
+export function encodeManifest(manifest: Manifest): Uint8Array {
+  const type = manifest.type === "file"
+    ? 1
+    : manifest.type === "directory"
+    ? 2
+    : 3;
+  const links = manifest.links.map((link) => ({
+    h: link.hash,
+    ...(link.key === undefined ? {} : { k: link.key }),
+    ...(link.metadata === undefined ? {} : { m: link.metadata }),
+    ...(link.name === undefined ? {} : { n: link.name }),
+    s: link.size,
+    t: link.type,
+  }));
+  return encode({ l: links, t: type });
+}
+
 export interface ManifestLimits {
   readonly maxWireBytes: number;
   readonly maxDecodedBytes: number;

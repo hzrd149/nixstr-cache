@@ -20,6 +20,15 @@ export interface PlaintextRoot {
   readonly nhash: string;
 }
 
+export function encodePlaintextNhash(root: Uint8Array): string {
+  if (root.length !== 32) throw new NhashError("root must be 32 bytes");
+  const payload = new Uint8Array(34);
+  payload[0] = 0;
+  payload[1] = 32;
+  payload.set(root, 2);
+  return bech32.encode("nhash", bech32.toWords(payload), 200);
+}
+
 export function decodePlaintextNhash(value: string): PlaintextRoot {
   if (value.length > 200 || value !== value.toLowerCase()) {
     throw new NhashError("nhash is not canonical lowercase Bech32");

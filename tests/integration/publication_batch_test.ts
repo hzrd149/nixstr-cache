@@ -1,6 +1,9 @@
 import { assertEquals, assertExists } from "@std/assert";
 import { WriteRepository } from "../../src/persistence/write_repository.ts";
-import { PublicationBatchScheduler, type BatchClock } from "../../src/write/batch_scheduler.ts";
+import {
+  type BatchClock,
+  PublicationBatchScheduler,
+} from "../../src/write/batch_scheduler.ts";
 import { HashtreeWriter } from "../../src/hashtree/writer.ts";
 
 class FakeClock implements BatchClock {
@@ -12,11 +15,15 @@ class FakeClock implements BatchClock {
     this.#timers.set(id, { at: this.now + delay, callback });
     return id;
   }
-  clearTimer(id: number): void { this.#timers.delete(id); }
+  clearTimer(id: number): void {
+    this.#timers.delete(id);
+  }
   async advance(ms: number): Promise<void> {
     this.now += ms;
     for (;;) {
-      const due = [...this.#timers.entries()].filter(([, x]) => x.at <= this.now)
+      const due = [...this.#timers.entries()].filter(([, x]) =>
+        x.at <= this.now
+      )
         .sort((a, b) => a[1].at - b[1].at || a[0] - b[0]);
       if (!due.length) break;
       const [id, timer] = due[0];
@@ -30,16 +37,23 @@ class FakeClock implements BatchClock {
 Deno.test("quiet window builds one unpublished pending candidate", async () => {
   const root = await Deno.makeTempDir();
   try {
-    const repository = new WriteRepository(`${root}/write.db`, `${root}/spool`, {
-      perBodyBytes: 4096, aggregateBytes: 65536,
-    });
+    const repository = new WriteRepository(
+      `${root}/write.db`,
+      `${root}/spool`,
+      {
+        perBodyBytes: 4096,
+        aggregateBytes: 65536,
+      },
+    );
     await repository.stage("a.narinfo", new Blob(["metadata"]).stream());
     repository.commitOverlay([]);
     const generation = repository.commitOverlayForTest(["a.narinfo"]);
     const before = repository.currentGeneration();
     const clock = new FakeClock();
     const writer = new HashtreeWriter(`${root}/trees`, {
-      maxLinks: 174, maxInventoryBlobs: 100, maxInventoryBytes: 65536,
+      maxLinks: 174,
+      maxInventoryBlobs: 100,
+      maxInventoryBytes: 65536,
     });
     const scheduler = new PublicationBatchScheduler(repository, writer, clock);
     scheduler.dirty(generation);
@@ -54,20 +68,31 @@ Deno.test("quiet window builds one unpublished pending candidate", async () => {
     assertEquals(repository.pendingInventory().length > 0, true);
     await scheduler.close();
     repository.close();
-  } finally { await Deno.remove(root, { recursive: true }); }
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
 });
 
 Deno.test("sustained windows race safely and builds serialize across restart", async () => {
   const root = await Deno.makeTempDir();
   const db = `${root}/write.db`, spool = `${root}/spool`;
   try {
-    let repository = new WriteRepository(db, spool, { perBodyBytes: 4096, aggregateBytes: 65536 });
+    let repository = new WriteRepository(db, spool, {
+      perBodyBytes: 4096,
+      aggregateBytes: 65536,
+    });
     await repository.stage("one", new Blob(["1"]).stream());
     const one = repository.commitOverlayForTest(["one"]);
     const clock = new FakeClock();
-    const scheduler = new PublicationBatchScheduler(repository, new HashtreeWriter(`${root}/trees`, {
-      maxLinks: 174, maxInventoryBlobs: 100, maxInventoryBytes: 65536,
-    }), clock);
+    const scheduler = new PublicationBatchScheduler(
+      repository,
+      new HashtreeWriter(`${root}/trees`, {
+        maxLinks: 174,
+        maxInventoryBlobs: 100,
+        maxInventoryBytes: 65536,
+      }),
+      clock,
+    );
     for (let elapsed = 0; elapsed < 60_000; elapsed += 4_000) {
       scheduler.dirty(one);
       await clock.advance(4_000);
@@ -80,9 +105,14 @@ Deno.test("sustained windows race safely and builds serialize across restart", a
     assertEquals(repository.batches().length, 2);
     await scheduler.close();
     repository.close();
-    repository = new WriteRepository(db, spool, { perBodyBytes: 4096, aggregateBytes: 65536 });
+    repository = new WriteRepository(db, spool, {
+      perBodyBytes: 4096,
+      aggregateBytes: 65536,
+    });
     assertExists(repository.pendingCandidate());
     assertEquals(repository.currentGeneration(), one);
     repository.close();
-  } finally { await Deno.remove(root, { recursive: true }); }
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
 });

@@ -30,6 +30,26 @@ export interface StagedNarInfo {
 export interface OverlayEntry extends StagedBlob {
   readonly generation: number;
 }
+export interface FrozenBatch {
+  readonly id: number;
+  readonly token: number;
+  readonly generation: number;
+  readonly baseRoot?: string;
+  readonly entries: readonly OverlayEntry[];
+}
+export interface PendingCandidate {
+  readonly batchId: number;
+  readonly generation: number;
+  readonly rootHex: string;
+  readonly nhash: string;
+  readonly blobCount: number;
+  readonly totalBytes: number;
+}
+export interface PendingInventoryEntry {
+  readonly hash: string;
+  readonly size: number;
+  readonly path: string;
+}
 
 export class WriteRepository {
   readonly changes$ = new Subject<string>();
@@ -59,6 +79,17 @@ export class WriteRepository {
        CREATE TABLE IF NOT EXISTS overlay_entries(generation INTEGER NOT NULL, route TEXT NOT NULL, digest TEXT NOT NULL, size INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY(generation,route));
        CREATE TABLE IF NOT EXISTS overlay_store_paths(generation INTEGER NOT NULL, store_path_hash TEXT NOT NULL, PRIMARY KEY(generation,store_path_hash));`,
     );
+    this.#db.exec(
+      `CREATE TABLE IF NOT EXISTS publication_clock(singleton INTEGER PRIMARY KEY CHECK(singleton=1), next_token INTEGER NOT NULL, active_token INTEGER, generation INTEGER, opened_at INTEGER, last_dirty_at INTEGER, base_root TEXT);
+       INSERT OR IGNORE INTO publication_clock(singleton,next_token) VALUES(1,1);
+       CREATE TABLE IF NOT EXISTS publication_batches(id INTEGER PRIMARY KEY AUTOINCREMENT, token INTEGER NOT NULL UNIQUE, generation INTEGER NOT NULL, base_root TEXT, status TEXT NOT NULL CHECK(status IN ('building','failed','pending')));
+       CREATE TABLE IF NOT EXISTS publication_batch_entries(batch_id INTEGER NOT NULL, generation INTEGER NOT NULL, route TEXT NOT NULL, digest TEXT NOT NULL, size INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY(batch_id,route));
+       CREATE TABLE IF NOT EXISTS pending_candidate(singleton INTEGER PRIMARY KEY CHECK(singleton=1), batch_id INTEGER NOT NULL, generation INTEGER NOT NULL, root_hex TEXT NOT NULL, nhash TEXT NOT NULL, blob_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL);
+       CREATE TABLE IF NOT EXISTS pending_candidate_blobs(batch_id INTEGER NOT NULL, hash TEXT NOT NULL, size INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY(batch_id,hash));`,
+    );
+    this.#db.prepare(
+      "UPDATE publication_batches SET status='failed' WHERE status='building'",
+    ).run();
     this.#db.exec("DELETE FROM write_reservations");
     for (const entry of Deno.readDirSync(`${root}/tmp`)) {
       if (entry.isFile) Deno.removeSync(`${root}/tmp/${entry.name}`);
@@ -227,6 +258,224 @@ export class WriteRepository {
       this.#db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  /** Commits already-staged routes as one immutable generation (also useful to non-Narinfo producers). */
+  commitOverlayForTest(routes: readonly string[]): number {
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      const previous = this.currentGeneration();
+      const generation = previous + 1;
+      this.#db.prepare(
+        "INSERT INTO overlay_entries SELECT ?,route,digest,size,path FROM overlay_entries WHERE generation=?",
+      ).run(generation, previous);
+      this.#db.prepare(
+        "INSERT INTO overlay_store_paths SELECT ?,store_path_hash FROM overlay_store_paths WHERE generation=?",
+      ).run(generation, previous);
+      const lookup = this.#db.prepare(
+        "SELECT route,digest,size,path FROM staged_blobs WHERE route=?",
+      );
+      const insert = this.#db.prepare(
+        "INSERT OR REPLACE INTO overlay_entries(generation,route,digest,size,path) VALUES(?,?,?,?,?)",
+      );
+      for (const route of [...new Set(routes)].sort()) {
+        const value = lookup.get(route) as unknown as
+          | Omit<StagedBlob, "idempotent">
+          | undefined;
+        if (!value) throw new Error("staged route disappeared");
+        insert.run(
+          generation,
+          value.route,
+          value.digest,
+          value.size,
+          value.path,
+        );
+      }
+      this.#db.prepare(
+        "UPDATE overlay_state SET current_generation=? WHERE singleton=1",
+      ).run(generation);
+      this.#db.exec("COMMIT");
+      return generation;
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  markPublicationDirty(
+    generation: number,
+    now: number,
+    baseRoot?: string,
+  ): { token: number; openedAt: number; lastDirtyAt: number } {
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = this.#db.prepare(
+        "SELECT next_token,active_token,generation,opened_at FROM publication_clock WHERE singleton=1",
+      ).get() as unknown as {
+        next_token: number;
+        active_token: number | null;
+        generation: number | null;
+        opened_at: number | null;
+      };
+      const token = row.active_token ?? row.next_token;
+      const openedAt = row.opened_at ?? now;
+      this.#db.prepare(
+        "UPDATE publication_clock SET next_token=?,active_token=?,generation=?,opened_at=?,last_dirty_at=?,base_root=? WHERE singleton=1",
+      )
+        .run(
+          row.active_token === null ? token + 1 : row.next_token,
+          token,
+          Math.max(generation, row.generation ?? 0),
+          openedAt,
+          now,
+          baseRoot ?? null,
+        );
+      this.#db.exec("COMMIT");
+      return { token, openedAt, lastDirtyAt: now };
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  claimPublicationBatch(token: number): FrozenBatch | undefined {
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      const clock = this.#db.prepare(
+        "SELECT active_token,generation,base_root FROM publication_clock WHERE singleton=1",
+      ).get() as unknown as {
+        active_token: number | null;
+        generation: number | null;
+        base_root: string | null;
+      };
+      if (clock.active_token !== token || clock.generation === null) {
+        this.#db.exec("ROLLBACK");
+        return undefined;
+      }
+      const result = this.#db.prepare(
+        "INSERT INTO publication_batches(token,generation,base_root,status) VALUES(?,?,?,'building')",
+      ).run(token, clock.generation, clock.base_root);
+      const id = Number(result.lastInsertRowid);
+      this.#db.prepare(
+        "INSERT INTO publication_batch_entries SELECT ?,generation,route,digest,size,path FROM overlay_entries WHERE generation=?",
+      ).run(id, clock.generation);
+      this.#db.prepare(
+        "UPDATE publication_clock SET active_token=NULL,generation=NULL,opened_at=NULL,last_dirty_at=NULL,base_root=NULL WHERE singleton=1",
+      ).run();
+      const entries = this.#batchEntries(id);
+      this.#db.exec("COMMIT");
+      return Object.freeze({
+        id,
+        token,
+        generation: clock.generation,
+        ...(clock.base_root ? { baseRoot: clock.base_root } : {}),
+        entries,
+      });
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  #batchEntries(id: number): readonly OverlayEntry[] {
+    return Object.freeze(
+      (this.#db.prepare(
+        "SELECT generation,route,digest,size,path FROM publication_batch_entries WHERE batch_id=? ORDER BY route",
+      ).all(id) as unknown as OverlayEntry[]).map((x) =>
+        Object.freeze({ ...x, idempotent: true })
+      ),
+    );
+  }
+  failedBatches(): readonly FrozenBatch[] {
+    const rows = this.#db.prepare(
+      "SELECT id,token,generation,base_root FROM publication_batches WHERE status='failed' ORDER BY id",
+    ).all() as unknown as {
+      id: number;
+      token: number;
+      generation: number;
+      base_root: string | null;
+    }[];
+    return Object.freeze(
+      rows.map((x) =>
+        Object.freeze({
+          id: x.id,
+          token: x.token,
+          generation: x.generation,
+          ...(x.base_root ? { baseRoot: x.base_root } : {}),
+          entries: this.#batchEntries(x.id),
+        })
+      ),
+    );
+  }
+  recordPending(
+    batch: FrozenBatch,
+    candidate: PendingCandidate,
+    inventory: readonly PendingInventoryEntry[],
+  ): void {
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      this.#db.prepare("DELETE FROM pending_candidate_blobs").run();
+      const insert = this.#db.prepare(
+        "INSERT INTO pending_candidate_blobs(batch_id,hash,size,path) VALUES(?,?,?,?)",
+      );
+      for (const blob of inventory) {
+        insert.run(batch.id, blob.hash, blob.size, blob.path);
+      }
+      this.#db.prepare(
+        "INSERT OR REPLACE INTO pending_candidate(singleton,batch_id,generation,root_hex,nhash,blob_count,total_bytes) VALUES(1,?,?,?,?,?,?)",
+      )
+        .run(
+          batch.id,
+          batch.generation,
+          candidate.rootHex,
+          candidate.nhash,
+          inventory.length,
+          candidate.totalBytes,
+        );
+      this.#db.prepare(
+        "UPDATE publication_batches SET status='pending' WHERE id=? AND status IN ('building','failed')",
+      ).run(batch.id);
+      this.#db.exec("COMMIT");
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  markBatchFailed(id: number): void {
+    this.#db.prepare(
+      "UPDATE publication_batches SET status='failed' WHERE id=?",
+    ).run(id);
+  }
+  pendingCandidate(): PendingCandidate | undefined {
+    const row = this.#db.prepare(
+      "SELECT batch_id batchId,generation,root_hex rootHex,nhash,blob_count blobCount,total_bytes totalBytes FROM pending_candidate WHERE singleton=1",
+    ).get() as unknown as PendingCandidate | undefined;
+    return row && Object.freeze(row);
+  }
+  pendingInventory(): readonly PendingInventoryEntry[] {
+    return Object.freeze(
+      (this.#db.prepare(
+        "SELECT hash,size,path FROM pending_candidate_blobs ORDER BY hash",
+      ).all() as unknown as PendingInventoryEntry[]).map((row) =>
+        Object.freeze(row)
+      ),
+    );
+  }
+  batches(): readonly {
+    id: number;
+    token: number;
+    generation: number;
+    status: string;
+  }[] {
+    return Object.freeze(
+      (this.#db.prepare(
+        "SELECT id,token,generation,status FROM publication_batches ORDER BY id",
+      ).all() as unknown as {
+        id: number;
+        token: number;
+        generation: number;
+        status: string;
+      }[]).map((row) => Object.freeze(row)),
+    );
   }
 
   async stage(

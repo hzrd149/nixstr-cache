@@ -16,15 +16,23 @@ Deno.test("canonical writer is deterministic, reader-compatible, and reuses blob
     const first = await writer.build(input);
     const second = await writer.build(input, first);
     assertEquals(first.rootHex, second.rootHex);
-    assertEquals(first.inventory.map((x) => x.hash), second.inventory.map((x) => x.hash));
+    assertEquals(
+      first.inventory.map((x) => x.hash),
+      second.inventory.map((x) => x.hash),
+    );
     assertEquals(second.createdBlobs, 0);
     assertGreater(first.inventory.length, 3);
-    const rootWire = await Deno.readFile(first.inventory.find((x) => x.hash === first.rootHex)!.path);
-    assertEquals(decodeManifest(rootWire, {
-      maxWireBytes: 1_000_000,
-      maxDecodedBytes: 1_000_000,
-      maxLinks: 174,
-    }).type, "directory");
+    const rootWire = await Deno.readFile(
+      first.inventory.find((x) => x.hash === first.rootHex)!.path,
+    );
+    assertEquals(
+      decodeManifest(rootWire, {
+        maxWireBytes: 1_000_000,
+        maxDecodedBytes: 1_000_000,
+        maxLinks: 174,
+      }).type,
+      "directory",
+    );
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -41,7 +49,9 @@ Deno.test("directory ordering is UTF-8 bytewise and fanout stays bounded", async
       maxInventoryBytes: 1_000_000,
     });
     const result = await writer.build(["z", "é", "a"].map((name) => ({
-      route: `${name}/file`, path: source, size: 1,
+      route: `${name}/file`,
+      path: source,
+      size: 1,
     })));
     const manifest = decodeManifest(await Deno.readFile(result.rootPath), {
       maxWireBytes: 1_000_000,
@@ -49,7 +59,10 @@ Deno.test("directory ordering is UTF-8 bytewise and fanout stays bounded", async
       maxLinks: 2,
     });
     assertEquals(manifest.type, "fanout");
-    assertEquals(manifest.links.every((link) => link.type === 2 || link.type === 3), true);
+    assertEquals(
+      manifest.links.every((link) => link.type === 2 || link.type === 3),
+      true,
+    );
   } finally {
     await Deno.remove(root, { recursive: true });
   }
