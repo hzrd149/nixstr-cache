@@ -1,8 +1,8 @@
 ---
 phase: 04-availability-gated-publication-loop
-reviewed: 2026-08-12T18:58:00Z
-re_review_of: 2026-08-12T18:34:00Z
-head: 42fc03f
+reviewed: 2026-08-12T19:12:00Z
+re_review_of: 2026-08-12T18:58:00Z
+head: 31fc58b
 depth: deep
 files_reviewed: 55
 files_reviewed_list:
@@ -69,6 +69,30 @@ status: passed
 ---
 
 # Phase 04: Milestone Code Re-review Report
+
+## Final Confirmation Re-review — 2026-08-12
+
+**HEAD:** `31fc58b`  
+**Status:** passed
+
+Fresh source-wide review confirms WR-06, WR-07, and WR-08 are closed and finds
+no new Critical or Warning issue. The callable HTTP handler now owns and closes
+its route registries during daemon drain; idle signer leases expire on an
+independent earliest-deadline timer with exact-once release. Writer builds are
+registered synchronously before asynchronous work, close rejects new admission,
+drains active operations and returned handles, then checkpoints/closes its
+ledger. Index cleanup paths are journaled before run liveness is removed and
+failed filesystem deletion retains a tombstone for retry on reopen.
+
+The final focused read-only verification passed 42/42 tests across Hashtree
+writer lifecycle, handler/registry lifecycle, batching, publication rollover,
+repair, cancellation, quota, and writable-cache behavior. Cross-file review
+also reconfirmed the historical CR-01 through CR-06 and WR-01 through WR-05
+closures, SSRF address pinning/manual redirects, bounded streaming, exact signer
+template validation, and durable relay/admission ordering.
+
+Final result: zero Critical findings, zero Warnings. All reports below are
+retained as superseded historical evidence.
 
 ## Zero-Warning Lifecycle Re-review — 2026-08-12
 
