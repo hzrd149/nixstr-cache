@@ -4,9 +4,9 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 3
 current_phase_name: Signer-Gated Writable Cache
-status: planning
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-08-12T14:12:30.656Z"
+status: planned
+stopped_at: Phase 03 planned — ready for 03-01-PLAN.md
+last_updated: "2026-08-12T15:00:00.000Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 02 complete, transitioned to Phase 3
 progress:
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** An unmodified Nix client can reliably read and publish a decentralized binary cache while preserving NIP.md trust, integrity, freshness, and bounded-resource guarantees.
-**Current focus:** Phase 01 — verified-nix-substitution-walking-slice
+**Current focus:** Phase 03 — signer-gated writable cache
 
 ## Current Position
 
 Phase: 3 — Signer-Gated Writable Cache
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-12 — Phase 02 complete, transitioned to Phase 3
+Status: Planned
+Last activity: 2026-08-12 — Phase 03 planned in 3 dependency-ordered waves
 
 Progress: [██████████] 100%
 
@@ -141,5 +141,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-12T14:07:11.221Z
-Stopped at: Completed 02-03-PLAN.md
+Stopped at: Phase 03 planned — ready for 03-01-PLAN.md
 Resume file: None

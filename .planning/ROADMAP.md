@@ -103,7 +103,13 @@ Plans:
   3. Complete staged objects become readable from the highest-priority signer overlay, while objects missing their `.narinfo`, NAR, or declared references remain invisible.
   4. After five quiet seconds or sixty seconds of sustained writes, the daemon freezes one dependency-closed batch and deterministically builds its plaintext copy-on-write Hashtree without disturbing the committed read view.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+
+- [ ] 03-01-PLAN.md — Gate stock-Nix streamed PUT staging behind one exact signer-owned capability.
+- [ ] 03-02-PLAN.md — Commit dependency-closed objects into an immutable signer-first overlay.
+- [ ] 03-03-PLAN.md — Freeze deterministic batches and build durable unpublished plaintext Hashtree candidates.
 
 ### Phase 4: Availability-Gated Publication Loop
 
@@ -130,5 +136,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Verified Nix Substitution Walking Slice | 11/11 | Complete    | 2026-08-12 |
 | 2. Deterministic Merged Read Cache | 3/3 | Complete    | 2026-08-12 |
-| 3. Signer-Gated Writable Cache | 0/TBD | Not started | - |
+| 3. Signer-Gated Writable Cache | 0/3 | Planned | - |
 | 4. Availability-Gated Publication Loop | 0/TBD | Not started | - |
