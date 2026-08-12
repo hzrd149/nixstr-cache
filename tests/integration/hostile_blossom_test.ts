@@ -1,4 +1,9 @@
-import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import {
+  assertEquals,
+  assertRejects,
+  assertStringIncludes,
+  assertThrows,
+} from "@std/assert";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { BlobFetcher, HashMismatch } from "../../src/blossom/blob_fetcher.ts";
 import { buildSourcePlan } from "../../src/blossom/source_plan.ts";
@@ -126,6 +131,21 @@ Deno.test("source plan|verified spool|quarantine: oversize removes partial spool
 const manifest = (value: unknown) => encode(value);
 const hashBytes = (bytes: Uint8Array) => sha256(bytes);
 
+const traversalLimits = (overrides: Record<string, number> = {}) => ({
+  maxDepth: 5,
+  maxLinks: 20,
+  maxUniqueNodes: 10,
+  maxDecodedBytes: 10000,
+  maxAttempts: 10,
+  maxRedirects: 3,
+  maxConcurrent: 2,
+  maxBlobTransferBytes: 4096,
+  maxTransferredBytes: 10000,
+  maxOutputBytes: 10000,
+  deadline: Date.now() + 5000,
+  ...overrides,
+});
+
 Deno.test("traversal|backpressure|HEAD: lazy lookup ignores unrelated missing branches", async () => {
   const content = new TextEncoder().encode("hello");
   const contentHash = hashBytes(content);
@@ -169,16 +189,7 @@ Deno.test("traversal|backpressure|HEAD: lazy lookup ignores unrelated missing br
     hex(hashBytes(root)),
     "wanted",
     "GET",
-    new RequestBudget({
-      maxDepth: 5,
-      maxLinks: 20,
-      maxUniqueNodes: 10,
-      maxDecodedBytes: 10000,
-      maxAttempts: 10,
-      maxRedirects: 3,
-      maxConcurrent: 2,
-      deadline: Date.now() + 5000,
-    }),
+    new RequestBudget(traversalLimits()),
   );
   assertEquals(await new Response(result.body).text(), "hello");
   assertEquals(calls.length, 2);
@@ -214,16 +225,7 @@ Deno.test("traversal|backpressure|HEAD: authenticates final link without fetchin
     hex(hashBytes(root)),
     "file",
     "HEAD",
-    new RequestBudget({
-      maxDepth: 5,
-      maxLinks: 20,
-      maxUniqueNodes: 10,
-      maxDecodedBytes: 10000,
-      maxAttempts: 10,
-      maxRedirects: 3,
-      maxConcurrent: 2,
-      deadline: Date.now() + 5000,
-    }),
+    new RequestBudget(traversalLimits()),
   );
   assertEquals(result.size, content.length);
   assertEquals(calls, 1);
@@ -251,20 +253,11 @@ Deno.test("traversal|backpressure|HEAD: absence and budget overflow remain typed
         hex(hashBytes(root)),
         "missing",
         "HEAD",
-        new RequestBudget({
-          maxDepth: 5,
-          maxLinks: 20,
-          maxUniqueNodes: 10,
-          maxDecodedBytes: 10000,
-          maxAttempts: 10,
-          maxRedirects: 3,
-          maxConcurrent: 2,
-          deadline: Date.now() + 5000,
-        }),
+        new RequestBudget(traversalLimits()),
       ),
     VerifiedAbsent,
   );
-  const budget = new RequestBudget({
+  const budget = new RequestBudget(traversalLimits({
     maxDepth: 1,
     maxLinks: 1,
     maxUniqueNodes: 1,
@@ -272,10 +265,145 @@ Deno.test("traversal|backpressure|HEAD: absence and budget overflow remain typed
     maxAttempts: 1,
     maxRedirects: 1,
     maxConcurrent: 1,
-    deadline: Date.now() + 5000,
-  });
+  }));
   budget.debitLinks(1);
   assertThrows(() => budget.debitLinks(1));
+});
+
+Deno.test("ordered: nested file manifests preserve authenticated chunk order", async () => {
+  const chunks = ["A", "B", "C", "D"].map((text) =>
+    new TextEncoder().encode(text)
+  );
+  const child = manifest({
+    l: chunks.slice(1, 3).map((bytes) => ({
+      h: hashBytes(bytes),
+      s: bytes.length,
+      t: 0,
+    })),
+    t: 1,
+  });
+  const parent = manifest({
+    l: [
+      { h: hashBytes(chunks[0]), s: 1, t: 0 },
+      { h: hashBytes(child), s: 2, t: 1 },
+      { h: hashBytes(chunks[3]), s: 1, t: 0 },
+    ],
+    t: 1,
+  });
+  const root = manifest({
+    l: [{ h: hashBytes(parent), n: "nested", s: 4, t: 1 }],
+    t: 2,
+  });
+  const blobs = new Map(
+    [root, parent, child, ...chunks].map((bytes) => [hex(hashBytes(bytes)), bytes]),
+  );
+  const resolver = new PathResolver(
+    new BlobFetcher({
+      fetcher: {
+        fetch: (url: string | URL) => {
+          const bytes = blobs.get(String(url).split("/").at(-1)!);
+          return Promise.resolve(response(bytes!));
+        },
+      },
+      quarantine: {
+        isQuarantined: () => false,
+        quarantine: () => {},
+        releaseQuarantine: () => {},
+      },
+      spoolDirectory: await Deno.makeTempDir(),
+    }),
+    buildSourcePlan({ event: ["http://tree.test"] }),
+    { maxWireBytes: 4096, maxDecodedBytes: 4096, maxLinks: 10 },
+  );
+  const result = await resolver.resolve(
+    hex(hashBytes(root)),
+    "nested",
+    "GET",
+    new RequestBudget(traversalLimits()),
+  );
+  assertEquals(await new Response(result.body).text(), "ABCD");
+});
+
+Deno.test("transfer budget: policy bounds declarations and actual retry bytes", async () => {
+  const content = new TextEncoder().encode("12345");
+  const contentHash = hashBytes(content);
+  const oversizedRoot = manifest({
+    l: [{ h: contentHash, n: "raw", s: 6, t: 0 }],
+    t: 2,
+  });
+  let rawFetches = 0;
+  const blobs = new Map([[hex(hashBytes(oversizedRoot)), oversizedRoot], [
+    hex(contentHash),
+    content,
+  ]]);
+  const resolver = new PathResolver(
+    new BlobFetcher({
+      fetcher: {
+        fetch: (url: string | URL) => {
+          const hash = String(url).split("/").at(-1)!;
+          if (hash === hex(contentHash)) rawFetches++;
+          return Promise.resolve(response(blobs.get(hash)!));
+        },
+      },
+      quarantine: {
+        isQuarantined: () => false,
+        quarantine: () => {},
+        releaseQuarantine: () => {},
+      },
+      spoolDirectory: await Deno.makeTempDir(),
+    }),
+    buildSourcePlan({ event: ["http://tree.test"] }),
+    { maxWireBytes: 4096, maxDecodedBytes: 4096, maxLinks: 10 },
+  );
+  await assertRejects(
+    () =>
+      resolver.resolve(
+        hex(hashBytes(oversizedRoot)),
+        "raw",
+        "GET",
+        new RequestBudget(traversalLimits({ maxBlobTransferBytes: 5 })),
+      ),
+    Error,
+    "per-blob",
+  );
+  assertEquals(rawFetches, 0);
+
+  const budget = new RequestBudget(traversalLimits({
+    maxBlobTransferBytes: 5,
+    maxTransferredBytes: oversizedRoot.length + 4,
+  }));
+  const exactRoot = manifest({
+    l: [{ h: contentHash, n: "raw", s: 5, t: 0 }],
+    t: 2,
+  });
+  blobs.set(hex(hashBytes(exactRoot)), exactRoot);
+  await assertRejects(
+    async () => {
+      const result = await resolver.resolve(
+        hex(hashBytes(exactRoot)),
+        "raw",
+        "GET",
+        budget,
+      );
+      await new Response(result.body).bytes();
+    },
+    Error,
+    "transfer",
+  );
+});
+
+Deno.test("output budget: exact output succeeds and one byte over is rejected", () => {
+  const exact = new RequestBudget(traversalLimits({ maxOutputBytes: 4 }));
+  exact.ensureOutputAvailable(4);
+  exact.debitOutput(4);
+  assertThrows(
+    () => exact.debitOutput(1),
+    Error,
+    "output budget exceeded",
+  );
+  const over = new RequestBudget(traversalLimits({ maxOutputBytes: 3 }));
+  assertThrows(() => over.ensureOutputAvailable(4), Error, "output budget");
+  assertStringIncludes(String(over.remainingOutputBytes), "3");
 });
 
 async function withRawResponse<T>(
