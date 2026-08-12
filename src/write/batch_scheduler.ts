@@ -40,6 +40,8 @@ export class PublicationBatchScheduler {
     readonly clock: BatchClock = systemClock,
   ) {
     for (const batch of repository.failedBatches()) this.#enqueue(batch);
+    const window = repository.activePublicationWindow();
+    if (window) this.#arm(window);
   }
   dirty(generation: number, baseRoot?: string): void {
     if (this.#closed) return;
@@ -48,14 +50,19 @@ export class PublicationBatchScheduler {
       this.clock.now,
       baseRoot,
     );
+    this.#arm(window);
+  }
+  #arm(window: { token: number; openedAt: number; lastDirtyAt: number }): void {
     if (this.#quiet !== undefined) this.clock.clearTimer(this.#quiet);
-    this.#quiet = this.clock.setTimer(() => this.#fire(window.token), 5_000);
-    if (this.#maximum === undefined) {
-      this.#maximum = this.clock.setTimer(
-        () => this.#fire(window.token),
-        Math.max(0, window.openedAt + 60_000 - this.clock.now),
-      );
-    }
+    if (this.#maximum !== undefined) this.clock.clearTimer(this.#maximum);
+    this.#quiet = this.clock.setTimer(
+      () => this.#fire(window.token),
+      Math.max(0, window.lastDirtyAt + 5_000 - this.clock.now),
+    );
+    this.#maximum = this.clock.setTimer(
+      () => this.#fire(window.token),
+      Math.max(0, window.openedAt + 60_000 - this.clock.now),
+    );
   }
   #fire(token: number): void {
     if (this.#closed) return;

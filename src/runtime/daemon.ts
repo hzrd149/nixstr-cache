@@ -390,6 +390,23 @@ export function createProductionDependencies(
         )
         : undefined;
       if (batchScheduler) supervisor.drains.add(() => batchScheduler.close());
+      if (eligibility && batchScheduler && writeRepository) {
+        let lastDirtiedGeneration = writeRepository.activePublicationWindow()
+          ?.generation ?? 0;
+        const onCommitted = (generation: number) => {
+          if (generation <= lastDirtiedGeneration) return;
+          lastDirtiedGeneration = generation;
+          batchScheduler.dirty(generation);
+        };
+        const subscription = eligibility.start(onCommitted);
+        const recovery = eligibility.reconcile(onCommitted).then(() => {})
+          .finally(() => supervisor.tasks.delete(recovery));
+        supervisor.tasks.add(recovery);
+        supervisor.drains.add(() => {
+          subscription.unsubscribe();
+          return Promise.resolve();
+        });
+      }
       if (writeRepository && signer && config.writeIntent.mode !== "disabled") {
         const writableIdentity = config.writeIntent.identity;
         const publishPool = new RelayPool();
@@ -553,11 +570,7 @@ export function createProductionDependencies(
                   config.relayUrls.length > 0 && hasDestination,
                 repository: writeRepository,
                 onStaged: async (route) => {
-                  const changed = await (eligibility?.changed(route) ?? false);
-                  if (changed) {
-                    batchScheduler?.dirty(writeRepository.currentGeneration());
-                  }
-                  return changed;
+                  return await (eligibility?.changed(route) ?? false);
                 },
               };
             },

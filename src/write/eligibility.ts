@@ -22,10 +22,28 @@ export class EligibilityModel {
     this.#serial = next.catch(() => false);
     return next;
   }
-  start(): Subscription {
+  start(onCommitted?: (generation: number) => void): Subscription {
     return this.repository.changes$.subscribe((route) => {
-      void this.changed(route);
+      void this.changed(route).then((changed) => {
+        if (changed) onCommitted?.(this.repository.currentGeneration());
+      });
     });
+  }
+  async reconcile(
+    onCommitted?: (generation: number) => void,
+  ): Promise<boolean> {
+    let changed = false;
+    for (
+      const hash of this.repository.stagedCandidateHashes(
+        this.options.maxVisited,
+      )
+    ) {
+      if (await this.changed(hash)) {
+        changed = true;
+        onCommitted?.(this.repository.currentGeneration());
+      }
+    }
+    return changed;
   }
   idle(): Promise<boolean> {
     return this.#serial;

@@ -312,3 +312,52 @@ Deno.test("reverse dependencies cycles restart and concurrent generations remain
   repository.close();
   await Deno.remove(root, { recursive: true });
 });
+
+Deno.test("restart reconciliation admits complete staged content without a later write", async () => {
+  const root = await Deno.makeTempDir();
+  const db = `${root}/write.db`, spool = `${root}/spool`;
+  const hash = "dddddddddddddddddddddddddddddddd";
+  const raw = [
+    `StorePath: /nix/store/${hash}-restart`,
+    "URL: nar/restart.nar",
+    "Compression: none",
+    "FileHash: sha256:abc",
+    "FileSize: 1",
+    "NarHash: sha256:abc",
+    "NarSize: 1",
+    "References: ",
+    "",
+  ].join("\n");
+  let repository = new WriteRepository(db, spool, {
+    perBodyBytes: 4096,
+    aggregateBytes: 65536,
+  });
+  await repository.stage(`${hash}.narinfo`, new Blob([raw]).stream());
+  repository.recordNarInfo(`${hash}.narinfo`, parseNarInfo(raw));
+  await repository.stage("nar/restart.nar", new Blob(["x"]).stream());
+  repository.close();
+  repository = new WriteRepository(db, spool, {
+    perBodyBytes: 4096,
+    aggregateBytes: 65536,
+  });
+  const overlay = new SignerOverlay(repository);
+  const eligibility = new EligibilityModel(repository, overlay, {
+    maxVisited: 8,
+    maxMetadataBytes: 8192,
+    lowerHasStorePath: () => false,
+  });
+  const generations: number[] = [];
+  const subscription = eligibility.start((generation) =>
+    generations.push(generation)
+  );
+  assertEquals(
+    await eligibility.reconcile((generation) => generations.push(generation)),
+    true,
+  );
+  assertEquals(overlay.current().entries.size, 2);
+  assertEquals(generations, [1]);
+  assertEquals(await eligibility.reconcile(), false);
+  subscription.unsubscribe();
+  repository.close();
+  await Deno.remove(root, { recursive: true });
+});

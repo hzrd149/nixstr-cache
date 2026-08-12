@@ -39,6 +39,13 @@ export interface FrozenBatch {
   readonly baseRoot?: string;
   readonly entries: readonly OverlayEntry[];
 }
+export interface ActivePublicationWindow {
+  readonly token: number;
+  readonly generation: number;
+  readonly openedAt: number;
+  readonly lastDirtyAt: number;
+  readonly baseRoot?: string;
+}
 export interface PendingCandidate {
   readonly batchId: number;
   readonly generation: number;
@@ -242,6 +249,16 @@ export class WriteRepository {
     ));
   }
 
+  stagedCandidateHashes(maxVisited: number): readonly string[] {
+    const rows = this.#db.prepare(
+      "SELECT store_path_hash hash FROM staged_narinfos ORDER BY store_path_hash LIMIT ?",
+    ).all(maxVisited + 1) as unknown as { hash: string }[];
+    if (rows.length > maxVisited) {
+      throw new RangeError("eligibility visited-node ceiling exceeded");
+    }
+    return Object.freeze(rows.map((row) => row.hash));
+  }
+
   currentOverlayEntries(): readonly OverlayEntry[] {
     const generation = this.currentGeneration();
     const rows = this.#db.prepare(
@@ -398,6 +415,29 @@ export class WriteRepository {
       this.#db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  activePublicationWindow(): ActivePublicationWindow | undefined {
+    const row = this.#db.prepare(
+      "SELECT active_token token,generation,opened_at openedAt,last_dirty_at lastDirtyAt,base_root baseRoot FROM publication_clock WHERE singleton=1",
+    ).get() as unknown as {
+      token: number | null;
+      generation: number | null;
+      openedAt: number | null;
+      lastDirtyAt: number | null;
+      baseRoot: string | null;
+    };
+    if (
+      row.token === null || row.generation === null || row.openedAt === null ||
+      row.lastDirtyAt === null
+    ) return undefined;
+    return Object.freeze({
+      token: row.token,
+      generation: row.generation,
+      openedAt: row.openedAt,
+      lastDirtyAt: row.lastDirtyAt,
+      ...(row.baseRoot ? { baseRoot: row.baseRoot } : {}),
+    });
   }
 
   claimPublicationBatch(token: number): FrozenBatch | undefined {

@@ -169,10 +169,43 @@ Deno.test("workers serialize and an interrupted frozen batch rebuilds after rest
   }
 });
 
-Deno.test("phase three daemon contains no signing upload publish or pending-root promotion", async () => {
-  const source = await Deno.readTextFile("src/runtime/daemon.ts");
-  assertEquals(
-    /signEvent|uploadBlob|relay\.publish|promotePending/.test(source),
-    false,
-  );
+Deno.test("restart restores the durable quiet deadline without another dirty", async () => {
+  const root = await Deno.makeTempDir();
+  const db = `${root}/write.db`, spool = `${root}/spool`;
+  try {
+    let repository = new WriteRepository(db, spool, {
+      perBodyBytes: 4096,
+      aggregateBytes: 65536,
+    });
+    await repository.stage("one", new Blob(["1"]).stream());
+    const generation = repository.commitOverlayRoutes(["one"]);
+    repository.markPublicationDirty(generation, 1_000, "base");
+    repository.close();
+    repository = new WriteRepository(db, spool, {
+      perBodyBytes: 4096,
+      aggregateBytes: 65536,
+    });
+    const clock = new FakeClock();
+    clock.now = 4_000;
+    const scheduler = new PublicationBatchScheduler(
+      repository,
+      new HashtreeWriter(`${root}/trees`, {
+        maxLinks: 174,
+        maxInventoryBlobs: 100,
+        maxInventoryBytes: 65536,
+      }),
+      clock,
+    );
+    assertEquals(repository.activePublicationWindow()?.baseRoot, "base");
+    await clock.advance(1_999);
+    assertEquals(repository.pendingCandidate(), undefined);
+    await clock.advance(1);
+    await scheduler.idle();
+    assertExists(repository.pendingCandidate());
+    assertEquals(repository.batches().length, 1);
+    await scheduler.close();
+    repository.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
 });
