@@ -27,7 +27,6 @@ interface DaemonFixture {
   accessLog: string;
 }
 
-const encoder = new TextEncoder();
 const hex = (bytes: Uint8Array) => sha256(bytes).toHex();
 const bytes32 = (value: string) => Uint8Array.fromHex(value);
 
@@ -66,7 +65,7 @@ async function daemon(fixturePath: string): Promise<void> {
     socket.onerror = () => reject(new Error("relay connection failed"));
   });
   const fetcher = new SafeFetcher(
-    new AddressPolicy(async () => ["127.0.0.1"], fixture.blossomUrl),
+    new AddressPolicy(() => Promise.resolve(["127.0.0.1"]), fixture.blossomUrl),
     new PinnedTransport(),
     { maxRedirects: 3, connectTimeoutMs: 2_000, totalTimeoutMs: 30_000 },
   );

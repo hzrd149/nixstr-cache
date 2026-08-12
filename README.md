@@ -10,7 +10,11 @@ deno task test:nix-e2e
 
 It requires exactly Nix 2.34.7 and uses only loopback listeners, temporary
 source/destination stores, temporary SQLite state, and child processes. Run the
-complete Phase 1 matrix with `deno task verify`.
+complete Phase 1 matrix with `deno task verify`. Tests bind ephemeral loopback
+ports and create all state below the platform temporary directory; the Deno
+tasks grant network access only to `127.0.0.1`, repository read access,
+temporary read/write access, and (for the E2E only) execution of `nix`,
+`nix-store`, and the pinned Deno runtime.
 
 For a daemon assembled with the runtime dependencies from `src/app.ts`, set
 `NIXSTR_BIND_HOST`, `NIXSTR_BIND_PORT`, `NIXSTR_PUBLISHER_PUBKEYS`,
