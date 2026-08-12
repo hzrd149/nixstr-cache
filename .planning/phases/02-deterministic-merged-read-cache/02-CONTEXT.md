@@ -23,7 +23,7 @@ Generalize the verified Phase 1 read path from one selected cache identity to an
 ### Duplicate Narinfo Resolution
 - Resolve the requested `.narinfo` against every available layer in priority order using one request-captured merged snapshot.
 - Compare parsed non-signature semantic fields canonically. Records that agree contribute a stable union of syntactically valid `Sig` lines while preserving the highest-priority record's scalar field encoding/order.
-- Deduplicate identical signature lines byte-for-byte and append lower-priority unique signatures in stable publisher and record order.
+- Concatenate every syntactically valid signature occurrence, including byte-identical duplicates, in stable publisher and record order as required by normative `NIP.md`; do not normalize or deduplicate `Sig` lines.
 - On any semantic disagreement, serve the complete highest-priority record unchanged and emit one structured conflict diagnostic containing the store-path hash, winning/losing identities, and differing field names; do not leak record contents or silently merge.
 
 ### Conflict Observability
@@ -41,7 +41,7 @@ Generalize the verified Phase 1 read path from one selected cache identity to an
 ### the agent's Discretion
 - Exact internal type/module names, provided they preserve the identity-layer, immutable-snapshot, typed-diagnostic, and verified-blob boundaries above.
 - Whether duplicate Narinfo probing is sequential or bounded-concurrent, provided output ordering and resource ceilings remain deterministic and explicit.
-- Local cache upload retry timing within Phase 2, provided failed uploads remain observable and do not fail a successfully verified read.
+- Local cache upload retry timing and injected local-uploader implementation within Phase 2, provided failed uploads remain observable, do not fail a successfully verified read, and do not introduce signer authorization or public PUT routes before Phase 3.
 
 </decisions>
 
