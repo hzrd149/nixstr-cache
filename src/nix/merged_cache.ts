@@ -202,7 +202,19 @@ export class WinnerRouteRegistry {
       if (value.expiresAt <= now) this.#entries.delete(key);
     }
   }
+  close(): void {
+    this.#entries.clear();
+  }
 }
+
+export interface RegistryTimer {
+  set(callback: () => void, delayMs: number): number;
+  clear(id: number): void;
+}
+const registryTimer: RegistryTimer = {
+  set: (callback, delay) => Number(setTimeout(callback, delay)),
+  clear: (id) => clearTimeout(id),
+};
 
 export class SignerRouteRegistry {
   readonly #entries = new Map<
@@ -213,8 +225,12 @@ export class SignerRouteRegistry {
     readonly maxEntries: number,
     readonly ttlMs: number,
     readonly now = Date.now,
+    readonly timer: RegistryTimer = registryTimer,
   ) {}
+  #timerId?: number;
+  #closed = false;
   set(path: string, lease: LeasedSignerOverlaySnapshot): void {
+    if (this.#closed) throw new Error("signer route registry is closed");
     const key = normalizedNarPath(path);
     if (!key) throw new TypeError("invalid NAR route");
     this.#purge();
@@ -223,16 +239,20 @@ export class SignerRouteRegistry {
       this.#delete(this.#entries.keys().next().value!);
     }
     this.#entries.set(key, { lease, expiresAt: this.now() + this.ttlMs });
+    this.#arm();
   }
   take(path: string): LeasedSignerOverlaySnapshot | undefined {
+    if (this.#closed) return undefined;
     const key = normalizedNarPath(path);
     if (!key) return undefined;
     const entry = this.#entries.get(key);
     if (!entry || entry.expiresAt <= this.now()) {
       this.#delete(key);
+      this.#arm();
       return undefined;
     }
     this.#entries.delete(key);
+    this.#arm();
     return entry.lease;
   }
   #purge(): void {
@@ -247,6 +267,23 @@ export class SignerRouteRegistry {
     entry?.lease.release();
   }
   close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    if (this.#timerId !== undefined) this.timer.clear(this.#timerId);
+    this.#timerId = undefined;
     for (const key of [...this.#entries.keys()]) this.#delete(key);
+  }
+  #arm(): void {
+    if (this.#timerId !== undefined) this.timer.clear(this.#timerId);
+    this.#timerId = undefined;
+    if (this.#closed || !this.#entries.size) return;
+    const earliest = Math.min(
+      ...[...this.#entries.values()].map((x) => x.expiresAt),
+    );
+    this.#timerId = this.timer.set(() => {
+      this.#timerId = undefined;
+      this.#purge();
+      this.#arm();
+    }, Math.max(0, earliest - this.now()));
   }
 }

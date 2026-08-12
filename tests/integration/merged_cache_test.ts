@@ -110,7 +110,16 @@ Deno.test("agreement preserves duplicate signature occurrence order and exact HE
 Deno.test("pinned signer registry releases generation leases exactly once", () => {
   let now = 0;
   let released = 0;
-  const registry = new SignerRouteRegistry(1, 10, () => now);
+  let callback: (() => void) | undefined;
+  const registry = new SignerRouteRegistry(1, 10, () => now, {
+    set(fn) {
+      callback = fn;
+      return 1;
+    },
+    clear() {
+      callback = undefined;
+    },
+  });
   const lease = (generation: number) => ({
     snapshot: {
       generation,
@@ -127,7 +136,7 @@ Deno.test("pinned signer registry releases generation leases exactly once", () =
   assertEquals(released, 2);
   registry.set("nar/three.nar", lease(3));
   now = 11;
-  assertEquals(registry.take("nar/three.nar"), undefined);
+  callback?.();
   assertEquals(released, 3);
   registry.close();
   registry.close();

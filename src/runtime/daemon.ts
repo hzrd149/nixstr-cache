@@ -504,7 +504,7 @@ export function createProductionDependencies(
           publishPool.close();
         });
       }
-      return createNixHttpHandler({
+      const nixHandler = createNixHttpHandler({
         decodedMetadataBytes: config.limits.decodedMetadataBytes,
         selection: {
           current: () =>
@@ -602,6 +602,11 @@ export function createProductionDependencies(
         },
         budgetFor,
       });
+      supervisor.drains.add(() => {
+        nixHandler.close();
+        return Promise.resolve();
+      });
+      return nixHandler;
     },
   };
 }

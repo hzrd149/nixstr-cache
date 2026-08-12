@@ -92,6 +92,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
   const routes = dependencies.routes ??
     new WinnerRouteRegistry(1024, 5 * 60_000);
   const signerRoutes = new SignerRouteRegistry(1024, 5 * 60_000);
+  let closed = false;
   const emitOperational = (
     item: Parameters<OperationalDiagnosticSink["emit"]>[0],
   ) => {
@@ -99,7 +100,8 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       dependencies.operationalDiagnostics?.emit(item);
     } catch { /* diagnostics are non-authoritative */ }
   };
-  return async (request: Request): Promise<Response> => {
+  const handler = async (request: Request): Promise<Response> => {
+    if (closed) return new Response("service unavailable\n", { status: 503 });
     const pathname = new URL(request.url).pathname;
     if (
       pathname === "/health" &&
@@ -335,6 +337,17 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       return mapped(error);
     }
   };
+  return Object.assign(handler, {
+    close() {
+      if (closed) return;
+      closed = true;
+      signerRoutes.close();
+      routes.close();
+    },
+    [Symbol.dispose]() {
+      this.close();
+    },
+  });
 }
 
 function releaseOnTerminal(
