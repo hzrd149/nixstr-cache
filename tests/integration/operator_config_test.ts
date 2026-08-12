@@ -187,6 +187,16 @@ Deno.test("environment mapper preserves signer write-intent fields", () => {
   assertEquals(mapped.writableIdentity, `37091:${PUBKEY}:named`);
 });
 
+Deno.test("enabled signer requires exactly its protected source and staging limits", () => {
+  const local = parseConfig(validRaw({ signerMode: "local", writableIdentity: `17091:${PUBKEY}:`, localKeyPath: "/tmp/key", stagingDirectory: "/tmp/staging", stagingBodyBytes: "1024", stagingAggregateBytes: "4096" }));
+  assert(local.ok);
+  assertEquals(local.value.localKeyPath, "/tmp/key");
+  const missing = parseConfig(validRaw({ signerMode: "local", writableIdentity: `17091:${PUBKEY}:` }));
+  assert(!missing.ok);
+  const contradictory = parseConfig(validRaw({ signerMode: "local", writableIdentity: `17091:${PUBKEY}:`, localKeyPath: "/tmp/key", nip46SessionPath: "/tmp/session", stagingDirectory: "/tmp/staging", stagingBodyBytes: "1024", stagingAggregateBytes: "4096" }));
+  assert(!contradictory.ok);
+});
+
 Deno.test("production environment collector maps every supported limit", () => {
   const environment = {
     NIXSTR_PUBLISHER_PUBKEYS: PUBKEY,
