@@ -29,7 +29,7 @@ Deno.test("restart repairs replicas and relays without rolling back committed ro
     bech32.toWords(Uint8Array.from([0, 32, ...new Uint8Array(32).fill(1)])),
     200,
   );
-  write.recordPending({ id: 1, token: 1, generation: 1, entries: [] }, {
+  write.recordPending({ id: 1, token: 1, generation: 1, entryCount: 0 }, {
     batchId: 1,
     generation: 1,
     rootHex: "11".repeat(32),

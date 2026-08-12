@@ -81,7 +81,7 @@ export class PublicationBatchScheduler {
         const candidate = await this.writer.build(
           this.repository.publicationBatchFiles(
             batch,
-            batch.entries.length,
+            batch.entryCount,
             this.#abort.signal,
           ),
           undefined,
@@ -102,7 +102,7 @@ export class PublicationBatchScheduler {
             type: "batch_build_failure",
             code: "hashtree_build_failed",
             batchId: batch.id,
-            count: batch.entries.length,
+            count: batch.entryCount,
           });
         } catch { /* diagnostics are non-authoritative */ }
         throw error;
