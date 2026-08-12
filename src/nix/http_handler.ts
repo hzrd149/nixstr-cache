@@ -7,7 +7,7 @@ import {
 import type { SelectedPublication } from "../nostr/selection.ts";
 import type { MergedSelectionSnapshot } from "../nostr/selection.ts";
 import { classifyEndorsements, parseNarInfo } from "../protocol/narinfo.ts";
-import type { SignerOverlay, SignerOverlaySnapshot } from "../write/overlay.ts";
+import type { SignerOverlay } from "../write/overlay.ts";
 import {
   WriteConflict,
   type WriteRepository,
