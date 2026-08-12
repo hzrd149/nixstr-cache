@@ -3,7 +3,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import type { NarInfo } from "../protocol/narinfo.ts";
 import { Subject } from "rxjs";
 import { verifyEvent } from "nostr-tools";
-import { releaseContentOwner } from "../hashtree/writer.ts";
+import type { CandidateBlob } from "../hashtree/writer.ts";
 import { validatePublication } from "../protocol/publication.ts";
 
 export class WriteConflict extends Error {
@@ -105,6 +105,7 @@ export class WriteRepository {
   #healthy = true;
   readonly #generationLeases = new Map<number, number>();
   #admittedGeneration = 0;
+  readonly #writerSession = crypto.randomUUID();
 
   constructor(databasePath: string, root: string, limits: WriteLimits) {
     this.#root = root;
@@ -126,6 +127,11 @@ export class WriteRepository {
        INSERT OR IGNORE INTO overlay_state(singleton,current_generation) VALUES(1,0);
        CREATE TABLE IF NOT EXISTS overlay_entries(generation INTEGER NOT NULL, route TEXT NOT NULL, digest TEXT NOT NULL, size INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY(generation,route));
        CREATE TABLE IF NOT EXISTS overlay_store_paths(generation INTEGER NOT NULL, store_path_hash TEXT NOT NULL, PRIMARY KEY(generation,store_path_hash));`,
+    );
+    this.#db.exec(
+      `CREATE TABLE IF NOT EXISTS content_blobs(hash TEXT PRIMARY KEY,size INTEGER NOT NULL,path TEXT NOT NULL);
+       CREATE TABLE IF NOT EXISTS blob_owners(owner TEXT NOT NULL,hash TEXT NOT NULL,PRIMARY KEY(owner,hash),FOREIGN KEY(hash) REFERENCES content_blobs(hash));
+       CREATE TABLE IF NOT EXISTS writer_runs(owner TEXT PRIMARY KEY,index_path TEXT NOT NULL,session TEXT NOT NULL);`,
     );
     this.#db.exec(
       `CREATE TABLE IF NOT EXISTS publication_clock(singleton INTEGER PRIMARY KEY CHECK(singleton=1), next_token INTEGER NOT NULL, active_token INTEGER, generation INTEGER, opened_at INTEGER, last_dirty_at INTEGER, base_root TEXT);
@@ -169,6 +175,103 @@ export class WriteRepository {
     for (const entry of Deno.readDirSync(`${root}/tmp`)) {
       if (entry.isFile) Deno.removeSync(`${root}/tmp/${entry.name}`);
     }
+    this.#reconcileWriterRuns();
+  }
+
+  startWriterRun(runId: string, indexPath: string): void {
+    if (!runId.startsWith("run:")) throw new TypeError("invalid writer run");
+    this.#db.prepare(
+      "INSERT INTO writer_runs(owner,index_path,session) VALUES(?,?,?)",
+    ).run(runId, indexPath, this.#writerSession);
+  }
+  recordWriterBlob(runId: string, blob: CandidateBlob): void {
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      const run = this.#db.prepare("SELECT 1 FROM writer_runs WHERE owner=?")
+        .get(runId);
+      if (!run) throw new Error("writer run is not live");
+      this.#db.prepare(
+        "INSERT OR IGNORE INTO content_blobs(hash,size,path) VALUES(?,?,?)",
+      ).run(blob.hash, blob.size, blob.path);
+      const stored = this.#db.prepare(
+        "SELECT size,path FROM content_blobs WHERE hash=?",
+      ).get(blob.hash) as { size: number; path: string };
+      if (stored.size !== blob.size || stored.path !== blob.path) {
+        throw new Error("candidate blob identity changed");
+      }
+      this.#db.prepare(
+        "INSERT OR IGNORE INTO blob_owners(owner,hash) VALUES(?,?)",
+      ).run(runId, blob.hash);
+      this.#db.exec("COMMIT");
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  async releaseWriterRun(runId: string): Promise<void> {
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      this.#db.prepare("DELETE FROM blob_owners WHERE owner=?").run(runId);
+      this.#db.prepare("DELETE FROM writer_runs WHERE owner=?").run(runId);
+      this.#db.exec("COMMIT");
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+    await this.#sweepCandidateBlobs();
+  }
+  #reconcileWriterRuns(): void {
+    const abandoned = this.#db.prepare(
+      "SELECT owner,index_path FROM writer_runs WHERE session<>?",
+    ).all(this.#writerSession) as unknown as {
+      owner: string;
+      index_path: string;
+    }[];
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const run of abandoned) {
+        this.#db.prepare("DELETE FROM blob_owners WHERE owner=?").run(
+          run.owner,
+        );
+        this.#db.prepare("DELETE FROM writer_runs WHERE owner=?").run(
+          run.owner,
+        );
+      }
+      this.#db.exec("COMMIT");
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+    for (const run of abandoned) {
+      for (const suffix of ["", "-wal", "-shm"]) {
+        try {
+          Deno.removeSync(run.index_path + suffix);
+        } catch (error) {
+          if (!(error instanceof Deno.errors.NotFound)) {
+            /* retry next open */
+          }
+        }
+      }
+    }
+    this.#sweepCandidateBlobsSync();
+  }
+  #sweepCandidateBlobsSync(): void {
+    const rows = this.#db.prepare(
+      "SELECT hash,path FROM content_blobs b WHERE NOT EXISTS(SELECT 1 FROM blob_owners o WHERE o.hash=b.hash)",
+    ).all() as unknown as { hash: string; path: string }[];
+    for (const row of rows) {
+      try {
+        Deno.removeSync(row.path);
+      } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) continue;
+      }
+      this.#db.prepare(
+        "DELETE FROM content_blobs WHERE hash=? AND NOT EXISTS(SELECT 1 FROM blob_owners WHERE hash=?)",
+      ).run(row.hash, row.hash);
+    }
+  }
+  async #sweepCandidateBlobs(): Promise<void> {
+    this.#sweepCandidateBlobsSync();
   }
 
   health(): boolean {
@@ -268,7 +371,9 @@ export class WriteRepository {
   }
 
   currentOverlayEntries(): readonly OverlayEntry[] {
-    const generation = this.currentGeneration();
+    return this.overlayEntries(this.currentGeneration());
+  }
+  overlayEntries(generation: number): readonly OverlayEntry[] {
     const rows = this.#db.prepare(
       "SELECT generation,route,digest,size,path FROM overlay_entries WHERE generation=? ORDER BY route",
     ).all(generation) as unknown as OverlayEntry[];
@@ -277,7 +382,9 @@ export class WriteRepository {
     );
   }
   currentOverlayStorePaths(): ReadonlySet<string> {
-    const generation = this.currentGeneration();
+    return this.overlayStorePaths(this.currentGeneration());
+  }
+  overlayStorePaths(generation: number): ReadonlySet<string> {
     return new Set(
       (this.#db.prepare(
         "SELECT store_path_hash FROM overlay_store_paths WHERE generation=?",
@@ -569,6 +676,7 @@ export class WriteRepository {
     batch: FrozenBatch,
     candidate: PendingCandidate,
     inventory: Iterable<PendingInventoryEntry>,
+    runId?: string,
   ): void {
     const superseded = this.#db.prepare(
       "SELECT batch_id batchId FROM pending_candidate WHERE singleton=1",
@@ -583,7 +691,27 @@ export class WriteRepository {
         "INSERT INTO pending_candidate_blobs(batch_id,hash,size,path) VALUES(?,?,?,?)",
       );
       for (const blob of inventory) {
+        const owned = runId && this.#db.prepare(
+          `SELECT 1 FROM content_blobs b JOIN blob_owners o ON o.hash=b.hash
+           WHERE o.owner=? AND b.hash=? AND b.size=? AND b.path=?`,
+        ).get(runId, blob.hash, blob.size, blob.path);
+        if (runId && !owned) {
+          throw new Error("candidate inventory is not run-owned");
+        }
         insert.run(batch.id, blob.hash, blob.size, blob.path);
+      }
+      if (runId) {
+        this.#db.prepare(
+          "INSERT OR IGNORE INTO blob_owners(owner,hash) SELECT ?,hash FROM blob_owners WHERE owner=?",
+        ).run(`batch:${batch.id}`, runId);
+        const count = Number(
+          (this.#db.prepare(
+            "SELECT COUNT(*) count FROM blob_owners WHERE owner=?",
+          ).get(`batch:${batch.id}`) as { count: number }).count,
+        );
+        if (count !== candidate.blobCount) {
+          throw new Error("candidate durable ownership is incomplete");
+        }
       }
       this.#db.prepare(
         "INSERT OR REPLACE INTO pending_candidate(singleton,batch_id,generation,root_hex,nhash,blob_count,total_bytes) VALUES(1,?,?,?,?,?,?)",
@@ -600,8 +728,11 @@ export class WriteRepository {
         "UPDATE publication_batches SET status='pending' WHERE id=? AND status IN ('building','failed')",
       ).run(batch.id);
       this.#db.exec("COMMIT");
-      if (supersededPath && superseded!.batchId !== batch.id) {
-        releaseContentOwner(`batch:${superseded!.batchId}`, supersededPath);
+      if (superseded && superseded.batchId !== batch.id) {
+        this.#db.prepare("DELETE FROM blob_owners WHERE owner=?").run(
+          `batch:${superseded.batchId}`,
+        );
+        this.#sweepCandidateBlobsSync();
       }
     } catch (error) {
       this.#db.exec("ROLLBACK");
@@ -1052,8 +1183,11 @@ export class WriteRepository {
       }
       this.#db.exec("COMMIT");
       for (const item of releasable) {
-        if (item.path) releaseContentOwner(`batch:${item.batchId}`, item.path);
+        this.#db.prepare("DELETE FROM blob_owners WHERE owner=?").run(
+          `batch:${item.batchId}`,
+        );
       }
+      this.#sweepCandidateBlobsSync();
     } catch (error) {
       try {
         this.#db.exec("ROLLBACK");

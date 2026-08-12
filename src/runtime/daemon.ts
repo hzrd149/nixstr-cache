@@ -386,7 +386,7 @@ export function createProductionDependencies(
             maxInventoryBlobs: config.limits.uniqueManifestNodes +
               config.limits.linksPerNode,
             maxInventoryBytes: config.stagingAggregateBytes,
-          }),
+          }, writeRepository),
           undefined,
           diagnostics,
         )

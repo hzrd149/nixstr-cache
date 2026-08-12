@@ -16,6 +16,7 @@ export interface CandidateBlob {
   readonly path: string;
 }
 export interface HashtreeBuild {
+  readonly runId: string;
   readonly rootHex: string;
   readonly rootNhash: string;
   readonly rootPath: string;
@@ -23,8 +24,12 @@ export interface HashtreeBuild {
   readonly totalBytes: number;
   readonly createdBlobs: number;
   readonly maxBufferedLinks: number;
-  transferOwnership(owner: string): void;
   dispose(): Promise<void>;
+}
+export interface CandidateOwnershipRepository {
+  startWriterRun(runId: string, indexPath: string): void;
+  recordWriterBlob(runId: string, blob: CandidateBlob): void;
+  releaseWriterRun(runId: string): Promise<void>;
 }
 export interface CandidateInventory extends Iterable<CandidateBlob> {
   readonly length: number;
@@ -87,7 +92,13 @@ const hexBytes = (hex: string) => Uint8Array.fromHex(hex);
 
 export class HashtreeWriter {
   #owners?: DatabaseSync;
-  constructor(readonly root: string, readonly limits: WriterLimits) {
+  #closing = false;
+  #active = new Set<Promise<void>>();
+  constructor(
+    readonly root: string,
+    readonly limits: WriterLimits,
+    readonly ownershipRepository?: CandidateOwnershipRepository,
+  ) {
     if (limits.maxLinks < 2) {
       throw new RangeError("maxLinks must be at least two");
     }
@@ -127,14 +138,20 @@ export class HashtreeWriter {
     _base?: HashtreeBuild,
     signal?: AbortSignal,
   ): Promise<HashtreeBuild> {
-    const owners = this.#ownership();
+    if (this.#closing) throw new Error("hashtree writer is closed");
+    const ownershipRepository = this.ownershipRepository;
+    const owners = ownershipRepository ? undefined : this.#ownership();
     const sweepUnowned = () => this.#sweepUnowned();
     const runOwner = `run:${crypto.randomUUID()}`;
     const indexPath = `${this.root}/inventory-${crypto.randomUUID()}.sqlite`;
     const index = new DatabaseSync(indexPath);
-    owners.prepare(
-      "INSERT INTO writer_runs(owner,index_path,session) VALUES(?,?,?)",
-    ).run(runOwner, indexPath, writerSession);
+    if (ownershipRepository) {
+      ownershipRepository.startWriterRun(runOwner, indexPath);
+    } else {
+      owners!.prepare(
+        "INSERT INTO writer_runs(owner,index_path,session) VALUES(?,?,?)",
+      ).run(runOwner, indexPath, writerSession);
+    }
     index.exec(`
       CREATE TABLE inventory(hash TEXT PRIMARY KEY,size INTEGER NOT NULL,path TEXT NOT NULL,created INTEGER NOT NULL);
       CREATE TABLE nodes(path TEXT PRIMARY KEY,parent TEXT NOT NULL,name TEXT NOT NULL,depth INTEGER NOT NULL,hash TEXT,size INTEGER,type INTEGER,source_path TEXT,source_size INTEGER);
@@ -173,18 +190,26 @@ export class HashtreeWriter {
           "INSERT INTO inventory(hash,size,path,created) VALUES(?,?,?,?)",
         )
           .run(hash, bytes.length, path, createdNow);
-        owners.exec("BEGIN IMMEDIATE");
-        try {
-          owners.prepare(
-            "INSERT OR IGNORE INTO content_blobs(hash,size,path) VALUES(?,?,?)",
-          ).run(hash, bytes.length, path);
-          owners.prepare(
-            "INSERT OR IGNORE INTO blob_owners(owner,hash) VALUES(?,?)",
-          ).run(runOwner, hash);
-          owners.exec("COMMIT");
-        } catch (error) {
-          owners.exec("ROLLBACK");
-          throw error;
+        if (ownershipRepository) {
+          ownershipRepository.recordWriterBlob(runOwner, {
+            hash,
+            size: bytes.length,
+            path,
+          });
+        } else {
+          owners!.exec("BEGIN IMMEDIATE");
+          try {
+            owners!.prepare(
+              "INSERT OR IGNORE INTO content_blobs(hash,size,path) VALUES(?,?,?)",
+            ).run(hash, bytes.length, path);
+            owners!.prepare(
+              "INSERT OR IGNORE INTO blob_owners(owner,hash) VALUES(?,?)",
+            ).run(runOwner, hash);
+            owners!.exec("COMMIT");
+          } catch (error) {
+            owners!.exec("ROLLBACK");
+            throw error;
+          }
         }
       }
       return Object.freeze({ hash, size: bytes.length, path });
@@ -479,6 +504,7 @@ export class HashtreeWriter {
       let disposed = false;
       let durableOwner: string | undefined;
       return Object.freeze({
+        runId: runOwner,
         rootHex: root.hash,
         rootNhash: encodePlaintextNhash(hexBytes(root.hash)),
         rootPath: root.path,
@@ -486,29 +512,20 @@ export class HashtreeWriter {
         totalBytes: total,
         createdBlobs: created,
         maxBufferedLinks,
-        transferOwnership(owner: string) {
-          if (disposed) throw new Error("build handle is disposed");
-          if (!owner || owner.startsWith("run:")) {
-            throw new Error("invalid durable owner");
-          }
-          owners.exec("BEGIN IMMEDIATE");
-          try {
-            owners.prepare(
-              "INSERT OR IGNORE INTO blob_owners(owner,hash) SELECT ?,hash FROM blob_owners WHERE owner=?",
-            ).run(owner, runOwner);
-            owners.exec("COMMIT");
-            durableOwner = owner;
-          } catch (error) {
-            owners.exec("ROLLBACK");
-            throw error;
-          }
-        },
         async dispose() {
           if (disposed) return;
           disposed = true;
-          owners.prepare("DELETE FROM blob_owners WHERE owner=?").run(runOwner);
-          owners.prepare("DELETE FROM writer_runs WHERE owner=?").run(runOwner);
-          if (!durableOwner) await sweepUnowned();
+          if (ownershipRepository) {
+            await ownershipRepository.releaseWriterRun(runOwner);
+          } else {
+            owners!.prepare("DELETE FROM blob_owners WHERE owner=?").run(
+              runOwner,
+            );
+            owners!.prepare("DELETE FROM writer_runs WHERE owner=?").run(
+              runOwner,
+            );
+            if (!durableOwner) await sweepUnowned();
+          }
           for (const suffix of ["", "-wal", "-shm"]) {
             try {
               await Deno.remove(indexPath + suffix);
@@ -520,13 +537,13 @@ export class HashtreeWriter {
       });
     } catch (error) {
       index.close();
-      owners.prepare("DELETE FROM blob_owners WHERE owner=?").run(
-        runOwner,
-      );
-      owners.prepare("DELETE FROM writer_runs WHERE owner=?").run(
-        runOwner,
-      );
-      await this.#sweepUnowned();
+      if (ownershipRepository) {
+        await ownershipRepository.releaseWriterRun(runOwner);
+      } else {
+        owners!.prepare("DELETE FROM blob_owners WHERE owner=?").run(runOwner);
+        owners!.prepare("DELETE FROM writer_runs WHERE owner=?").run(runOwner);
+        await this.#sweepUnowned();
+      }
       for (const suffix of ["", "-wal", "-shm"]) {
         try {
           await Deno.remove(indexPath + suffix);
@@ -538,6 +555,22 @@ export class HashtreeWriter {
       }
       throw error;
     }
+  }
+
+  async close(): Promise<void> {
+    if (this.#closing) return;
+    this.#closing = true;
+    await Promise.allSettled([...this.#active]);
+    if (this.#owners) {
+      await this.#sweepUnowned();
+      this.#owners.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      this.#owners.close();
+      this.#owners = undefined;
+    }
+  }
+
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.close();
   }
 
   async #sweepUnowned(): Promise<void> {

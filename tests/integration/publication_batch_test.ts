@@ -54,7 +54,7 @@ Deno.test("quiet window builds one unpublished pending candidate", async () => {
       maxLinks: 174,
       maxInventoryBlobs: 100,
       maxInventoryBytes: 65536,
-    });
+    }, repository);
     const scheduler = new PublicationBatchScheduler(repository, writer, clock);
     scheduler.dirty(generation);
     await clock.advance(4_999);
@@ -90,7 +90,7 @@ Deno.test("sustained windows race safely and builds serialize across restart", a
         maxLinks: 174,
         maxInventoryBlobs: 100,
         maxInventoryBytes: 65536,
-      }),
+      }, repository),
       clock,
     );
     for (let elapsed = 0; elapsed < 60_000; elapsed += 4_000) {
@@ -139,7 +139,7 @@ Deno.test("workers serialize and an interrupted frozen batch rebuilds after rest
       maxLinks: 174,
       maxInventoryBlobs: 100,
       maxInventoryBytes: 65536,
-    });
+    }, repository);
     const writer = {
       async build(...args: Parameters<HashtreeWriter["build"]>) {
         active++;
@@ -193,7 +193,7 @@ Deno.test("restart restores the durable quiet deadline without another dirty", a
         maxLinks: 174,
         maxInventoryBlobs: 100,
         maxInventoryBytes: 65536,
-      }),
+      }, repository),
       clock,
     );
     assertEquals(repository.activePublicationWindow()?.baseRoot, "base");
@@ -268,7 +268,7 @@ Deno.test("streams frozen batch rows directly into the writer", async () => {
       maxLinks: 2,
       maxInventoryBlobs: 100,
       maxInventoryBytes: 65536,
-    });
+    }, repository);
     const scheduler = new PublicationBatchScheduler(repository, {
       build(source, base, signal) {
         asyncSource = Symbol.asyncIterator in source;

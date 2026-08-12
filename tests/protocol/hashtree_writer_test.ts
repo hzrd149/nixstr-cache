@@ -45,6 +45,15 @@ Deno.test("canonical writer is deterministic, reader-compatible, and reuses blob
       false,
       "the final run owner must reclaim zero-owner content",
     );
+    await writer.close();
+    await writer.close();
+    await writer.build(input).then(
+      () => {
+        throw new Error("closed writer accepted a build");
+      },
+      (error) =>
+        assertEquals((error as Error).message, "hashtree writer is closed"),
+    );
     const artifacts = [...Deno.readDirSync(`${root}/trees`)].map((entry) =>
       entry.name
     );
@@ -82,6 +91,8 @@ Deno.test("directory ordering is UTF-8 bytewise and fanout stays bounded", async
       manifest.links.every((link) => link.type === 2 || link.type === 3),
       true,
     );
+    await result.dispose();
+    await writer.close();
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -115,6 +126,9 @@ Deno.test("one-path updates reuse unchanged persistent blobs", async () => {
       ),
       true,
     );
+    await first.dispose();
+    await second.dispose();
+    await writer.close();
   } finally {
     await Deno.remove(root, { recursive: true });
   }
