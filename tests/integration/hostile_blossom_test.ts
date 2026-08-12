@@ -46,6 +46,52 @@ Deno.test("source plan|verified spool|quarantine: preserves configured, event, B
   ]);
 });
 
+Deno.test("local Blossom is first and corrupt local cache falls back without quarantine", async () => {
+  const good = new TextEncoder().encode("remote verified bytes");
+  const calls: string[] = [];
+  const diagnostics: unknown[] = [];
+  const quarantined: string[] = [];
+  const fetcher = new BlobFetcher({
+    fetcher: {
+      fetch: (url: string | URL) => {
+        calls.push(String(url));
+        return Promise.resolve(response(calls.length === 1 ? new TextEncoder().encode("corrupt") : good));
+      },
+    },
+    quarantine: {
+      isQuarantined: () => false,
+      quarantine: (origin) => quarantined.push(origin),
+      releaseQuarantine: () => {},
+    },
+    spoolDirectory: await Deno.makeTempDir(),
+    onLocalDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+  });
+  const plan = buildSourcePlan({
+    localCache: "http://127.0.0.1:3000",
+    configured: "https://preferred.example/base",
+    event: ["https://publisher.example"],
+  });
+  assertEquals(plan.map((candidate) => candidate.role), [
+    "local-cache",
+    "publisher",
+    "publisher",
+  ]);
+  const blob = await fetcher.fetch(hex(sha256(good)), plan, {
+    maxAttempts: 3,
+    maxTransferBytes: 100,
+  });
+  assertEquals(await new Response(blob.open()).text(), "remote verified bytes");
+  assertEquals(calls.length, 2);
+  assertEquals(quarantined, []);
+  assertEquals(diagnostics, [{
+    code: "local_hash_mismatch",
+    origin: "http://127.0.0.1:3000",
+    hash: hex(sha256(good)),
+    retryable: true,
+  }]);
+  await blob.dispose();
+});
+
 Deno.test("source plan|verified spool|quarantine: falls back and exposes bytes only after hash verification", async () => {
   const bytes = new TextEncoder().encode("verified bytes");
   const calls: string[] = [];
