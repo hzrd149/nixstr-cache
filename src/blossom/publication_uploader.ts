@@ -1,0 +1,122 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+import type { PendingInventoryEntry } from "../persistence/write_repository.ts";
+import type { PinnedResponse, SourceTrust } from "../network/safe_fetcher.ts";
+
+export interface PublicationUploadBoundary {
+  request(input: string | URL, trust: SourceTrust, init: {
+    readonly method: "GET" | "PUT";
+    readonly headers?: Headers;
+    readonly body?: ReadableStream<Uint8Array>;
+    readonly signal?: AbortSignal;
+  }): Promise<PinnedResponse>;
+}
+
+async function boundedJson(
+  response: PinnedResponse,
+  ceiling: number,
+): Promise<unknown> {
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      size += part.value.length;
+      if (size > ceiling) throw new RangeError("upload descriptor oversized");
+      chunks.push(part.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+}
+
+export class PublicationUploader {
+  constructor(
+    readonly options: {
+      readonly request: PublicationUploadBoundary["request"];
+      readonly authorization?: (
+        server: string,
+        entry: PendingInventoryEntry,
+      ) => Promise<string>;
+      readonly descriptorBytes?: number;
+    },
+  ) {}
+
+  async prove(server: string, entry: PendingInventoryEntry): Promise<boolean> {
+    const headers = new Headers({
+      "content-length": String(entry.size),
+      "content-type": "application/octet-stream",
+      "x-sha-256": entry.hash,
+    });
+    const authorization = await this.options.authorization?.(server, entry);
+    if (authorization) headers.set("authorization", authorization);
+    const file = await Deno.open(entry.path, { read: true });
+    let response: PinnedResponse;
+    try {
+      response = await this.options.request(
+        new URL("/upload", server),
+        "configured",
+        {
+          method: "PUT",
+          headers,
+          body: file.readable,
+        },
+      );
+      if (response.status !== 200 && response.status !== 201) {
+        await response.cancel("upload rejected");
+        return false;
+      }
+      const descriptor = await boundedJson(
+        response,
+        this.options.descriptorBytes ?? 16 * 1024,
+      ) as { sha256?: unknown; size?: unknown };
+      if (descriptor.sha256 !== entry.hash || descriptor.size !== entry.size) {
+        return false;
+      }
+    } catch {
+      try {
+        file.close();
+      } catch { /* stream owns it */ }
+      return false;
+    }
+    try {
+      const proof = await this.options.request(
+        new URL(`/${entry.hash}`, server),
+        "configured",
+        { method: "GET" },
+      );
+      if (proof.status !== 200) {
+        await proof.cancel("possession absent");
+        return false;
+      }
+      const digest = sha256.create();
+      let size = 0;
+      const reader = proof.body.getReader();
+      try {
+        while (true) {
+          const part = await reader.read();
+          if (part.done) break;
+          size += part.value.length;
+          if (size > entry.size) {
+            await reader.cancel("proof oversized");
+            return false;
+          }
+          digest.update(part.value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      return size === entry.size && digest.digest().toHex() === entry.hash;
+    } catch {
+      return false;
+    }
+  }
+}

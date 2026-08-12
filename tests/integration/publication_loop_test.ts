@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { Subject } from "rxjs";
+import { bech32 } from "@scure/base";
 import { WriteRepository } from "../../src/persistence/write_repository.ts";
 import { createSignerCapability } from "../../src/signer/capability.ts";
 import {
@@ -26,11 +27,16 @@ async function fixture() {
     generation: 1,
     entries: [],
   };
+  const nhash = bech32.encode(
+    "nhash",
+    bech32.toWords(Uint8Array.from([0, 32, ...new Uint8Array(32).fill(1)])),
+    200,
+  );
   write.recordPending(batch, {
     batchId: 7,
     generation: 1,
     rootHex: "11".repeat(32),
-    nhash: "nhash1qqszyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygpjply7",
+    nhash,
     blobCount: 2,
     totalBytes: 2,
   }, [
@@ -40,14 +46,20 @@ async function fixture() {
   await Deno.writeTextFile(`${root}/a`, "a");
   await Deno.writeTextFile(`${root}/b`, "b");
   const signer = createSignerCapability({
-    intent: { mode: "local", identity: { kind: 17091, pubkey, identifier: "" } },
+    intent: {
+      mode: "local",
+      identity: { kind: 17091, pubkey, identifier: "" },
+    },
     localKeyPath: keyPath,
   });
   await signer.start();
   const state = new StateRepository(`${root}/state.sqlite`);
   const selection = startPublicationSelection({
-    events: new Subject(), repository: state, publisherPubkeys: [pubkey],
-    identities: [`17091:${pubkey}:`], now: () => 100,
+    events: new Subject(),
+    repository: state,
+    publisherPubkeys: [pubkey],
+    identities: [`17091:${pubkey}:`],
+    now: () => 100,
   });
   return { root, pubkey, write, signer, state, selection };
 }
@@ -67,13 +79,19 @@ Deno.test("one complete replica publishes exact event through normal admission",
       },
     };
     const coordinator = new PublicationCoordinator({
-      repository: f.write, signer: f.signer, selector: f.selection,
+      repository: f.write,
+      signer: f.signer,
+      selector: f.selection,
       identity: { kind: 17091, pubkey: f.pubkey, identifier: "" },
       blossomServers: ["http://127.0.0.1:9001", "http://127.0.0.1:9002"],
-      nixSigKeys: [], publicationRelays: ["ws://127.0.0.1:7447"],
-      lifetimeSeconds: 3600, now: () => 100,
+      nixSigKeys: [],
+      publicationRelays: ["ws://127.0.0.1:7447"],
+      lifetimeSeconds: 3600,
+      now: () => 100,
       replica,
-      publishRelays: async (_event) => [{ relay: "ws://127.0.0.1:7447", ok: true }],
+      publishRelays: async (
+        _event,
+      ) => [{ relay: "ws://127.0.0.1:7447", ok: true }],
     });
     await coordinator.tick();
     assertEquals(signCalls, 0, "split/partial replicas must not sign");
@@ -92,8 +110,11 @@ Deno.test("one complete replica publishes exact event through normal admission",
     await coordinator.tick();
     assertEquals(signCalls, 1, "restart/retry must reuse exact signed event");
   } finally {
-    f.selection.dispose(); f.state.close(); f.write.close();
-    await f.signer.close(); await Deno.remove(f.root, { recursive: true });
+    f.selection.dispose();
+    f.state.close();
+    f.write.close();
+    await f.signer.close();
+    await Deno.remove(f.root, { recursive: true });
   }
 });
 
@@ -101,11 +122,16 @@ Deno.test("hostile signer and false relay fail before promotion", async () => {
   const f = await fixture();
   try {
     const coordinator = new PublicationCoordinator({
-      repository: f.write, signer: f.signer, selector: f.selection,
+      repository: f.write,
+      signer: f.signer,
+      selector: f.selection,
       identity: { kind: 17091, pubkey: f.pubkey, identifier: "" },
-      blossomServers: ["http://127.0.0.1:9001"], nixSigKeys: [],
-      publicationRelays: ["ws://127.0.0.1:7447"], lifetimeSeconds: 3600,
-      now: () => 100, replica: { prove: async () => true },
+      blossomServers: ["http://127.0.0.1:9001"],
+      nixSigKeys: [],
+      publicationRelays: ["ws://127.0.0.1:7447"],
+      lifetimeSeconds: 3600,
+      now: () => 100,
+      replica: { prove: async () => true },
       publishRelays: async () => [{ relay: "ws://127.0.0.1:7447", ok: false }],
     });
     await coordinator.tick();
@@ -113,7 +139,10 @@ Deno.test("hostile signer and false relay fail before promotion", async () => {
     assertEquals(f.write.publicationSaga()?.committed, false);
     assertEquals(f.selection.current(), []);
   } finally {
-    f.selection.dispose(); f.state.close(); f.write.close();
-    await f.signer.close(); await Deno.remove(f.root, { recursive: true });
+    f.selection.dispose();
+    f.state.close();
+    f.write.close();
+    await f.signer.close();
+    await Deno.remove(f.root, { recursive: true });
   }
 });

@@ -50,6 +50,17 @@ export interface PendingInventoryEntry {
   readonly size: number;
   readonly path: string;
 }
+export interface PublicationSaga {
+  readonly batchId: number;
+  readonly candidate: PendingCandidate;
+  readonly destinations: readonly string[];
+  readonly completeServer?: string;
+  readonly template?: Record<string, unknown>;
+  readonly signedEvent?: import("../protocol/publication.ts").RawPublication;
+  readonly acknowledgedRelay?: string;
+  readonly committed: boolean;
+  readonly admitted: boolean;
+}
 
 export class WriteRepository {
   readonly changes$ = new Subject<string>();
@@ -86,6 +97,11 @@ export class WriteRepository {
        CREATE TABLE IF NOT EXISTS publication_batch_entries(batch_id INTEGER NOT NULL, generation INTEGER NOT NULL, route TEXT NOT NULL, digest TEXT NOT NULL, size INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY(batch_id,route));
        CREATE TABLE IF NOT EXISTS pending_candidate(singleton INTEGER PRIMARY KEY CHECK(singleton=1), batch_id INTEGER NOT NULL, generation INTEGER NOT NULL, root_hex TEXT NOT NULL, nhash TEXT NOT NULL, blob_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL);
        CREATE TABLE IF NOT EXISTS pending_candidate_blobs(batch_id INTEGER NOT NULL, hash TEXT NOT NULL, size INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY(batch_id,hash));`,
+    );
+    this.#db.exec(
+      `CREATE TABLE IF NOT EXISTS publication_sagas(batch_id INTEGER PRIMARY KEY, candidate_json TEXT NOT NULL, destinations_json TEXT NOT NULL, complete_server TEXT, template_json TEXT, signed_event_json TEXT, acknowledged_relay TEXT, committed INTEGER NOT NULL DEFAULT 0, admitted INTEGER NOT NULL DEFAULT 0);
+       CREATE TABLE IF NOT EXISTS publication_saga_blobs(batch_id INTEGER NOT NULL, hash TEXT NOT NULL, size INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY(batch_id,hash));
+       CREATE TABLE IF NOT EXISTS publication_blob_proofs(batch_id INTEGER NOT NULL, server TEXT NOT NULL, hash TEXT NOT NULL, PRIMARY KEY(batch_id,server,hash));`,
     );
     this.#db.prepare(
       "UPDATE publication_batches SET status='failed' WHERE status='building'",
@@ -459,6 +475,141 @@ export class WriteRepository {
         Object.freeze(row)
       ),
     );
+  }
+  claimPublication(
+    destinations: readonly string[],
+  ): PublicationSaga | undefined {
+    const current = this.publicationSaga();
+    if (current) return current;
+    const candidate = this.pendingCandidate();
+    if (!candidate || destinations.length === 0) return undefined;
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = this.publicationSaga();
+      if (!existing) {
+        this.#db.prepare(
+          "INSERT INTO publication_sagas(batch_id,candidate_json,destinations_json) VALUES(?,?,?)",
+        )
+          .run(
+            candidate.batchId,
+            JSON.stringify(candidate),
+            JSON.stringify([...destinations]),
+          );
+        this.#db.prepare(
+          "INSERT INTO publication_saga_blobs SELECT batch_id,hash,size,path FROM pending_candidate_blobs WHERE batch_id=?",
+        )
+          .run(candidate.batchId);
+      }
+      this.#db.exec("COMMIT");
+      return this.publicationSaga();
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  publicationSaga(): PublicationSaga | undefined {
+    const row = this.#db.prepare(
+      "SELECT batch_id,candidate_json,destinations_json,complete_server,template_json,signed_event_json,acknowledged_relay,committed,admitted FROM publication_sagas ORDER BY batch_id LIMIT 1",
+    ).get() as unknown as Record<string, unknown> | undefined;
+    if (!row) return undefined;
+    return Object.freeze({
+      batchId: row.batch_id as number,
+      candidate: Object.freeze(JSON.parse(row.candidate_json as string)),
+      destinations: Object.freeze(JSON.parse(row.destinations_json as string)),
+      ...(row.complete_server
+        ? { completeServer: row.complete_server as string }
+        : {}),
+      ...(row.template_json
+        ? { template: Object.freeze(JSON.parse(row.template_json as string)) }
+        : {}),
+      ...(row.signed_event_json
+        ? {
+          signedEvent: Object.freeze(
+            JSON.parse(row.signed_event_json as string),
+          ),
+        }
+        : {}),
+      ...(row.acknowledged_relay
+        ? { acknowledgedRelay: row.acknowledged_relay as string }
+        : {}),
+      committed: row.committed === 1,
+      admitted: row.admitted === 1,
+    });
+  }
+  publicationInventory(batchId: number): readonly PendingInventoryEntry[] {
+    return Object.freeze(
+      (this.#db.prepare(
+        "SELECT hash,size,path FROM publication_saga_blobs WHERE batch_id=? ORDER BY hash",
+      ).all(batchId) as unknown as PendingInventoryEntry[]).map((entry) =>
+        Object.freeze(entry)
+      ),
+    );
+  }
+  recordBlobProof(batchId: number, server: string, hash: string): void {
+    this.#db.prepare(
+      "INSERT OR IGNORE INTO publication_blob_proofs(batch_id,server,hash) VALUES(?,?,?)",
+    ).run(batchId, server, hash);
+  }
+  serverComplete(batchId: number, server: string): boolean {
+    const row = this.#db.prepare(
+      "SELECT COUNT(*) total,(SELECT COUNT(*) FROM publication_blob_proofs p WHERE p.batch_id=? AND p.server=?) proven FROM publication_saga_blobs b WHERE b.batch_id=?",
+    ).get(batchId, server, batchId) as unknown as {
+      total: number;
+      proven: number;
+    };
+    return row.total > 0 && row.total === row.proven;
+  }
+  recordCompleteServer(batchId: number, server: string): void {
+    if (!this.serverComplete(batchId, server)) {
+      throw new Error("server is not complete");
+    }
+    this.#db.prepare(
+      "UPDATE publication_sagas SET complete_server=COALESCE(complete_server,?) WHERE batch_id=?",
+    ).run(server, batchId);
+  }
+  recordSigned(
+    batchId: number,
+    template: Record<string, unknown>,
+    event: import("../protocol/publication.ts").RawPublication,
+  ): void {
+    const saga = this.publicationSaga();
+    if (!saga?.completeServer) {
+      throw new Error("complete replica proof required before signing");
+    }
+    if (
+      saga.signedEvent &&
+      JSON.stringify(saga.signedEvent) !== JSON.stringify(event)
+    ) throw new Error("signed event is immutable");
+    this.#db.prepare(
+      "UPDATE publication_sagas SET template_json=COALESCE(template_json,?),signed_event_json=COALESCE(signed_event_json,?) WHERE batch_id=?",
+    )
+      .run(JSON.stringify(template), JSON.stringify(event), batchId);
+  }
+  recordRelayAcknowledgement(batchId: number, relay: string): void {
+    const saga = this.publicationSaga();
+    if (!saga?.signedEvent) {
+      throw new Error("signed event required before acknowledgement");
+    }
+    this.#db.prepare(
+      "UPDATE publication_sagas SET acknowledged_relay=COALESCE(acknowledged_relay,?) WHERE batch_id=?",
+    ).run(relay, batchId);
+  }
+  commitPublication(batchId: number): void {
+    const saga = this.publicationSaga();
+    if (!saga?.acknowledgedRelay) {
+      throw new Error("relay acknowledgement required before commit");
+    }
+    this.#db.prepare(
+      "UPDATE publication_sagas SET committed=1 WHERE batch_id=?",
+    ).run(batchId);
+  }
+  markPublicationAdmitted(batchId: number): void {
+    const saga = this.publicationSaga();
+    if (!saga?.committed) {
+      throw new Error("publication commit required before admission");
+    }
+    this.#db.prepare("UPDATE publication_sagas SET admitted=1 WHERE batch_id=?")
+      .run(batchId);
   }
   batches(): readonly {
     id: number;

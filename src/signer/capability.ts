@@ -2,6 +2,7 @@ import type { PrivateKeySigner } from "applesauce-signers/signers/private-key-si
 import process from "node:process";
 import { BehaviorSubject, type Observable } from "rxjs";
 import type { WriteIntent } from "../config/config.ts";
+import type { EventTemplate, VerifiedEvent } from "nostr-tools";
 
 export type SignerState =
   | { readonly status: "disconnected" }
@@ -18,6 +19,7 @@ export type SignerState =
 
 export interface PublicKeySigner {
   getPublicKey(): Promise<string>;
+  signEvent?(template: EventTemplate): Promise<VerifiedEvent>;
   close?(): Promise<void> | void;
 }
 export interface SignerCapability {
@@ -25,6 +27,7 @@ export interface SignerCapability {
   current(): SignerState;
   start(): Promise<void>;
   close(): Promise<void>;
+  signEvent(template: EventTemplate): Promise<VerifiedEvent>;
 }
 
 export interface SignerCapabilityOptions {
@@ -138,6 +141,26 @@ export function createSignerCapability(
         subject.next(Object.freeze({ status: "disconnected" }));
         subject.complete();
       }
+    },
+    async signEvent(template) {
+      const state = subject.value;
+      if (
+        closed || state.status !== "ready" || !active?.signEvent ||
+        options.intent.mode === "disabled"
+      ) {
+        throw new Error("signer is not ready");
+      }
+      const pubkey = await active.getPublicKey();
+      if (
+        pubkey !== state.pubkey || pubkey !== options.intent.identity.pubkey
+      ) {
+        throw new Error("signer ownership changed");
+      }
+      const event = await active.signEvent(template);
+      if (event.pubkey !== pubkey) {
+        throw new Error("signer returned foreign event");
+      }
+      return event;
     },
   };
 }
