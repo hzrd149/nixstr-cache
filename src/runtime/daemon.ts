@@ -19,6 +19,7 @@ import {
   createNixHttpHandler,
   type SelectionView,
 } from "../nix/http_handler.ts";
+import { WinnerRouteRegistry } from "../nix/merged_cache.ts";
 import { startPublicationSelection } from "../nostr/selection.ts";
 import { StateRepository } from "../persistence/state_repository.ts";
 import type { RawPublication } from "../protocol/publication.ts";
@@ -131,8 +132,13 @@ export function createProductionDependencies(
             (selection as unknown as {
               current(): readonly import("../nostr/selection.ts").SelectedPublication[];
             })
-              .current()[0],
+              .current(),
         } satisfies SelectionView,
+        routes: new WinnerRouteRegistry(4096, 5 * 60_000),
+        diagnostics: {
+          emit: (diagnostic) =>
+            console.warn("merged cache diagnostic", diagnostic),
+        },
         resolverFor(snapshot) {
           const sources = buildSourcePlan({
             configured: config.preferredBlossomUrl,

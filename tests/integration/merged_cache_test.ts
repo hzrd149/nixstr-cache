@@ -118,7 +118,7 @@ Deno.test("conflict returns byte-identical winner and emits one redacted diagnos
     budgetFor: budget,
     diagnostics: { emit: (item) => diagnostics.push(item) },
     resolverFor: (p) => ({
-      resolve: (_r, path, method) => {
+      resolve: (_r, _path, method) => {
         const bytes = encoder.encode(
           p.event.id === "winner-event" ? winnerText : loserText,
         );
