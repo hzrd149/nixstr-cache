@@ -7,6 +7,7 @@ import { StateRepository } from "../../src/persistence/state_repository.ts";
 import { startPublicationSelection } from "../../src/nostr/selection.ts";
 import { createSignerCapability } from "../../src/signer/capability.ts";
 import { PublicationCoordinator } from "../../src/write/publication_coordinator.ts";
+import { LocalRelayCache } from "../../src/nostr/local_relay_cache.ts";
 
 Deno.test("restart repairs replicas and relays without rolling back committed root", async () => {
   const root = await Deno.makeTempDir({ prefix: "publication-recovery-" });
@@ -111,6 +112,36 @@ Deno.test("restart repairs replicas and relays without rolling back committed ro
     selection.dispose();
     state.close();
     write.close();
+    await signer.close();
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("local relay forwards only admitted and exact locally signed events", async () => {
+  const sent: string[] = [];
+  const cache = new LocalRelayCache("ws://127.0.0.1:7447", async (_relay, event) => {
+    sent.push(event.id);
+    return true;
+  });
+  const invalid = { id: "0".repeat(64) } as never;
+  assertEquals(await cache.acceptObserved(invalid), false);
+  assertEquals(sent, []);
+  const root = await Deno.makeTempDir({ prefix: "local-relay-event-" });
+  const secret = generateSecretKey();
+  const pubkey = getPublicKey(secret);
+  await Deno.writeFile(`${root}/key`, secret, { mode: 0o600 });
+  const signer = createSignerCapability({
+    intent: { mode: "local", identity: { kind: 17091, pubkey, identifier: "" } },
+    localKeyPath: `${root}/key`,
+  });
+  await signer.start();
+  try {
+    const nhash = bech32.encode("nhash", bech32.toWords(Uint8Array.from([0, 32, ...new Uint8Array(32).fill(1)])), 200);
+    const event = await signer.signEvent({ kind: 17091, created_at: 100, tags: [["htree", `htree://${nhash}`], ["expiration", "200"]], content: "" });
+    assertEquals(await cache.acceptObserved(event as never), true);
+    assertEquals(await cache.publishSigned(event as never), true);
+    assertEquals(sent, [event.id, event.id]);
+  } finally {
     await signer.close();
     await Deno.remove(root, { recursive: true });
   }
