@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { bech32 } from "@scure/base";
-import { finalizeEvent, generateSecretKey } from "nostr-tools";
+import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools";
 import { Subject } from "rxjs";
 import { StateRepository } from "../../src/persistence/state_repository.ts";
 import {
@@ -8,8 +8,14 @@ import {
   validatePublication,
 } from "../../src/protocol/publication.ts";
 import { startPublicationSelection } from "../../src/nostr/selection.ts";
+import { DatabaseSync } from "node:sqlite";
 
 const secret = generateSecretKey();
+const publisher = getPublicKey(secret);
+const authorization = {
+  publisherPubkeys: [publisher],
+  identities: [`17091:${publisher}:`],
+};
 const root = new Uint8Array(32).fill(4);
 const nhash = bech32.encode(
   "nhash",
@@ -45,6 +51,7 @@ Deno.test("selection commits before emission, survives restart, and rejects stal
     const events = new Subject<RawPublication>();
     const repository = new StateRepository(path);
     const selector = startPublicationSelection({
+      ...authorization,
       events,
       repository,
       now: () => 100,
@@ -67,6 +74,7 @@ Deno.test("selection commits before emission, survives restart, and rejects stal
 
     const restartedRepository = new StateRepository(path);
     const restarted = startPublicationSelection({
+      ...authorization,
       events: new Subject<RawPublication>(),
       repository: restartedRepository,
       identities: [`17091:${newest.pubkey}:`],
@@ -110,6 +118,7 @@ Deno.test("expiry clears availability without selecting older state", async () =
     const events = new Subject<RawPublication>();
     const repository = new StateRepository(path);
     const selector = startPublicationSelection({
+      ...authorization,
       events,
       repository,
       now: () => now,
@@ -170,6 +179,7 @@ Deno.test("transaction failure cannot emit an uncommitted selection", async () =
     });
     const errors: unknown[] = [];
     const selector = startPublicationSelection({
+      ...authorization,
       events,
       repository,
       now: () => 100,
@@ -179,6 +189,82 @@ Deno.test("transaction failure cannot emit an uncommitted selection", async () =
     assertEquals(selector.current(), undefined);
     assertEquals(errors.length, 1);
     selector.dispose();
+    repository.close();
+  } finally {
+    await Deno.remove(path);
+  }
+});
+
+Deno.test("unauthorized publisher and raw identity reject before persistence", async () => {
+  const path = await tempDb();
+  try {
+    const repository = new StateRepository(path);
+    const events = new Subject<RawPublication>();
+    const reasons: string[] = [];
+    const selector = startPublicationSelection({
+      ...authorization,
+      events,
+      repository,
+      now: () => 100,
+      onReject: (_event, reason) => reasons.push(reason),
+    });
+    const foreign = finalizeEvent({
+      kind: 17091,
+      created_at: 90,
+      content: "",
+      tags: [["htree", `htree://${nhash}`]],
+    }, generateSecretKey());
+    events.next(foreign);
+    const named = finalizeEvent({
+      kind: 37091,
+      created_at: 91,
+      content: "",
+      tags: [["d", "other"], ["htree", `htree://${nhash}`]],
+    }, secret);
+    events.next(named);
+    assertEquals(reasons, ["unauthorized-publisher", "unauthorized-identity"]);
+    assertEquals(repository.loadSelections(), []);
+    selector.dispose();
+    repository.close();
+  } finally {
+    await Deno.remove(path);
+  }
+});
+
+Deno.test("corrupt stored selections are cleared in isolation without policy loss", async () => {
+  const path = await tempDb();
+  try {
+    let repository = new StateRepository(path);
+    const valid = validatePublication(event(90), 100);
+    if (!valid.ok) throw new Error("fixture invalid");
+    assertEquals(repository.accept(valid.value).accepted, true);
+    const validIdentity = `17091:${valid.value.event.pubkey}:`;
+    repository.setUnsignedConsent(validIdentity, true);
+    repository.close();
+
+    const db = new DatabaseSync(path);
+    db.prepare(`
+      INSERT INTO identity_state
+        (identity, event_json, created_at, event_id, signed_history, unsigned_consent)
+      VALUES (?, ?, ?, ?, 1, 1)
+    `).run("17091:" + "b".repeat(64) + ":", "{bad", 88, "bad");
+    db.close();
+
+    repository = new StateRepository(path);
+    const corrupt: string[] = [];
+    const restored = repository.loadSelections(({ identity }) =>
+      corrupt.push(identity)
+    );
+    assertEquals(restored.map((item) => item.identity), [validIdentity]);
+    assertEquals(corrupt, [`17091:${"b".repeat(64)}:`]);
+    assertEquals(repository.loadPolicy(validIdentity), {
+      signedHistory: true,
+      unsignedConsent: true,
+    });
+    assertEquals(repository.loadPolicy(corrupt[0]), {
+      signedHistory: true,
+      unsignedConsent: true,
+    });
     repository.close();
   } finally {
     await Deno.remove(path);

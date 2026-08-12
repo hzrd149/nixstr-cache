@@ -19,10 +19,11 @@ export interface PublicationSelector {
 
 type TimerHandle = number | ReturnType<typeof setTimeout>;
 
-interface SelectionOptions {
+export interface SelectionOptions {
   readonly events: Observable<RawPublication>;
   readonly repository: StateRepository;
-  readonly identities?: readonly string[];
+  readonly publisherPubkeys: readonly string[];
+  readonly identities: readonly string[];
   readonly now?: () => number;
   readonly onReject?: (event: RawPublication, reason: string) => void;
   readonly onError?: (error: unknown) => void;
@@ -40,6 +41,8 @@ export function startPublicationSelection(
     ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
   // Private admission state: only verified, durably accepted ids enter it.
   const admittedEventIds = new Set<string>();
+  const publishers = new Set(options.publisherPubkeys);
+  const identities = new Set(options.identities);
   const selected = new BehaviorSubject<SelectedPublication | undefined>(
     undefined,
   );
@@ -71,6 +74,14 @@ export function startPublicationSelection(
       options.onReject?.(event, result.error.code);
       return;
     }
+    if (!publishers.has(result.value.event.pubkey)) {
+      options.onReject?.(event, "unauthorized-publisher");
+      return;
+    }
+    if (!identities.has(cacheIdentity(result.value))) {
+      options.onReject?.(event, "unauthorized-identity");
+      return;
+    }
     try {
       const acceptance = options.repository.accept(result.value);
       if (!acceptance.accepted) {
@@ -85,15 +96,17 @@ export function startPublicationSelection(
     }
   };
 
-  const restored = options.identities
-    ? options.identities.map((candidate) =>
-      options.repository.loadSelection(candidate)
-    ).filter((value) => value !== undefined)
-    : options.repository.loadSelections();
+  const restored = options.repository.loadSelections(({ identity, error }) =>
+    options.onError?.(
+      new Error(`corrupt stored selection ${identity}`, { cause: error }),
+    )
+  );
   for (const stored of restored) {
     const result = validatePublication(stored.event as RawPublication, now());
     if (
       result.ok &&
+      publishers.has(result.value.event.pubkey) &&
+      identities.has(cacheIdentity(result.value)) &&
       (!selected.value ||
         result.value.event.created_at > selected.value.event.created_at ||
         (result.value.event.created_at === selected.value.event.created_at &&

@@ -24,6 +24,11 @@ export interface AcceptanceResult {
   readonly selection?: StoredSelection;
 }
 
+export interface CorruptSelection {
+  readonly identity: string;
+  readonly error: unknown;
+}
+
 interface RepositoryOptions {
   readonly beforeCommit?: () => void;
 }
@@ -121,25 +126,45 @@ export class StateRepository {
     if (!row?.event_json || row.created_at === null || row.event_id === null) {
       return;
     }
-    const event = Object.freeze(JSON.parse(row.event_json) as RawPublication);
+    const parsed: unknown = JSON.parse(row.event_json);
+    if (!isRawPublication(parsed)) {
+      throw new TypeError("stored publication has an invalid minimal shape");
+    }
+    const event = Object.freeze(parsed);
     return Object.freeze({
       identity,
       event,
       createdAt: row.created_at,
       eventId: row.event_id,
-      signed: (JSON.parse(row.event_json) as RawPublication).tags.some((tag) =>
-        tag[0] === "nixSigKey"
-      ),
+      signed: event.tags.some((tag) => tag[0] === "nixSigKey"),
     });
   }
 
-  loadSelections(): readonly StoredSelection[] {
+  loadSelections(
+    onCorrupt?: (corrupt: CorruptSelection) => void,
+  ): readonly StoredSelection[] {
     const rows = this.#db.prepare(
       "SELECT identity FROM identity_state WHERE event_json IS NOT NULL",
     ).all() as unknown as Array<{ identity: string }>;
-    return Object.freeze(
-      rows.map((row) => this.loadSelection(row.identity)!).filter(Boolean),
-    );
+    const selections: StoredSelection[] = [];
+    for (const row of rows) {
+      try {
+        const selection = this.loadSelection(row.identity);
+        if (selection) selections.push(selection);
+      } catch (error) {
+        this.clearCorruptSelection(row.identity);
+        onCorrupt?.(Object.freeze({ identity: row.identity, error }));
+      }
+    }
+    return Object.freeze(selections);
+  }
+
+  clearCorruptSelection(identity: string): void {
+    this.#db.prepare(`
+      UPDATE identity_state
+      SET event_json = NULL, created_at = NULL, event_id = NULL
+      WHERE identity = ?
+    `).run(identity);
   }
 
   loadPolicy(identity: string): IdentityPolicy {
@@ -185,4 +210,17 @@ export class StateRepository {
     return this.#db.prepare("SELECT * FROM identity_state WHERE identity = ?")
       .get(identity) as unknown as IdentityRow | undefined;
   }
+}
+
+function isRawPublication(value: unknown): value is RawPublication {
+  if (typeof value !== "object" || value === null) return false;
+  const event = value as Record<string, unknown>;
+  return typeof event.id === "string" && typeof event.pubkey === "string" &&
+    typeof event.sig === "string" && typeof event.content === "string" &&
+    Number.isSafeInteger(event.created_at) &&
+    Number.isSafeInteger(event.kind) &&
+    Array.isArray(event.tags) &&
+    event.tags.every((tag) =>
+      Array.isArray(tag) && tag.every((item) => typeof item === "string")
+    );
 }
