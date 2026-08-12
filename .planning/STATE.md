@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: verified-nix-substitution-walking-slice
 status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-08-12T10:49:37.557Z"
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-08-12T10:59:31.473Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 01 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 5
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 01 (verified-nix-substitution-walking-slice) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-08-12 — Phase 01 execution started
 
-Progress: [████░░░░░░] 40%
+Progress: [██████░░░░] 60%
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Progress: [████░░░░░░] 40%
 |------|----------|-------|-------|
 | Phase 01 P01 | 25 min | 2 tasks | 5 files |
 | Phase 01 P02 | 20 min | 2 tasks | 8 files |
+| Phase 01 P03 | 8 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 01]: Use Deno.connect to bind the approved IP and Deno.startTls with the URL hostname for SNI and certificate validation. — Closes DNS TOCTOU without weakening TLS hostname verification.
 - [Phase ?]: Use NIP-01 lowest-id equal-timestamp ordering and persist the full selection tuple.
 - [Phase ?]: Use node:sqlite and private RxJS admission to preserve the narrow no-environment permission contract.
+- [Phase ?]: Reject non-canonical MessagePack before using authenticated Hashtree data.
+- [Phase ?]: Quarantine canonical origins only for complete SHA-256 mismatches.
+- [Phase ?]: HEAD authenticates the final link without acquiring the final content blob.
 
 ### Pending Todos
 
@@ -93,6 +97,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T10:49:37.543Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-08-12T10:59:31.458Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None

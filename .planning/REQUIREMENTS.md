@@ -16,11 +16,11 @@
 
 ### Blob and Hashtree Reads
 
-- [ ] **TREE-01**: Daemon discovers ordered Blossom sources from valid event `blossom` tags and the publisher's BUD-03 kind `10063` server list, with optional configured mirrors.
-- [ ] **TREE-02**: Daemon streams every fetched blob through SHA-256 verification before parsing, caching, or serving it and discards mismatched bytes before trying another source.
-- [ ] **TREE-03**: Daemon applies HTTP(S)-only URL policy, private-network restrictions, DNS/address checks, redirect revalidation, redirect limits, and source-attempt limits to publisher-controlled requests.
-- [ ] **TREE-04**: Daemon resolves BUD-16/17/18 Hashtree paths lazily with visited-hash deduplication and configurable bounds on manifests, depth, links, nodes, declared sizes, and total decoded bytes.
-- [ ] **TREE-05**: Daemon streams manifests, chunks, NARs, hashing, temporary storage, and responses with backpressure and without whole-file or whole-tree memory buffering.
+- [x] **TREE-01**: Daemon discovers ordered Blossom sources from valid event `blossom` tags and the publisher's BUD-03 kind `10063` server list, with optional configured mirrors.
+- [x] **TREE-02**: Daemon streams every fetched blob through SHA-256 verification before parsing, caching, or serving it and discards mismatched bytes before trying another source.
+- [x] **TREE-03**: Daemon applies HTTP(S)-only URL policy, private-network restrictions, DNS/address checks, redirect revalidation, redirect limits, and source-attempt limits to publisher-controlled requests.
+- [x] **TREE-04**: Daemon resolves BUD-16/17/18 Hashtree paths lazily with visited-hash deduplication and configurable bounds on manifests, depth, links, nodes, declared sizes, and total decoded bytes.
+- [x] **TREE-05**: Daemon streams manifests, chunks, NARs, hashing, temporary storage, and responses with backpressure and without whole-file or whole-tree memory buffering.
 - [ ] **TREE-06**: Operator can configure a local Blossom URL as a read/write-through cache that receives only verified immutable blobs.
 
 ### Merged Nix Read API
@@ -99,11 +99,11 @@
 | PROT-04 | Phase 1 | Complete |
 | PROT-05 | Phase 1 | Complete |
 | PROT-06 | Phase 1 | Complete |
-| TREE-01 | Phase 1 | Pending |
-| TREE-02 | Phase 1 | Pending |
-| TREE-03 | Phase 1 | Pending |
-| TREE-04 | Phase 1 | Pending |
-| TREE-05 | Phase 1 | Pending |
+| TREE-01 | Phase 1 | Complete |
+| TREE-02 | Phase 1 | Complete |
+| TREE-03 | Phase 1 | Complete |
+| TREE-04 | Phase 1 | Complete |
+| TREE-05 | Phase 1 | Complete |
 | TREE-06 | Phase 2 | Pending |
 | READ-01 | Phase 1 | Pending |
 | READ-02 | Phase 1 | Pending |

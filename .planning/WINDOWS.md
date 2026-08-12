@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 2
+open_count: 4
 waived_count: 0
 fixed_count: 0
-total_count: 2
-last_updated: 2026-08-12T10:49:36.589Z
+total_count: 4
+last_updated: 2026-08-12T10:59:21.138Z
 ---
 
 # Broken Windows Ledger
@@ -17,6 +17,8 @@ last_updated: 2026-08-12T10:49:36.589Z
 |----|-------|------|------|------|-------------|--------|--------|-------------|-------------|
 | 1 | 01 | deviation | src/protocol/publication.ts |  | Reconstruct NIP-01 verification input to defeat inherited verification cache | open |  | 2026-08-12T10:49:36.426Z |  |
 | 2 | 01 | deviation | src/persistence/state_repository.ts |  | Use built-in SQLite and private reactive admission to preserve no-env permission contract | open |  | 2026-08-12T10:49:36.589Z |  |
+| 3 | 01 | deviation | tests/integration/hostile_blossom_test.ts |  | Literal Deno filter markers added so planned test commands execute intended groups | open |  | 2026-08-12T10:59:20.998Z |  |
+| 4 | 01 | deviation | src/blossom/blob_fetcher.ts |  | Repository verification required lockfile resolution and lint-safe cleanup | open |  | 2026-08-12T10:59:21.138Z |  |
 
 ````json
 [
@@ -42,6 +44,30 @@ last_updated: 2026-08-12T10:49:36.589Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T10:49:36.589Z",
+    "resolved_at": null
+  },
+  {
+    "id": 3,
+    "kind": "deviation",
+    "phase": "01",
+    "file": "tests/integration/hostile_blossom_test.ts",
+    "line": null,
+    "description": "Literal Deno filter markers added so planned test commands execute intended groups",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T10:59:20.998Z",
+    "resolved_at": null
+  },
+  {
+    "id": 4,
+    "kind": "deviation",
+    "phase": "01",
+    "file": "src/blossom/blob_fetcher.ts",
+    "line": null,
+    "description": "Repository verification required lockfile resolution and lint-safe cleanup",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T10:59:21.138Z",
     "resolved_at": null
   }
 ]
