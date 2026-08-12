@@ -5,9 +5,9 @@ milestone_name: milestone
 current_phase: 04
 status: completed
 stopped_at: Completed 04-04-PLAN.md
-last_updated: "2026-08-12T16:07:30.666Z"
+last_updated: "2026-08-12T17:26:00.000Z"
 last_activity: 2026-08-12
-last_activity_desc: Phase 04 complete
+last_activity_desc: Milestone review closure complete
 progress:
   total_phases: 4
   completed_phases: 4
@@ -139,6 +139,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Operational JSON is constructed field-by-field from a closed union; unknown properties and recursive errors are never traversed.
 - [Phase ?]: An empty write-ready cache returns 404 for stock Nix destination probes while read-only empty caches remain unavailable.
 - [Phase ?]: Long publication-expiration timers clamp to the signed 32-bit timer ceiling and recompute on wake.
+- [Quick 260812-nes]: Configured relay OK is the publication barrier; local relay forwarding follows selector admission and cannot delay saga admission.
+- [Quick 260812-nes]: Reclaim candidate content only after transient run and durable batch/history ownership both reach zero.
 
 ### Pending Todos
 
@@ -159,6 +161,7 @@ None yet.
 | 260812-kuw | Add deterministic in-process NIP-46 integration coverage | 2026-08-12 | 1209236 | [260812-kuw-add-deterministic-in-process-nip-46-inte](./quick/260812-kuw-add-deterministic-in-process-nip-46-inte/) |
 | 260812-mhi | Close milestone integration gaps for signing, restart recovery, and diagnostics | 2026-08-12 | b79030c | [260812-mhi-close-milestone-integration-gaps-nip-46-](./quick/260812-mhi-close-milestone-integration-gaps-nip-46-/) |
 | 260812-mw9 | Close bounded writer and staging security audit blockers | 2026-08-12 | 73dabe6 | [260812-mw9-close-security-audit-blockers-bounded-st](./quick/260812-mw9-close-security-audit-blockers-bounded-st/) |
+| 260812-nes | Close all actionable milestone review findings | 2026-08-12 | 8b06d81 | [260812-nes-close-all-actionable-milestone-review-fi](./quick/260812-nes-close-all-actionable-milestone-review-fi/) |
 
 ## Deferred Items
 
@@ -169,6 +172,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T16:43:40Z
-Stopped at: Completed quick task 260812-mw9
+Last session: 2026-08-12T17:26:00Z
+Stopped at: Completed quick task 260812-nes
 Resume file: None

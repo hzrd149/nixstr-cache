@@ -1,6 +1,6 @@
 ---
 phase: 04-availability-gated-publication-loop
-reviewed: 2026-08-12T17:05:00Z
+reviewed: 2026-08-12T17:26:00Z
 depth: deep
 files_reviewed: 55
 files_reviewed_list:
@@ -59,11 +59,11 @@ files_reviewed_list:
   - tests/fixtures/bud/README.md
   - tests/fixtures/nix/README.md
 findings:
-  critical: 3
-  warning: 3
+  critical: 0
+  warning: 0
   info: 0
-  total: 6
-status: issues_found
+  total: 0
+status: resolved
 ---
 
 # Phase 04: Milestone Code Review Report
@@ -71,7 +71,20 @@ status: issues_found
 **Reviewed:** 2026-08-12T17:05:00Z  
 **Depth:** deep  
 **Files Reviewed:** 55  
-**Status:** issues_found
+**Status:** resolved
+
+## Closure Verification (2026-08-12)
+
+All six findings are resolved. Generation rollover now archives admitted sagas while retaining addressed repair work; admission-safe overlay leases and reference-counted writer/batch owners govern reclamation; lazy DFS streams one descriptor at a time; and coordinator-wide abort/deadline handling rejects late signer and relay results.
+
+The production-only rollover defect was traced through durable state: generation 2 reached `pending_candidate`, while generation 1 remained committed but unadmitted because configured relay OK was followed by an auxiliary local-relay forward inside the publication barrier. Commit `8b06d81` removes auxiliary forwarding from that barrier and avoids duplicate selector admission when the exact event has already arrived from the configured relay.
+
+Evidence:
+
+- `tests/integration/publication_loop_test.ts` proves monotonic second-generation rollover and bounded hanging-signer shutdown.
+- `tests/protocol/hashtree_writer_test.ts` proves concurrent run ownership and zero-owner deletion.
+- `tests/e2e/nix_publication_roundtrip_test.ts` publishes two distinct stock-Nix generations, verifies distinct roots and monotonic timestamps, deletes the source store, and restores both paths through the production daemon.
+- `deno task verify`: 21 protocol, 97 integration, and 2 stock-Nix E2E tests passed.
 
 ## Summary
 
