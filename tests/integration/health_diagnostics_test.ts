@@ -255,3 +255,100 @@ Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are co
   });
   failing.emit(events[0]);
 });
+
+Deno.test("health GET and HEAD never touch work-producing dependencies", async () => {
+  const calls = { selection: 0, resolve: 0, write: 0, sign: 0, network: 0 };
+  const provider = createHealthSnapshotProvider(() =>
+    healthInputs({
+      write: {
+        enabled: true,
+        repositoryHealthy: true,
+        signerStatus: "ready",
+        signerOwned: true,
+        destinations: 1,
+        relays: 1,
+        publication: { phase: "idle", completeReplica: true },
+      },
+    }), () => 0);
+  const handler = createNixHttpHandler({
+    decodedMetadataBytes: 1024,
+    health: provider,
+    selection: {
+      current: () => {
+        calls.selection++;
+        return Object.freeze([]);
+      },
+    },
+    resolverFor: () => ({
+      resolve: () => {
+        calls.resolve++;
+        return Promise.reject(new Error("health attempted resolution"));
+      },
+    }),
+    write: {
+      current: () => {
+        calls.write++;
+        throw new Error("health attempted write readiness");
+      },
+    },
+  });
+  for (let index = 0; index < 20; index++) {
+    const method = index % 2 ? "HEAD" : "GET";
+    assertEquals(
+      (await handler(new Request("http://cache.test/health", { method })))
+        .status,
+      200,
+    );
+  }
+  assertEquals(calls, {
+    selection: 0,
+    resolve: 0,
+    write: 0,
+    sign: 0,
+    network: 0,
+  });
+  assertEquals(
+    (await handler(new Request("http://cache.test/health", { method: "POST" })))
+      .status,
+    405,
+  );
+});
+
+Deno.test("serializer does not inspect unknown properties or recursive errors", () => {
+  const lines: string[] = [];
+  let touched = 0;
+  const hostile = Object.defineProperties({
+    type: "upstream_failure",
+    code: "upstream_unavailable",
+    endpoint: "https://user:pass@example.test/blob?authorization=secret#cookie",
+    attempt: 4,
+    durationMs: 8,
+  }, {
+    cause: {
+      enumerable: true,
+      get: () => {
+        touched++;
+        throw new Error("cause-secret");
+      },
+    },
+    headers: {
+      enumerable: true,
+      get: () => {
+        touched++;
+        throw new Error("header-secret");
+      },
+    },
+    body: {
+      enumerable: true,
+      get: () => {
+        touched++;
+        throw new Error("body-secret");
+      },
+    },
+  }) as OperationalDiagnostic;
+  createJsonDiagnosticSink({ write: (line) => lines.push(line), now: () => 0 })
+    .emit(hostile);
+  assertEquals(touched, 0);
+  assertEquals(lines.length, 1);
+  assertEquals(lines[0].includes("secret"), false);
+});
