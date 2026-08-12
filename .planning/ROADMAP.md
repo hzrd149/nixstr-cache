@@ -7,6 +7,7 @@ The v1 journey starts with the smallest safe walking slice: a stock Nix client s
 ## Phases
 
 **Phase Numbering:**
+
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
@@ -18,60 +19,86 @@ The v1 journey starts with the smallest safe walking slice: a stock Nix client s
 ## Phase Details
 
 ### Phase 1: Verified Nix Substitution Walking Slice
+
 **Goal**: An operator can point a real Nix client at the daemon and safely substitute an uncached store path from a valid plaintext Nostr-published cache.
 **Mode:** mvp
 **Depends on**: Nothing (first phase)
 **Requirements**: PROT-02, PROT-03, PROT-04, PROT-05, PROT-06, TREE-01, TREE-02, TREE-03, TREE-04, TREE-05, READ-01, READ-02, READ-03, READ-04, READ-07, OPER-01
 **Success Criteria** (what must be TRUE):
+
   1. Operator can start the daemon from validated read configuration and see the latest eligible plaintext publication selected reactively, while invalid, expired, stale, rollback, downgrade, and BUD-15 candidates remain unselected across restarts.
   2. Nix client can GET or HEAD cache metadata, `.narinfo`, and its referenced NAR from the daemon, with every syntactically valid signature preserved unchanged and publisher-endorsed signatures identified independently.
   3. Every publisher-controlled fetch is constrained by the configured network and traversal limits, and corrupt or oversized content is rejected before it can be parsed, cached, or served.
   4. Large manifests, chunks, and NARs pass through hashing, verification, temporary storage, and HTTP responses with backpressure and bounded memory.
   5. A real `nix` CLI substitutes an uncached store path through the daemon and successfully verifies the returned metadata and NAR.
+
 **Plans:** 5 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 01-01-PLAN.md — Prove address-pinned transport and validated startup configuration.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 01-02-PLAN.md — Select one verified publication durably and reactively.
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 01-03-PLAN.md — Resolve verified bounded Hashtree paths from hostile Blossom sources.
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 01-04-PLAN.md — Serve snapshot-bound stock Nix GET/HEAD semantics.
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 01-05-PLAN.md — Prove the walking slice with pinned stock Nix 2.34.7.
 
 ### Phase 2: Deterministic Merged Read Cache
+
 **Goal**: An operator can expose several trusted publishers as one predictable binary cache without hiding overlap conflicts.
 **Mode:** mvp
 **Depends on**: Phase 1
 **Requirements**: PROT-01, TREE-06, READ-05, READ-06
 **Success Criteria** (what must be TRUE):
+
   1. Operator can configure an ordered whitelist of default and exact named cache identities and observe their selected roots through one stable daemon URL in that priority order.
   2. Nix receives the union of syntactically valid signatures when duplicate `.narinfo` records agree on every non-signature semantic field.
   3. When duplicate records disagree, Nix receives the highest-priority record and the operator receives a structured conflict warning identifying the disagreement.
   4. Operator can enable a local Blossom read/write-through cache, and only hash-verified immutable blobs are placed in it or reused from it.
+
 **Plans**: TBD
 
 ### Phase 3: Signer-Gated Writable Cache
+
 **Goal**: An authorized signer can safely stage complete Nix store objects into a signer-first local cache without exposing incomplete objects or publishing prematurely.
 **Mode:** mvp
 **Depends on**: Phase 2
 **Requirements**: WRIT-01, WRIT-02, WRIT-03, WRIT-04, WRIT-05, WRIT-06, PUBL-01, PUBL-02
 **Success Criteria** (what must be TRUE):
+
   1. Operator can use either a NIP-46 signer or a protected local-key signer for exactly one owned default or named writable identity; PUT readiness stays disabled when ownership, signer, or destination prerequisites are absent.
   2. Nix client can stream standard binary-cache PUT paths into durable staging with bounded memory, and repeating identical content succeeds idempotently.
   3. Complete staged objects become readable from the highest-priority signer overlay, while objects missing their `.narinfo`, NAR, or declared references remain invisible.
   4. After five quiet seconds or sixty seconds of sustained writes, the daemon freezes one dependency-closed batch and deterministically builds its plaintext copy-on-write Hashtree without disturbing the committed read view.
+
 **Plans**: TBD
 
 ### Phase 4: Availability-Gated Publication Loop
+
 **Goal**: A staged Nix object becomes a signed, retrievable decentralized cache update and remains observable and recoverable when some replicas or relays fail.
 **Mode:** mvp
 **Depends on**: Phase 3
 **Requirements**: PUBL-03, PUBL-04, PUBL-05, PUBL-06, PUBL-07, OPER-02, OPER-03, OPER-04
 **Success Criteria** (what must be TRUE):
+
   1. The daemon publishes no signed root until at least one currently advertised Blossom server proves it holds the complete reachable tree; failed additional replicas remain visible and retry asynchronously afterward.
   2. After the availability barrier passes, the correct signed default or named event reaches configured relays and optional local relay cache, then its root appears reactively in the signer-first read view.
   3. Operator can diagnose event rejection, conflicts, upstream failures, signer and batch state, replication, and publication through secret-safe structured logs and a health endpoint that distinguishes process, read, and write availability.
   4. Automated protocol, hostile-input, streaming, relay/Blossom integration, and real-Nix tests demonstrate the v1 safety and interoperability guarantees.
   5. A real `nix` CLI can upload a store object, trigger publication, delete its local copy, and substitute it back from the newly published cache root.
+
 **Plans**: TBD
 
 ## Progress
