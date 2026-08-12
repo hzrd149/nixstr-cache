@@ -2,6 +2,7 @@ import { assertEquals } from "@std/assert";
 import { bech32 } from "@scure/base";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools";
 import { Subject } from "rxjs";
+import { EventStore } from "applesauce-core";
 import { StateRepository } from "../../src/persistence/state_repository.ts";
 import {
   RawPublication,
@@ -189,6 +190,39 @@ Deno.test("transaction failure cannot emit an uncommitted selection", async () =
     assertEquals(selector.current(), undefined);
     assertEquals(errors.length, 1);
     selector.dispose();
+    repository.close();
+  } finally {
+    await Deno.remove(path);
+  }
+});
+
+Deno.test("EventStore admission follows repository commit and disposal is terminal", async () => {
+  const path = await tempDb();
+  try {
+    const store = new EventStore({ keepExpired: true, keepOldVersions: true });
+    let disposed = 0;
+    const originalDispose = store.dispose.bind(store);
+    store.dispose = () => {
+      disposed++;
+      originalDispose();
+    };
+    const candidate = event(90);
+    const repository = new StateRepository(path, {
+      beforeCommit: () => assertEquals(store.hasEvent(candidate.id), false),
+    });
+    const selector = startPublicationSelection({
+      ...authorization,
+      events: new Subject<RawPublication>(),
+      repository,
+      eventStore: store,
+      now: () => 100,
+    });
+    selector.accept(candidate);
+    assertEquals(store.hasEvent(candidate.id), true);
+    assertEquals(selector.current()?.event.id, candidate.id);
+    selector.dispose();
+    selector.dispose();
+    assertEquals(disposed, 1);
     repository.close();
   } finally {
     await Deno.remove(path);
