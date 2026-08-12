@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 9
+open_count: 10
 waived_count: 0
 fixed_count: 0
-total_count: 9
-last_updated: 2026-08-12T15:10:15.531Z
+total_count: 10
+last_updated: 2026-08-12T15:35:02.273Z
 ---
 
 # Broken Windows Ledger
@@ -24,6 +24,7 @@ last_updated: 2026-08-12T15:10:15.531Z
 | 7 | 02 | deviation | tests/integration/blossom_discovery_test.ts |  | Corrected stale scalar cast in merged BUD-03 production source-plan regression | open |  | 2026-08-12T13:48:28.402Z |  |
 | 8 | 03 | deviation | src/nix/http_handler.ts |  | Removed stale signer overlay snapshot type import discovered by lint | open |  | 2026-08-12T14:46:13.081Z |  |
 | 9 | 03 | unrun-verify | tests/e2e/nix_substitution_test.ts |  | Full verify stock-Nix E2E hit an unrelated temporary SQLite disk I/O error | open |  | 2026-08-12T15:10:15.531Z |  |
+| 10 | 04 | deviation | src/persistence/write_repository.ts |  | Added repository-level signed-event verification as critical defense in depth | open |  | 2026-08-12T15:35:02.273Z |  |
 
 ````json
 [
@@ -133,6 +134,18 @@ last_updated: 2026-08-12T15:10:15.531Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T15:10:15.531Z",
+    "resolved_at": null
+  },
+  {
+    "id": 10,
+    "kind": "deviation",
+    "phase": "04",
+    "file": "src/persistence/write_repository.ts",
+    "line": null,
+    "description": "Added repository-level signed-event verification as critical defense in depth",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T15:35:02.273Z",
     "resolved_at": null
   }
 ]

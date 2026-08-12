@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 4
 current_phase_name: Availability-Gated Publication Loop
 status: planning
-stopped_at: Phase 04 planning complete; ready for 04-01-PLAN.md
-last_updated: "2026-08-12T15:27:00.000Z"
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-08-12T15:35:03.013Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 04 planned in four sequential tracer-first execution plans
 progress:
-  total_phases: 3
+  total_phases: 4
   completed_phases: 3
-  total_plans: 17
-  completed_plans: 17
+  total_plans: 21
+  completed_plans: 18
 ---
 
 # Project State
@@ -32,7 +32,7 @@ Plan: Not started
 Status: Planned
 Last activity: 2026-08-12 — Phase 04 planned in four sequential tracer-first execution plans
 
-Progress: [████████░░] 81%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
@@ -76,6 +76,7 @@ Progress: [████████░░] 81%
 | Phase 03 P01 | 28min | 2 tasks | 10 files |
 | Phase 03 P02 | 8min | 2 tasks | 7 files |
 | Phase 03 P03 | 15min | 2 tasks | 9 files |
+| Phase 04 P01 | 6min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Pin signer NAR routes to the immutable generation that supplied their Narinfo.
 - [Phase ?]: Freeze publication batches by copying one immutable overlay generation into durable batch-entry rows before canonical tree construction.
 - [Phase ?]: Keep pending candidate metadata and inventory transactionally separate from the committed signer overlay until Phase 4 availability succeeds.
+- [Phase ?]: Use a serialized repository-authoritative publication coordinator so duplicate ticks cannot sign or publish a second event.
+- [Phase ?]: Verify signed template equality and Nostr validity again at the persistence boundary.
 
 ### Pending Todos
 
@@ -153,6 +156,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T14:56:15.442Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-08-12T15:35:03.000Z
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None

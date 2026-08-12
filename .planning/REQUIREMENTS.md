@@ -46,8 +46,8 @@
 
 - [x] **PUBL-01**: Daemon freezes one serialized publication batch after five seconds without writes or after sixty seconds of sustained write activity.
 - [x] **PUBL-02**: Daemon builds a deterministic plaintext BUD-16/17/18 copy-on-write tree containing only the dependency-closed eligible batch.
-- [ ] **PUBL-03**: Daemon uploads all newly reachable blobs to the signer's current BUD-03 Blossom servers and proves at least one advertised server contains the complete reachable tree before signing.
-- [ ] **PUBL-04**: Daemon signs and publishes the correct kind `17091` or `37091` event only after the completeness barrier passes, then reactively commits that root to the signer-first read view.
+- [x] **PUBL-03**: Daemon uploads all newly reachable blobs to the signer's current BUD-03 Blossom servers and proves at least one advertised server contains the complete reachable tree before signing.
+- [x] **PUBL-04**: Daemon signs and publishes the correct kind `17091` or `37091` event only after the completeness barrier passes, then reactively commits that root to the signer-first read view.
 - [ ] **PUBL-05**: Daemon records incomplete replicas after publication and retries them asynchronously without blocking the committed root.
 - [ ] **PUBL-06**: Daemon can publish observed and newly signed events to an optional local relay configured as a read/write-through event cache.
 - [ ] **PUBL-07**: A real `nix` CLI can upload a store object through the daemon, trigger publication, remove the local object, and substitute it back from the newly published cache root.
@@ -57,7 +57,7 @@
 - [x] **OPER-01**: Operator can start the daemon from validated configuration covering listen address, whitelist order, relays, optional local caches, limits, signer mode, and writable identity.
 - [ ] **OPER-02**: Daemon emits structured logs for event rejection, cache conflicts, upstream failures, signer state, batch state, replication, and publication outcomes without exposing secrets.
 - [ ] **OPER-03**: Operator can query a basic health endpoint that distinguishes process health, read availability, and write availability.
-- [ ] **OPER-04**: Automated tests cover strict protocol fixtures, hostile inputs, bounded streaming behavior, local relay/Blossom integration, and real `nix` CLI read/write workflows.
+- [x] **OPER-04**: Automated tests cover strict protocol fixtures, hostile inputs, bounded streaming behavior, local relay/Blossom integration, and real `nix` CLI read/write workflows.
 
 ## v2 Requirements
 
@@ -120,15 +120,15 @@
 | WRIT-06 | Phase 3 | Complete |
 | PUBL-01 | Phase 3 | Complete |
 | PUBL-02 | Phase 3 | Complete |
-| PUBL-03 | Phase 4 | Pending |
-| PUBL-04 | Phase 4 | Pending |
+| PUBL-03 | Phase 4 | Complete |
+| PUBL-04 | Phase 4 | Complete |
 | PUBL-05 | Phase 4 | Pending |
 | PUBL-06 | Phase 4 | Pending |
 | PUBL-07 | Phase 4 | Pending |
 | OPER-01 | Phase 1 | Gaps Found |
 | OPER-02 | Phase 4 | Pending |
 | OPER-03 | Phase 4 | Pending |
-| OPER-04 | Phase 4 | Pending |
+| OPER-04 | Phase 4 | Complete |
 
 **Coverage:**
 
