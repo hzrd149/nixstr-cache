@@ -230,7 +230,11 @@ Deno.test("complete object commits to signer-first immutable overlay", async () 
       throw new Error("publisher must not be consulted");
     },
   });
-  assertEquals(await (await handler(new Request(`http://cache/${storeHash}.narinfo`))).text(), narinfo);
+  assertEquals(
+    await (await handler(new Request(`http://cache/${storeHash}.narinfo`)))
+      .text(),
+    narinfo,
+  );
   const response = await handler(new Request("http://cache/nar/signer.nar"));
   assertEquals(await response.text(), "signer");
   repository.close();

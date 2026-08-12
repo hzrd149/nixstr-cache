@@ -7,6 +7,7 @@ import {
 import type { SelectedPublication } from "../nostr/selection.ts";
 import type { MergedSelectionSnapshot } from "../nostr/selection.ts";
 import { classifyEndorsements, parseNarInfo } from "../protocol/narinfo.ts";
+import type { SignerOverlay, SignerOverlaySnapshot } from "../write/overlay.ts";
 import {
   WriteConflict,
   type WriteRepository,
@@ -35,10 +36,12 @@ export interface NixHandlerDependencies {
   ) => void;
   readonly diagnostics?: DiagnosticSink;
   readonly routes?: WinnerRouteRegistry;
+  readonly overlay?: SignerOverlay;
   readonly write?: {
     current(): {
       readonly ready: boolean;
       readonly repository?: WriteRepository;
+      readonly onStaged?: (route: string) => Promise<unknown>;
     };
   };
 }
@@ -83,8 +86,10 @@ function mapped(error: unknown): Response {
 export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
   const routes = dependencies.routes ??
     new WinnerRouteRegistry(1024, 5 * 60_000);
+  const signerRoutes = new Map<string, SignerOverlaySnapshot>();
   return async (request: Request): Promise<Response> => {
     const snapshot = dependencies.selection.current();
+    const overlaySnapshot = dependencies.overlay?.current();
     if (request.method === "PUT") {
       const readiness = dependencies.write?.current();
       if (!readiness?.ready || !readiness.repository) {
@@ -125,11 +130,13 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
                 "/nix/store/".length + 32,
               ) !== narinfoMatch[1]
             ) throw new TypeError("narinfo route mismatch");
+            readiness.repository.recordNarInfo(route, parsed);
           } catch (error) {
             readiness.repository.discard(route);
             throw error;
           }
         }
+        await readiness.onStaged?.(route);
         return new Response(null, { status: 200 });
       } catch (error) {
         if (error instanceof WriteConflict) {
@@ -157,12 +164,24 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
     if (!narinfoMatch && !narMatch) {
       return new Response("not found\n", { status: 404 });
     }
-    if (snapshot.length === 0) {
+    if (
+      snapshot.length === 0 && !overlaySnapshot?.entries.has(pathname.slice(1))
+    ) {
       return new Response("cache unavailable\n", { status: 503 });
     }
     const path = narinfoMatch ? `${narinfoMatch[1]}.narinfo` : narMatch![1];
     try {
       if (narinfoMatch) {
+        const signerEntry = overlaySnapshot?.entries.get(path);
+        if (signerEntry && overlaySnapshot) {
+          const resolved = await dependencies.overlay!.resolver(overlaySnapshot)
+            .resolve("", path, "GET");
+          if (!resolved.body) throw new Error("GET resolution omitted body");
+          const raw = await new Response(resolved.body).text();
+          const record = parseNarInfo(raw);
+          signerRoutes.set(record.url, overlaySnapshot);
+          return text(raw, request.method);
+        }
         const merged = await resolveMergedNarInfo({
           snapshot,
           path,
@@ -187,8 +206,19 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       }
       const budget = (dependencies.budgetFor ?? defaultBudget)();
       let resolved;
+      const pinnedSigner = signerRoutes.get(path);
+      if (pinnedSigner) {
+        resolved = await dependencies.overlay!.resolver(pinnedSigner).resolve(
+          "",
+          path,
+          request.method,
+        );
+      } else if (overlaySnapshot?.entries.has(path)) {
+        resolved = await dependencies.overlay!.resolver(overlaySnapshot)
+          .resolve("", path, request.method);
+      }
       const pinned = routes.get(path);
-      if (pinned) {
+      if (!resolved && pinned) {
         resolved = await dependencies.resolverFor(pinned).resolve(
           pinned.root.hex,
           path,
@@ -196,7 +226,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           budget,
           request.signal,
         );
-      } else {
+      } else if (!resolved) {
         for (const publication of snapshot) {
           try {
             resolved = await dependencies.resolverFor(publication).resolve(
