@@ -4,6 +4,13 @@ import { BlobFetcher, HashMismatch } from "../../src/blossom/blob_fetcher.ts";
 import { buildSourcePlan } from "../../src/blossom/source_plan.ts";
 import { StateRepository } from "../../src/persistence/state_repository.ts";
 import type { PinnedResponse } from "../../src/network/safe_fetcher.ts";
+import {
+  AddressPolicy,
+  NetworkPolicyError,
+  NetworkTimeoutError,
+  PinnedTransport,
+  SafeFetcher,
+} from "../../src/network/safe_fetcher.ts";
 import { encode } from "@msgpack/msgpack";
 import {
   PathResolver,
@@ -269,4 +276,156 @@ Deno.test("traversal|backpressure|HEAD: absence and budget overflow remain typed
   });
   budget.debitLinks(1);
   assertThrows(() => budget.debitLinks(1));
+});
+
+async function withRawResponse<T>(
+  parts: readonly (string | { delay: number })[],
+  run: (port: number) => Promise<T>,
+): Promise<T> {
+  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+  const serve = (async () => {
+    using conn = await listener.accept();
+    await conn.read(new Uint8Array(4096));
+    for (const part of parts) {
+      if (typeof part === "string") {
+        await conn.write(new TextEncoder().encode(part));
+      } else await new Promise((resolve) => setTimeout(resolve, part.delay));
+    }
+  })();
+  try {
+    return await run((listener.addr as Deno.NetAddr).port);
+  } finally {
+    listener.close();
+    await serve.catch(() => {});
+  }
+}
+
+Deno.test("deadline|chunked|cancel: total and idle deadlines govern body through EOF", async () => {
+  await withRawResponse([
+    "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\no",
+    { delay: 100 },
+    "k",
+  ], async (port) => {
+    const fetcher = new SafeFetcher(
+      new AddressPolicy(
+        () => Promise.resolve(["127.0.0.1"]),
+        `http://stall.test:${port}`,
+      ),
+      new PinnedTransport(),
+      {
+        maxRedirects: 0,
+        connectTimeoutMs: 50,
+        idleTimeoutMs: 25,
+        totalTimeoutMs: 70,
+      },
+    );
+    const response = await fetcher.fetch(
+      `http://stall.test:${port}/`,
+      "configured",
+    );
+    await assertRejects(() => response.text(), NetworkTimeoutError);
+  });
+});
+
+Deno.test("deadline|chunked|cancel: split chunk framing is decoded before spooling", async () => {
+  const payload = new TextEncoder().encode("Wikipedia");
+  await withRawResponse([
+    "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r",
+    "\nWiki\r\n5\r\npedia\r\n0\r\nX-Test: ok\r\n\r\n",
+  ], async (port) => {
+    const fetcher = new SafeFetcher(
+      new AddressPolicy(
+        () => Promise.resolve(["127.0.0.1"]),
+        `http://chunks.test:${port}`,
+      ),
+      new PinnedTransport(),
+      {
+        maxRedirects: 0,
+        connectTimeoutMs: 100,
+        idleTimeoutMs: 100,
+        totalTimeoutMs: 1000,
+      },
+    );
+    const spool = await Deno.makeTempDir();
+    const blobs = new BlobFetcher({
+      fetcher,
+      quarantine: {
+        isQuarantined: () => false,
+        quarantine: () => {},
+        releaseQuarantine: () => {},
+      },
+      spoolDirectory: spool,
+    });
+    const blob = await blobs.fetch(
+      hex(sha256(payload)),
+      buildSourcePlan({ configured: `http://chunks.test:${port}` }),
+      { maxAttempts: 1, maxTransferBytes: 100 },
+    );
+    assertEquals(await new Response(blob.open()).text(), "Wikipedia");
+    await blob.dispose();
+  });
+});
+
+Deno.test("deadline|chunked|cancel: ambiguous and malformed framing fails closed", async () => {
+  const cases = [
+    "Content-Length: 1\r\nContent-Length: 1\r\n\r\nx",
+    "Content-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+    "Transfer-Encoding: gzip\r\n\r\nx",
+    "Transfer-Encoding: chunked\r\n\r\nZ\r\nx\r\n0\r\n\r\n",
+    "Transfer-Encoding: chunked\r\n\r\n1\r\nxX\n0\r\n\r\n",
+  ];
+  for (const framing of cases) {
+    await withRawResponse([`HTTP/1.1 200 OK\r\n${framing}`], async (port) => {
+      const response = await new PinnedTransport().fetch({
+        url: new URL(`http://x.test:${port}/`),
+        hostname: "x.test",
+        address: "127.0.0.1",
+        port,
+      }, { signal: AbortSignal.timeout(1000), idleTimeoutMs: 100 });
+      await assertRejects(() => response.text(), NetworkPolicyError);
+    }).catch((error) => {
+      if (!(error instanceof NetworkPolicyError)) throw error;
+    });
+  }
+});
+
+Deno.test("deadline|chunked|cancel: exceptional spool cancels reader and removes partial file", async () => {
+  const dir = await Deno.makeTempDir();
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.enqueue(new Uint8Array(20));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const fetcher = new BlobFetcher({
+    fetcher: {
+      fetch: () =>
+        Promise.resolve({
+          status: 200,
+          headers: new Headers(),
+          body,
+          peerAddress: "127.0.0.1",
+          text: () => Promise.resolve(""),
+          cancel: (reason) => body.cancel(reason),
+        }),
+    },
+    quarantine: {
+      isQuarantined: () => false,
+      quarantine: () => {},
+      releaseQuarantine: () => {},
+    },
+    spoolDirectory: dir,
+  });
+  await assertRejects(() =>
+    fetcher.fetch(
+      "00".repeat(32),
+      buildSourcePlan({ event: ["http://x.test"] }),
+      { maxAttempts: 1, maxTransferBytes: 10 },
+    )
+  );
+  assertEquals(cancelled, true);
+  assertEquals([...Deno.readDirSync(dir)].length, 0);
 });

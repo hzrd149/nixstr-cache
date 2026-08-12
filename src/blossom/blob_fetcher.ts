@@ -196,6 +196,7 @@ export class BlobFetcher {
       const hash = sha256.create();
       const reader = response.body.getReader();
       let size = 0;
+      let completed = false;
       const abort = () => reader.cancel(signal?.reason).catch(() => {});
       signal?.addEventListener("abort", abort, { once: true });
       try {
@@ -204,7 +205,10 @@ export class BlobFetcher {
             throw signal.reason ?? new DOMException("aborted", "AbortError");
           }
           const { value, done } = await reader.read();
-          if (done) break;
+          if (done) {
+            completed = true;
+            break;
+          }
           size += value.byteLength;
           if (
             size > limits.maxTransferBytes ||
@@ -216,6 +220,13 @@ export class BlobFetcher {
             offset += await file.write(value.subarray(offset));
           }
         }
+      } catch (error) {
+        if (!completed) {
+          try {
+            await reader.cancel(error);
+          } catch { /* preserve original error */ }
+        }
+        throw error;
       } finally {
         signal?.removeEventListener("abort", abort);
         reader.releaseLock();
