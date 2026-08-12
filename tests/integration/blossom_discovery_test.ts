@@ -120,7 +120,7 @@ Deno.test("production BUD-03 wiring feeds configured, event, then server list so
       repository,
       parsed.value,
     ) as {
-      current(): SelectedPublication | undefined;
+      current(): readonly SelectedPublication[];
       dispose(): void;
     };
     const published = finalizeEvent({
@@ -137,11 +137,11 @@ Deno.test("production BUD-03 wiring feeds configured, event, then server list so
       ["server", "https://bud.example"],
       ["server", "https://event.example"],
     ]));
-    const snapshot = selection.current();
+    const snapshot = selection.current()[0];
     const plan = buildSourcePlan({
       configured: parsed.value.preferredBlossomUrl,
-      event: snapshot?.blossomServers,
-      bud03: snapshot?.bud03Servers,
+      event: snapshot.blossomServers,
+      bud03: snapshot.bud03Servers,
     });
     assertEquals(
       plan.map((candidate) => [candidate.baseUrl, candidate.trust]),
@@ -152,11 +152,11 @@ Deno.test("production BUD-03 wiring feeds configured, event, then server list so
       ],
     );
     eventStream.next(servers(92, [["server", "https://replacement.example"]]));
-    assertEquals(snapshot?.bud03Servers, [
+    assertEquals(snapshot.bud03Servers, [
       "https://bud.example",
       "https://event.example",
     ]);
-    assertEquals(selection.current()?.bud03Servers, [
+    assertEquals(selection.current()[0]?.bud03Servers, [
       "https://replacement.example",
     ]);
     selection.dispose();
