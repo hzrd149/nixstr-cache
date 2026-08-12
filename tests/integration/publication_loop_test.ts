@@ -146,3 +146,40 @@ Deno.test("hostile signer and false relay fail before promotion", async () => {
     await Deno.remove(f.root, { recursive: true });
   }
 });
+
+Deno.test("repository independently rejects a signed event that differs from its template", async () => {
+  const f = await fixture();
+  try {
+    const saga = f.write.claimPublication(["http://127.0.0.1:9001"])!;
+    for (const entry of f.write.publicationInventory(saga.batchId)) {
+      f.write.recordBlobProof(
+        saga.batchId,
+        "http://127.0.0.1:9001",
+        entry.hash,
+      );
+    }
+    f.write.recordCompleteServer(saga.batchId, "http://127.0.0.1:9001");
+    const template = { kind: 17091, created_at: 100, tags: [], content: "" };
+    await assertRejects(
+      async () => {
+        f.write.recordSigned(saga.batchId, template, {
+          id: "0".repeat(64),
+          pubkey: f.pubkey,
+          sig: "0".repeat(128),
+          kind: 17091,
+          created_at: 101,
+          tags: [],
+          content: "changed",
+        });
+      },
+      Error,
+      "signed event differs from template",
+    );
+  } finally {
+    f.selection.dispose();
+    f.state.close();
+    f.write.close();
+    await f.signer.close();
+    await Deno.remove(f.root, { recursive: true });
+  }
+});
