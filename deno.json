@@ -8,7 +8,7 @@
     "fmt": "deno fmt --check",
     "lint": "deno lint",
     "check": "deno check main.ts tests/protocol/*.ts tests/integration/*.ts tests/e2e/*.ts",
-    "test": "deno test tests/protocol",
+    "test": "deno test --allow-read=.,/tmp --allow-write=/tmp tests/protocol",
     "test:address-pinning": "deno test --allow-net=127.0.0.1 --allow-read=.,/tmp --allow-write=/tmp tests/integration/address_pinning_test.ts",
     "test:integration": "deno test --allow-env --allow-net=127.0.0.1 --allow-read=.,/tmp --allow-write=/tmp tests/integration",
     "test:nix-e2e": "deno test --allow-run=nix,nix-store,deno --allow-net=127.0.0.1 --allow-read=.,/tmp --allow-write=/tmp tests/e2e/nix_substitution_test.ts",

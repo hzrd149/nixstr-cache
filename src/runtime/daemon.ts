@@ -16,6 +16,7 @@ import {
   RequestBudget,
   VerifiedAbsent,
 } from "../hashtree/reader.ts";
+import { HashtreeWriter } from "../hashtree/writer.ts";
 import {
   AddressPolicy,
   PinnedTransport,
@@ -31,6 +32,7 @@ import { StateRepository } from "../persistence/state_repository.ts";
 import { WriteRepository } from "../persistence/write_repository.ts";
 import { EligibilityModel } from "../write/eligibility.ts";
 import { SignerOverlay } from "../write/overlay.ts";
+import { PublicationBatchScheduler } from "../write/batch_scheduler.ts";
 import {
   createSignerCapability,
   type SignerCapability,
@@ -75,6 +77,7 @@ export function createProductionDependencies(
   const supervisors = new WeakMap<object, {
     readonly abort: AbortController;
     readonly tasks: Set<Promise<void>>;
+    readonly drains: Set<() => Promise<void>>;
   }>();
   return {
     openRepository(config) {
@@ -170,6 +173,11 @@ export function createProductionDependencies(
           if (supervisor?.tasks.size) {
             await Promise.allSettled(supervisor.tasks);
           }
+          if (supervisor?.drains.size) {
+            await Promise.allSettled(
+              [...supervisor.drains].map((drain) => drain()),
+            );
+          }
           await finish();
         },
       };
@@ -210,6 +218,7 @@ export function createProductionDependencies(
       const supervisor = {
         abort: new AbortController(),
         tasks: new Set<Promise<void>>(),
+        drains: new Set<() => Promise<void>>(),
       };
       supervisors.set(selection as object, supervisor);
       const cacheSink = config.localBlossomUrl
@@ -298,6 +307,18 @@ export function createProductionDependencies(
           },
         })
         : undefined;
+      const batchScheduler = writeRepository
+        ? new PublicationBatchScheduler(
+          writeRepository,
+          new HashtreeWriter(`${config.stagingDirectory}/candidate-blobs`, {
+            maxLinks: config.limits.linksPerNode,
+            maxInventoryBlobs: config.limits.uniqueManifestNodes +
+              config.limits.linksPerNode,
+            maxInventoryBytes: config.stagingAggregateBytes,
+          }),
+        )
+        : undefined;
+      if (batchScheduler) supervisor.drains.add(() => batchScheduler.close());
       return createNixHttpHandler({
         decodedMetadataBytes: config.limits.decodedMetadataBytes,
         selection: {
@@ -327,8 +348,13 @@ export function createProductionDependencies(
                 ready: state.status === "ready" && writeRepository.health() &&
                   config.relayUrls.length > 0 && hasDestination,
                 repository: writeRepository,
-                onStaged: (route) =>
-                  eligibility?.changed(route) ?? Promise.resolve(false),
+                onStaged: async (route) => {
+                  const changed = await (eligibility?.changed(route) ?? false);
+                  if (changed) {
+                    batchScheduler?.dirty(writeRepository.currentGeneration());
+                  }
+                  return changed;
+                },
               };
             },
           }

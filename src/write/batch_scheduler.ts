@@ -2,7 +2,15 @@ import type {
   FrozenBatch,
   WriteRepository,
 } from "../persistence/write_repository.ts";
-import type { HashtreeWriter } from "../hashtree/writer.ts";
+import type { HashtreeBuild, LogicalFile } from "../hashtree/writer.ts";
+
+export interface BatchWriter {
+  build(
+    files: readonly LogicalFile[],
+    base?: HashtreeBuild,
+    signal?: AbortSignal,
+  ): Promise<HashtreeBuild>;
+}
 
 export interface BatchClock {
   readonly now: number;
@@ -28,7 +36,7 @@ export class PublicationBatchScheduler {
   #closed = false;
   constructor(
     readonly repository: WriteRepository,
-    readonly writer: HashtreeWriter,
+    readonly writer: BatchWriter,
     readonly clock: BatchClock = systemClock,
   ) {
     for (const batch of repository.failedBatches()) this.#enqueue(batch);
@@ -58,7 +66,7 @@ export class PublicationBatchScheduler {
     if (batch) this.#enqueue(batch);
   }
   #enqueue(batch: FrozenBatch): void {
-    this.#serial = this.#serial.then(async () => {
+    this.#serial = this.#serial.catch(() => {}).then(async () => {
       try {
         const candidate = await this.writer.build(
           batch.entries.map((entry) => ({
