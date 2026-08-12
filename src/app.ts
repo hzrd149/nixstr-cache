@@ -58,14 +58,20 @@ export function createApp(
         config: parsed.value,
         handler,
         closeResources() {
-          selection?.dispose();
-          repository?.close();
+          try {
+            selection?.dispose();
+          } finally {
+            repository?.close();
+          }
         },
       }),
     };
   } catch (error) {
-    selection?.dispose();
-    repository?.close();
+    try {
+      selection?.dispose();
+    } finally {
+      repository?.close();
+    }
     return {
       ok: false,
       diagnostics: Object.freeze([
@@ -99,8 +105,11 @@ export function startApp(
       if (stopped) return;
       stopped = true;
       abort.abort();
-      await listener.shutdown();
-      app.closeResources();
+      try {
+        await listener.shutdown();
+      } finally {
+        app.closeResources();
+      }
     },
   };
 }

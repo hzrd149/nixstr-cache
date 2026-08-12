@@ -3,7 +3,8 @@
     "exclude": [".planning", "AGENTS.md", "NIP.md"]
   },
   "tasks": {
-    "dev": "deno run --watch --allow-net main.ts",
+    "dev": "deno run --watch --allow-env=NIXSTR_BIND_HOST,NIXSTR_BIND_PORT,NIXSTR_PUBLISHER_PUBKEYS,NIXSTR_RELAY_URLS,NIXSTR_PREFERRED_BLOSSOM_URL,NIXSTR_DATABASE_PATH,NIXSTR_SPOOL_DIRECTORY --allow-net --allow-read --allow-write main.ts",
+    "start": "deno run --allow-env=NIXSTR_BIND_HOST,NIXSTR_BIND_PORT,NIXSTR_PUBLISHER_PUBKEYS,NIXSTR_RELAY_URLS,NIXSTR_PREFERRED_BLOSSOM_URL,NIXSTR_DATABASE_PATH,NIXSTR_SPOOL_DIRECTORY --allow-net --allow-read --allow-write main.ts",
     "fmt": "deno fmt --check",
     "lint": "deno lint",
     "check": "deno check main.ts tests/protocol/*.ts tests/integration/*.ts tests/e2e/*.ts",

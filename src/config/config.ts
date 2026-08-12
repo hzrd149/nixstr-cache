@@ -22,6 +22,8 @@ export interface RawConfig {
   readonly publisherPubkeys?: string;
   readonly relayUrls?: string;
   readonly preferredBlossomUrl?: string;
+  readonly databasePath?: string;
+  readonly spoolDirectory?: string;
   readonly limits?: Partial<Record<keyof Limits, string>>;
 }
 
@@ -31,6 +33,9 @@ export interface ValidatedConfig {
   readonly publisherPubkeys: readonly string[];
   readonly relayUrls: readonly URL[];
   readonly preferredBlossomUrl?: URL;
+  readonly databasePath: string;
+  readonly spoolDirectory: string;
+  readonly identities: readonly string[];
   readonly limits: Limits;
 }
 
@@ -182,6 +187,16 @@ export function parseConfig(
   const preferredBlossomUrl = raw.preferredBlossomUrl
     ? parseUrl(raw.preferredBlossomUrl, "preferredBlossomUrl", diagnostics)
     : undefined;
+  const databasePath = parseOwnerPath(
+    raw.databasePath,
+    "databasePath",
+    diagnostics,
+  );
+  const spoolDirectory = parseOwnerPath(
+    raw.spoolDirectory,
+    "spoolDirectory",
+    diagnostics,
+  );
   const limits = {} as Record<keyof Limits, number>;
   for (const key of Object.keys(LIMIT_SPECS) as (keyof Limits)[]) {
     const spec = LIMIT_SPECS[key];
@@ -219,7 +234,37 @@ export function parseConfig(
       publisherPubkeys: Object.freeze(publisherValues),
       relayUrls: Object.freeze(relayUrls),
       preferredBlossomUrl,
+      databasePath: databasePath!,
+      spoolDirectory: spoolDirectory!,
+      identities: Object.freeze(
+        publisherValues.map((pubkey) => `17091:${pubkey}:`),
+      ),
       limits: Object.freeze(limits as unknown as Limits),
     }),
   };
+}
+
+function parseOwnerPath(
+  value: string | undefined,
+  field: string,
+  diagnostics: ConfigDiagnostic[],
+): string | undefined {
+  const path = value?.trim();
+  if (!path) {
+    diagnostics.push({
+      field,
+      code: "required",
+      message: `${field} is required`,
+    });
+    return;
+  }
+  if (!path.startsWith("/") || path.includes("\0")) {
+    diagnostics.push({
+      field,
+      code: "invalid",
+      message: `${field} must be an absolute filesystem path`,
+    });
+    return;
+  }
+  return path;
 }

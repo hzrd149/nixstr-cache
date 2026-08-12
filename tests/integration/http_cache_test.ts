@@ -3,6 +3,9 @@ import { createNixHttpHandler } from "../../src/nix/http_handler.ts";
 import { BudgetExceeded, VerifiedAbsent } from "../../src/hashtree/reader.ts";
 import type { SelectedPublication } from "../../src/nostr/selection.ts";
 import { createApp, startApp } from "../../src/app.ts";
+import { launchDaemon } from "../../src/runtime/daemon.ts";
+import { Subject } from "rxjs";
+import type { RawPublication } from "../../src/protocol/publication.ts";
 
 const encoder = new TextEncoder();
 const narinfo = [
@@ -268,6 +271,8 @@ Deno.test("startup|shutdown restores before binding and releases lifecycle resou
   const app = await createApp({
     publisherPubkeys: "a".repeat(64),
     relayUrls: "wss://relay.example",
+    databasePath: "/tmp/nixstr-test.sqlite",
+    spoolDirectory: "/tmp/nixstr-test-spool",
   }, {
     openRepository: () => ({ close: () => calls.push("db-close") }),
     createSelection: () => ({ dispose: () => calls.push("selection-dispose") }),
@@ -295,4 +300,58 @@ Deno.test("startup|shutdown restores before binding and releases lifecycle resou
     "selection-dispose",
     "db-close",
   ]);
+});
+
+Deno.test("production launcher validates before side effects and closes after listener failure", async () => {
+  const calls: string[] = [];
+  const invalid = await launchDaemon(
+    { publisherPubkeys: "bad", relayUrls: "bad" },
+    {
+      createEventStream: () => {
+        calls.push("relay");
+        return { events: new Subject<RawPublication>(), dispose() {} };
+      },
+      bind: () => {
+        calls.push("bind");
+        return { shutdown: () => Promise.resolve() };
+      },
+      signals: [],
+    },
+  );
+  assertEquals(invalid.ok, false);
+  assertEquals(calls, []);
+
+  const root = await Deno.makeTempDir();
+  try {
+    const running = await launchDaemon({
+      publisherPubkeys: "a".repeat(64),
+      relayUrls: "ws://127.0.0.1:1",
+      databasePath: `${root}/state.sqlite`,
+      spoolDirectory: `${root}/spool`,
+    }, {
+      createEventStream: () => {
+        calls.push("relay");
+        return {
+          events: new Subject<RawPublication>(),
+          dispose: () => calls.push("relay-close"),
+        };
+      },
+      bind: () => {
+        calls.push("bind");
+        return {
+          shutdown: () => {
+            calls.push("listener-close");
+            return Promise.reject(new Error("injected listener failure"));
+          },
+        };
+      },
+      signals: [],
+    });
+    if (!running.ok) throw new Error(running.diagnostics.join(", "));
+    await running.shutdown().catch(() => {});
+    await running.shutdown().catch(() => {});
+    assertEquals(calls, ["relay", "bind", "listener-close", "relay-close"]);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
 });
