@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { sha256 } from "@noble/hashes/sha2.js";
 import type { NarInfo } from "../protocol/narinfo.ts";
+import { Subject } from "rxjs";
 
 export class WriteConflict extends Error {
   constructor() {
@@ -31,6 +32,7 @@ export interface OverlayEntry extends StagedBlob {
 }
 
 export class WriteRepository {
+  readonly changes$ = new Subject<string>();
   readonly #db: DatabaseSync;
   readonly #root: string;
   readonly #limits: WriteLimits;
@@ -96,6 +98,7 @@ export class WriteRepository {
       );
       for (const reference of references) insert.run(storePathHash, reference);
       this.#db.exec("COMMIT");
+      this.changes$.next(storePathHash);
     } catch (error) {
       this.#db.exec("ROLLBACK");
       throw error;
@@ -299,6 +302,7 @@ export class WriteRepository {
         this.#db.exec("ROLLBACK");
         throw error;
       }
+      this.changes$.next(route);
       return Object.freeze({
         route,
         digest: hex,
@@ -375,6 +379,7 @@ export class WriteRepository {
     }
   }
   close(): void {
+    this.changes$.complete();
     this.#db.close();
   }
 }
