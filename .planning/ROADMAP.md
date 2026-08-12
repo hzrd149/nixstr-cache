@@ -92,7 +92,7 @@ Plans:
 
 ### Phase 3: Signer-Gated Writable Cache
 
-**Goal**: An authorized signer can safely stage complete Nix store objects into a signer-first local cache without exposing incomplete objects or publishing prematurely.
+**Goal:** As a Nix cache operator, I want an authorized signer to stage complete store objects into a private writable overlay, so that uploads become safely readable without exposing incomplete data or publishing prematurely.
 **Mode:** mvp
 **Depends on**: Phase 2
 **Requirements**: WRIT-01, WRIT-02, WRIT-03, WRIT-04, WRIT-05, WRIT-06, PUBL-01, PUBL-02
