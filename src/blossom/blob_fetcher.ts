@@ -44,6 +44,7 @@ export interface BlobFetchLimits {
   readonly maxAttempts: number;
   readonly maxTransferBytes: number;
   readonly declaredSize?: number;
+  readonly beforeAttempt?: () => void;
 }
 type FetchBoundary = {
   fetch(
@@ -132,6 +133,7 @@ export class BlobFetcher {
     for (const source of sources) {
       if (attempts >= limits.maxAttempts) break;
       if (this.#quarantine.isQuarantined(source.origin)) continue;
+      limits.beforeAttempt?.();
       attempts++;
       try {
         return await this.#attempt(expectedHash, source, limits, signal);
