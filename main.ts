@@ -1,6 +1,46 @@
 import type { RawConfig } from "./src/config/config.ts";
 import { launchDaemon } from "./src/runtime/daemon.ts";
 
+const SUPPORTED_ENVIRONMENT_NAMES = [
+  "NIXSTR_BIND_HOST",
+  "NIXSTR_BIND_PORT",
+  "NIXSTR_PUBLISHER_PUBKEYS",
+  "NIXSTR_RELAY_URLS",
+  "NIXSTR_PREFERRED_BLOSSOM_URL",
+  "NIXSTR_DATABASE_PATH",
+  "NIXSTR_SPOOL_DIRECTORY",
+  "NIXSTR_SIGNER_MODE",
+  "NIXSTR_WRITABLE_IDENTITY",
+  "NIXSTR_LIMIT_MANIFEST_WIRE_BYTES",
+  "NIXSTR_LIMIT_DECODED_METADATA_BYTES",
+  "NIXSTR_LIMIT_BLOB_TRANSFER_BYTES",
+  "NIXSTR_LIMIT_REQUEST_TRANSFER_BYTES",
+  "NIXSTR_LIMIT_REQUEST_OUTPUT_BYTES",
+  "NIXSTR_LIMIT_TRAVERSAL_DEPTH",
+  "NIXSTR_LIMIT_LINKS_PER_NODE",
+  "NIXSTR_LIMIT_UNIQUE_MANIFEST_NODES",
+  "NIXSTR_LIMIT_TOTAL_DECODED_MANIFEST_BYTES",
+  "NIXSTR_LIMIT_SOURCE_ATTEMPTS",
+  "NIXSTR_LIMIT_MAX_REDIRECTS",
+  "NIXSTR_LIMIT_CONNECT_TIMEOUT_MS",
+  "NIXSTR_LIMIT_IDLE_TIMEOUT_MS",
+  "NIXSTR_LIMIT_TOTAL_TIMEOUT_MS",
+  "NIXSTR_LIMIT_CONCURRENT_FETCHES",
+] as const;
+
+export type EnvironmentReader = (name: string) => string | undefined;
+
+export function collectRawConfigFromEnvironment(
+  readEnvironment: EnvironmentReader = (name) => Deno.env.get(name),
+): RawConfig {
+  const environment: Record<string, string> = {};
+  for (const name of SUPPORTED_ENVIRONMENT_NAMES) {
+    const value = readEnvironment(name);
+    if (value !== undefined) environment[name] = value;
+  }
+  return rawConfigFromEnvironment(environment);
+}
+
 export function rawConfigFromEnvironment(
   environment: Record<string, string>,
 ): RawConfig {
@@ -36,23 +76,7 @@ export function rawConfigFromEnvironment(
 }
 
 if (import.meta.main) {
-  const names = [
-    "NIXSTR_BIND_HOST",
-    "NIXSTR_BIND_PORT",
-    "NIXSTR_PUBLISHER_PUBKEYS",
-    "NIXSTR_RELAY_URLS",
-    "NIXSTR_PREFERRED_BLOSSOM_URL",
-    "NIXSTR_DATABASE_PATH",
-    "NIXSTR_SPOOL_DIRECTORY",
-    "NIXSTR_SIGNER_MODE",
-    "NIXSTR_WRITABLE_IDENTITY",
-  ] as const;
-  const environment: Record<string, string> = {};
-  for (const name of names) {
-    const value = Deno.env.get(name);
-    if (value !== undefined) environment[name] = value;
-  }
-  const result = await launchDaemon(rawConfigFromEnvironment(environment));
+  const result = await launchDaemon(collectRawConfigFromEnvironment());
   if (!result.ok) {
     for (const diagnostic of result.diagnostics) console.error(diagnostic);
     Deno.exit(1);
