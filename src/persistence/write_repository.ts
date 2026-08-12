@@ -208,7 +208,7 @@ export class WriteRepository {
       throw error;
     }
   }
-  async releaseWriterRun(runId: string): Promise<void> {
+  releaseWriterRun(runId: string): Promise<void> {
     this.#db.exec("BEGIN IMMEDIATE");
     try {
       this.#db.prepare("DELETE FROM blob_owners WHERE owner=?").run(runId);
@@ -218,7 +218,8 @@ export class WriteRepository {
       this.#db.exec("ROLLBACK");
       throw error;
     }
-    await this.#sweepCandidateBlobs();
+    this.#sweepCandidateBlobsSync();
+    return Promise.resolve();
   }
   #reconcileWriterRuns(): void {
     const abandoned = this.#db.prepare(
@@ -270,10 +271,6 @@ export class WriteRepository {
       ).run(row.hash, row.hash);
     }
   }
-  async #sweepCandidateBlobs(): Promise<void> {
-    this.#sweepCandidateBlobsSync();
-  }
-
   health(): boolean {
     return this.#healthy;
   }
@@ -681,9 +678,6 @@ export class WriteRepository {
     const superseded = this.#db.prepare(
       "SELECT batch_id batchId FROM pending_candidate WHERE singleton=1",
     ).get() as { batchId: number } | undefined;
-    const supersededPath = superseded && (this.#db.prepare(
-      "SELECT path FROM pending_candidate_blobs WHERE batch_id=? LIMIT 1",
-    ).get(superseded.batchId) as { path: string } | undefined)?.path;
     this.#db.exec("BEGIN IMMEDIATE");
     try {
       this.#db.prepare("DELETE FROM pending_candidate_blobs").run();
