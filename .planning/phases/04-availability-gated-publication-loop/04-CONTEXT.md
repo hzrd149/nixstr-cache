@@ -22,6 +22,8 @@ Consume Phase 3's durable unpublished candidate, stream every newly reachable bl
 
 ### Signing, Relay Publication, and Promotion
 - Build exactly kind `17091` for default identity or kind `37091` with the exact configured `d`; include canonical plaintext `nhash`, ordered Blossom tags, Nix signature-key tags, and expiration semantics required by `NIP.md`.
+- Add an explicit ordered, strictly validated operator `nixSigKey` list; an empty list intentionally publishes no key declarations and must never be inferred from uploaded Narinfo records.
+- Attach NIP-40 expiration using a validated configurable publication lifetime with a 30-day default; schedule refresh through the same durable saga before expiry rather than emitting immortal mutable cache identities.
 - Sign only through the ready owned signer capability and verify the completed signed event locally before any relay publication.
 - Publish to configured relays with bounded acknowledgement tracking; one configured relay acknowledgement is sufficient to promote, while other failures remain retryable. If no relay acknowledges, keep the candidate pending and do not promote.
 - After the completeness and relay barriers, transactionally mark the publication committed and feed the same verified event through EventStore/selection so the signer overlay becomes the highest-priority read root without a special bypass.
