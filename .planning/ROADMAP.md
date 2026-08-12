@@ -12,7 +12,7 @@ The v1 journey starts with the smallest safe walking slice: a stock Nix client s
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Verified Nix Substitution Walking Slice** - A real Nix client safely substitutes from one selected Nostr/Blossom cache through a bounded, verified stream. (completed 2026-08-12)
-- [ ] **Phase 2: Deterministic Merged Read Cache** - Multiple whitelisted publishers appear as one stable priority-ordered cache with safe conflict handling and local verified caching.
+- [x] **Phase 2: Deterministic Merged Read Cache** - Multiple whitelisted publishers appear as one stable priority-ordered cache with safe conflict handling and local verified caching. (completed 2026-08-12)
 - [ ] **Phase 3: Signer-Gated Writable Cache** - A connected signer can stream complete store objects into a private writable overlay while incomplete data remains invisible.
 - [ ] **Phase 4: Availability-Gated Publication Loop** - Eligible writes become retrievable signed roots and pass a complete real-Nix upload, publish, and substitute-back workflow.
 
@@ -129,6 +129,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Verified Nix Substitution Walking Slice | 11/11 | Complete    | 2026-08-12 |
-| 2. Deterministic Merged Read Cache | 3/3 | In Progress|  |
+| 2. Deterministic Merged Read Cache | 3/3 | Complete    | 2026-08-12 |
 | 3. Signer-Gated Writable Cache | 0/TBD | Not started | - |
 | 4. Availability-Gated Publication Loop | 0/TBD | Not started | - |
