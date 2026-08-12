@@ -361,3 +361,41 @@ Deno.test("restart reconciliation admits complete staged content without a later
   repository.close();
   await Deno.remove(root, { recursive: true });
 });
+
+Deno.test("atomic promotion is create-new complete and retry-idempotent", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const repository = new WriteRepository(
+      `${root}/write.db`,
+      `${root}/spool`,
+      {
+        perBodyBytes: 4096,
+        aggregateBytes: 65536,
+      },
+    );
+    const first = await repository.stage(
+      "nar/atomic.nar",
+      new Blob(["complete"]).stream(),
+    );
+    assertEquals(await Deno.readTextFile(first.path), "complete");
+    const stat = await Deno.stat(first.path);
+    assertEquals(stat.size, 8);
+    const retry = await repository.stage(
+      "nar/atomic.nar",
+      new Blob(["complete"]).stream(),
+    );
+    assertEquals(retry.idempotent, true);
+    assertEquals(retry.path, first.path);
+    let conflicted = false;
+    try {
+      await repository.stage("nar/atomic.nar", new Blob(["changed!"]).stream());
+    } catch {
+      conflicted = true;
+    }
+    assertEquals(conflicted, true);
+    assertEquals(await Deno.readTextFile(first.path), "complete");
+    repository.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});

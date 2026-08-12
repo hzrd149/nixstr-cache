@@ -1,5 +1,5 @@
 import { assertEquals, assertGreater } from "@std/assert";
-import { HashtreeWriter } from "../../src/hashtree/writer.ts";
+import { FILE_CHUNK_BYTES, HashtreeWriter } from "../../src/hashtree/writer.ts";
 import { decodeManifest } from "../../src/protocol/hashtree.ts";
 
 Deno.test("canonical writer is deterministic, reader-compatible, and reuses blobs", async () => {
@@ -17,13 +17,13 @@ Deno.test("canonical writer is deterministic, reader-compatible, and reuses blob
     const second = await writer.build(input, first);
     assertEquals(first.rootHex, second.rootHex);
     assertEquals(
-      first.inventory.map((x) => x.hash),
-      second.inventory.map((x) => x.hash),
+      [...first.inventory].map((x) => x.hash),
+      [...second.inventory].map((x) => x.hash),
     );
     assertEquals(second.createdBlobs, 0);
     assertGreater(first.inventory.length, 3);
     const rootWire = await Deno.readFile(
-      first.inventory.find((x) => x.hash === first.rootHex)!.path,
+      [...first.inventory].find((x) => x.hash === first.rootHex)!.path,
     );
     assertEquals(
       decodeManifest(rootWire, {
@@ -48,7 +48,7 @@ Deno.test("directory ordering is UTF-8 bytewise and fanout stays bounded", async
       maxInventoryBlobs: 1024,
       maxInventoryBytes: 1_000_000,
     });
-    const result = await writer.build(["z", "é", "a"].map((name) => ({
+    const result = await writer.build(["a", "z", "é"].map((name) => ({
       route: `${name}/file`,
       path: source,
       size: 1,
@@ -91,11 +91,124 @@ Deno.test("one-path updates reuse unchanged persistent blobs", async () => {
     assertEquals(first.rootHex === second.rootHex, false);
     assertEquals(second.createdBlobs < second.inventory.length, true);
     assertEquals(
-      second.inventory.some((blob) =>
-        first.inventory.some((old) => old.hash === blob.hash)
+      [...second.inventory].some((blob) =>
+        [...first.inventory].some((old) => old.hash === blob.hash)
       ),
       true,
     );
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("bounded durable iteration is single-pass ordered and cancellable", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const source = `${root}/source`;
+    await Deno.writeTextFile(source, "x");
+    let iterations = 0;
+    let yields = 0;
+    const files = {
+      async *[Symbol.asyncIterator]() {
+        iterations++;
+        for (const route of ["a", "b", "c"]) {
+          yields++;
+          yield { route, path: source, size: 1 };
+        }
+      },
+    };
+    const writer = new HashtreeWriter(`${root}/trees`, {
+      maxLinks: 2,
+      maxInventoryBlobs: 100,
+      maxInventoryBytes: 65536,
+      maxEntries: 3,
+      maxRouteBytes: 16,
+      maxRouteDepth: 2,
+    });
+    const streamed = await writer.build(files);
+    const array = await writer.build(["a", "b", "c"].map((route) => ({
+      route,
+      path: source,
+      size: 1,
+    })));
+    assertEquals(streamed.rootHex, array.rootHex);
+    assertEquals(iterations, 1);
+    assertEquals(yields, 3);
+    assertEquals(streamed.maxBufferedLinks <= 2, true);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("durable directory runs keep link working set independent of route count", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const source = `${root}/source`;
+    await Deno.writeTextFile(source, "x");
+    const writer = new HashtreeWriter(`${root}/trees`, {
+      maxLinks: 3,
+      maxInventoryBlobs: 1000,
+      maxInventoryBytes: 1_000_000,
+      maxEntries: 200,
+    });
+    const routes = async function* () {
+      for (let i = 0; i < 150; i++) {
+        yield {
+          route: `dir/${String(i).padStart(3, "0")}`,
+          path: source,
+          size: 1,
+        };
+      }
+    };
+    const built = await writer.build(routes());
+    assertEquals(built.maxBufferedLinks, 3);
+    assertEquals(built.inventory.length > built.maxBufferedLinks, true);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("pinned canonical boundary hashes detect chunk grouping drift", async () => {
+  // BUD-16/17/18 proposal fixtures pinned by NIP.md on 2026-08-12.
+  const expected = [
+    [
+      FILE_CHUNK_BYTES - 1,
+      "852156fe9bb800db4250e1cc20f16a06beea162751d415061932cb007efde2ab",
+      "nhash1qqsg2g2kl6dmsqxmgfgwrnpq794qd0h2zcn4r4q4qcvn9jcq0m7792cf2764x",
+    ],
+    [
+      FILE_CHUNK_BYTES,
+      "516862c020757d231206ec59642dfa190f8cdc2219f4761fa8bf3132d1893b82",
+      "nhash1qqs9z6rzcqs82lfrzgrwckty9hapjruvms3pnarkr75t7vfj6xynhqs9zzcqs",
+    ],
+    [
+      FILE_CHUNK_BYTES + 1,
+      "85e63254c339fb200759e7cd3986bfa2854f8e1bbb24241876b1342d84fe1629",
+      "nhash1qqsgte3j2npnn7eqqav70nfes6l69p203cdmkfpyrpmtzdpdsnlpv2g3m0p4c",
+    ],
+  ] as const;
+  const root = await Deno.makeTempDir();
+  try {
+    for (const [size, rootHex, rootNhash] of expected) {
+      const source = `${root}/${size}`;
+      await Deno.writeFile(source, new Uint8Array(size).fill(7));
+      const writer = new HashtreeWriter(`${root}/trees-${size}`, {
+        maxLinks: 174,
+        maxInventoryBlobs: 100,
+        maxInventoryBytes: 10_000_000,
+      });
+      const built = await writer.build([
+        { route: "nar/x.nar", path: source, size },
+      ]);
+      assertEquals(built.rootHex, rootHex);
+      assertEquals(built.rootNhash, rootNhash);
+      assertEquals(
+        (await writer.build([
+          { route: "nar/x.nar", path: source, size },
+        ])).createdBlobs,
+        0,
+      );
+    }
   } finally {
     await Deno.remove(root, { recursive: true });
   }

@@ -247,3 +247,42 @@ Deno.test("batch build failure diagnostic is typed and preserves durable retry",
     await Deno.remove(root, { recursive: true });
   }
 });
+
+Deno.test("streams frozen batch rows directly into the writer", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const repository = new WriteRepository(
+      `${root}/write.db`,
+      `${root}/spool`,
+      {
+        perBodyBytes: 4096,
+        aggregateBytes: 65536,
+      },
+    );
+    await repository.stage("a", new Blob(["a"]).stream());
+    await repository.stage("b", new Blob(["b"]).stream());
+    const generation = repository.commitOverlayRoutes(["a", "b"]);
+    const clock = new FakeClock();
+    let asyncSource = false;
+    const real = new HashtreeWriter(`${root}/trees`, {
+      maxLinks: 2,
+      maxInventoryBlobs: 100,
+      maxInventoryBytes: 65536,
+    });
+    const scheduler = new PublicationBatchScheduler(repository, {
+      build(source, base, signal) {
+        asyncSource = Symbol.asyncIterator in source;
+        return real.build(source, base, signal);
+      },
+    }, clock);
+    scheduler.dirty(generation);
+    await clock.advance(5_000);
+    await scheduler.idle();
+    assertEquals(asyncSource, true);
+    assertExists(repository.pendingCandidate());
+    await scheduler.close();
+    repository.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});

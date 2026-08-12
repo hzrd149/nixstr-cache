@@ -37,7 +37,7 @@ export interface FrozenBatch {
   readonly token: number;
   readonly generation: number;
   readonly baseRoot?: string;
-  readonly entries: readonly OverlayEntry[];
+  readonly entryCount: number;
 }
 export interface ActivePublicationWindow {
   readonly token: number;
@@ -58,6 +58,9 @@ export interface PendingInventoryEntry {
   readonly hash: string;
   readonly size: number;
   readonly path: string;
+}
+export interface DurableInventory extends Iterable<PendingInventoryEntry> {
+  readonly length: number;
 }
 export interface PublicationSaga {
   readonly batchId: number;
@@ -464,28 +467,58 @@ export class WriteRepository {
       this.#db.prepare(
         "UPDATE publication_clock SET active_token=NULL,generation=NULL,opened_at=NULL,last_dirty_at=NULL,base_root=NULL WHERE singleton=1",
       ).run();
-      const entries = this.#batchEntries(id);
+      const entryCount = Number(
+        (this.#db.prepare(
+          "SELECT COUNT(*) count FROM publication_batch_entries WHERE batch_id=?",
+        ).get(id) as { count: number }).count,
+      );
       this.#db.exec("COMMIT");
       return Object.freeze({
         id,
         token,
         generation: clock.generation,
         ...(clock.base_root ? { baseRoot: clock.base_root } : {}),
-        entries,
+        entryCount,
       });
     } catch (error) {
       this.#db.exec("ROLLBACK");
       throw error;
     }
   }
-  #batchEntries(id: number): readonly OverlayEntry[] {
-    return Object.freeze(
-      (this.#db.prepare(
-        "SELECT generation,route,digest,size,path FROM publication_batch_entries WHERE batch_id=? ORDER BY route",
-      ).all(id) as unknown as OverlayEntry[]).map((x) =>
-        Object.freeze({ ...x, idempotent: true })
-      ),
+  async *publicationBatchFiles(
+    batch: Pick<FrozenBatch, "id" | "token" | "generation">,
+    maxEntries: number,
+    signal?: AbortSignal,
+  ): AsyncIterable<import("../hashtree/writer.ts").LogicalFile> {
+    const current = this.#db.prepare(
+      "SELECT token,generation,status FROM publication_batches WHERE id=?",
+    ).get(batch.id) as unknown as {
+      token: number;
+      generation: number;
+      status: string;
+    } | undefined;
+    if (
+      !current || current.token !== batch.token ||
+      current.generation !== batch.generation ||
+      !["building", "failed"].includes(current.status)
+    ) throw new Error("frozen batch identity changed");
+    const statement = this.#db.prepare(
+      "SELECT route,path,size FROM publication_batch_entries WHERE batch_id=? ORDER BY CAST(route AS BLOB)",
     );
+    let count = 0;
+    for (
+      const row of statement.iterate(batch.id) as unknown as Iterable<{
+        route: string;
+        path: string;
+        size: number;
+      }>
+    ) {
+      signal?.throwIfAborted();
+      if (++count > maxEntries) {
+        throw new RangeError("logical entry ceiling exceeded");
+      }
+      yield Object.freeze(row);
+    }
   }
   failedBatches(): readonly FrozenBatch[] {
     const rows = this.#db.prepare(
@@ -503,7 +536,11 @@ export class WriteRepository {
           token: x.token,
           generation: x.generation,
           ...(x.base_root ? { baseRoot: x.base_root } : {}),
-          entries: this.#batchEntries(x.id),
+          entryCount: Number(
+            (this.#db.prepare(
+              "SELECT COUNT(*) count FROM publication_batch_entries WHERE batch_id=?",
+            ).get(x.id) as { count: number }).count,
+          ),
         })
       ),
     );
@@ -511,7 +548,7 @@ export class WriteRepository {
   recordPending(
     batch: FrozenBatch,
     candidate: PendingCandidate,
-    inventory: readonly PendingInventoryEntry[],
+    inventory: Iterable<PendingInventoryEntry>,
   ): void {
     this.#db.exec("BEGIN IMMEDIATE");
     try {
@@ -530,7 +567,7 @@ export class WriteRepository {
           batch.generation,
           candidate.rootHex,
           candidate.nhash,
-          inventory.length,
+          candidate.blobCount,
           candidate.totalBytes,
         );
       this.#db.prepare(
@@ -553,13 +590,11 @@ export class WriteRepository {
     ).get() as unknown as PendingCandidate | undefined;
     return row && Object.freeze(row);
   }
-  pendingInventory(): readonly PendingInventoryEntry[] {
-    return Object.freeze(
-      (this.#db.prepare(
-        "SELECT hash,size,path FROM pending_candidate_blobs ORDER BY hash",
-      ).all() as unknown as PendingInventoryEntry[]).map((row) =>
-        Object.freeze(row)
-      ),
+  pendingInventory(): DurableInventory {
+    return this.#durableInventory(
+      "pending_candidate_blobs",
+      "",
+      [],
     );
   }
   claimPublication(
@@ -785,14 +820,36 @@ export class WriteRepository {
       throw error;
     }
   }
-  publicationInventory(batchId: number): readonly PendingInventoryEntry[] {
-    return Object.freeze(
-      (this.#db.prepare(
-        "SELECT hash,size,path FROM publication_saga_blobs WHERE batch_id=? ORDER BY hash",
-      ).all(batchId) as unknown as PendingInventoryEntry[]).map((entry) =>
-        Object.freeze(entry)
-      ),
+  publicationInventory(batchId: number): DurableInventory {
+    return this.#durableInventory(
+      "publication_saga_blobs",
+      "WHERE batch_id=?",
+      [batchId],
     );
+  }
+  #durableInventory(
+    table: "pending_candidate_blobs" | "publication_saga_blobs",
+    where: string,
+    parameters: readonly number[],
+  ): DurableInventory {
+    const database = this.#db;
+    const length = Number(
+      (this.#db.prepare(
+        `SELECT COUNT(*) count FROM ${table} ${where}`,
+      ).get(...parameters) as { count: number }).count,
+    );
+    return Object.freeze({
+      length,
+      *[Symbol.iterator]() {
+        for (
+          const row of database.prepare(
+            `SELECT hash,size,path FROM ${table} ${where} ORDER BY hash`,
+          ).iterate(...parameters) as unknown as Iterable<PendingInventoryEntry>
+        ) {
+          yield Object.freeze(row);
+        }
+      },
+    });
   }
   recordBlobProof(batchId: number, server: string, hash: string): void {
     const saga = this.publicationSaga();
@@ -954,6 +1011,11 @@ export class WriteRepository {
         throw new WriteConflict();
       }
       try {
+        // Both paths live below the same owner-only staging root. The synced
+        // inode is published with an atomic create-new hard link: it cannot
+        // overwrite an existing digest and readers can never observe partial
+        // bytes. A crash before SQLite admission leaves only a safe orphan;
+        // retry converges through AlreadyExists and the content digest.
         await Deno.link(temp, destination);
       } catch (error) {
         if (!(error instanceof Deno.errors.AlreadyExists)) throw error;

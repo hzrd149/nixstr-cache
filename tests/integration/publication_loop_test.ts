@@ -25,7 +25,7 @@ async function fixture() {
     id: 7,
     token: 7,
     generation: 1,
-    entries: [],
+    entryCount: 0,
   };
   const nhash = bech32.encode(
     "nhash",
