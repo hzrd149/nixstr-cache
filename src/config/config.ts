@@ -24,8 +24,23 @@ export interface RawConfig {
   readonly preferredBlossomUrl?: string;
   readonly databasePath?: string;
   readonly spoolDirectory?: string;
+  readonly signerMode?: string;
+  readonly writableIdentity?: string;
   readonly limits?: Partial<Record<keyof Limits, string>>;
 }
+
+export interface WritableIdentity {
+  readonly kind: 17091 | 37091;
+  readonly pubkey: string;
+  readonly identifier: string;
+}
+
+export type WriteIntent =
+  | { readonly mode: "disabled" }
+  | {
+    readonly mode: "nip46" | "local";
+    readonly identity: WritableIdentity;
+  };
 
 export interface ValidatedConfig {
   readonly bindHost: string;
@@ -36,6 +51,7 @@ export interface ValidatedConfig {
   readonly databasePath: string;
   readonly spoolDirectory: string;
   readonly identities: readonly string[];
+  readonly writeIntent: WriteIntent;
   readonly limits: Limits;
 }
 
@@ -125,6 +141,36 @@ export function parseConfig(
   _hooks: ParseConfigHooks = {},
 ): ConfigResult {
   const diagnostics: ConfigDiagnostic[] = [];
+  const signerMode = raw.signerMode?.trim() || "disabled";
+  if (
+    signerMode !== "disabled" && signerMode !== "nip46" &&
+    signerMode !== "local"
+  ) {
+    diagnostics.push({
+      field: "signerMode",
+      code: "invalid",
+      message: "signerMode must be disabled, nip46, or local",
+    });
+  }
+  const writableIdentity = raw.writableIdentity === undefined
+    ? undefined
+    : parseWritableIdentity(raw.writableIdentity, diagnostics);
+  if (signerMode === "disabled" && raw.writableIdentity !== undefined) {
+    diagnostics.push({
+      field: "writableIdentity",
+      code: "invalid",
+      message: "writableIdentity must be absent when signerMode is disabled",
+    });
+  } else if (
+    (signerMode === "nip46" || signerMode === "local") &&
+    raw.writableIdentity === undefined
+  ) {
+    diagnostics.push({
+      field: "writableIdentity",
+      code: "required",
+      message: "writableIdentity is required when signerMode is enabled",
+    });
+  }
   const bindHost = raw.bindHost?.trim() || "127.0.0.1";
   const portText = raw.bindPort?.trim() || "8787";
   const bindPort = Number(portText);
@@ -225,6 +271,12 @@ export function parseConfig(
   }
 
   if (diagnostics.length > 0) return { ok: false, diagnostics };
+  const writeIntent: WriteIntent = signerMode === "disabled"
+    ? Object.freeze({ mode: "disabled" })
+    : Object.freeze({
+      mode: signerMode as "nip46" | "local",
+      identity: writableIdentity!,
+    });
   return {
     ok: true,
     diagnostics: [],
@@ -239,9 +291,50 @@ export function parseConfig(
       identities: Object.freeze(
         publisherValues.map((pubkey) => `17091:${pubkey}:`),
       ),
+      writeIntent,
       limits: Object.freeze(limits as unknown as Limits),
     }),
   };
+}
+
+function parseWritableIdentity(
+  value: string,
+  diagnostics: ConfigDiagnostic[],
+): WritableIdentity | undefined {
+  const match = /^(17091|37091):([0-9a-f]{64}):(.*)$/.exec(value);
+  if (!match) {
+    diagnostics.push({
+      field: "writableIdentity",
+      code: "invalid",
+      message:
+        "writableIdentity must be a raw kind-17091 or kind-37091 cache identity",
+    });
+    return;
+  }
+  const kind = Number(match[1]) as 17091 | 37091;
+  const identifier = match[3];
+  const identifierBytes = new TextEncoder().encode(identifier);
+  const validNamedIdentifier = identifierBytes.length > 0 &&
+    identifierBytes.length <= 64 &&
+    !identifier.includes(":") &&
+    !Array.from(identifier).some((character) =>
+      /\s/u.test(character) || character.charCodeAt(0) < 32 ||
+      character.charCodeAt(0) === 127
+    );
+  if (
+    (kind === 17091 && identifier !== "") ||
+    (kind === 37091 && !validNamedIdentifier)
+  ) {
+    diagnostics.push({
+      field: "writableIdentity",
+      code: "invalid",
+      message: kind === 17091
+        ? "kind-17091 writableIdentity must have an empty identifier"
+        : "kind-37091 writableIdentity must have one valid non-empty identifier",
+    });
+    return;
+  }
+  return Object.freeze({ kind, pubkey: match[2], identifier });
 }
 
 function parseOwnerPath(

@@ -27,7 +27,9 @@ Deno.test("operator config parses complete supported write intents", () => {
     ["local", `37091:${PUBKEY}:nixpkgs-unstable`, 37091, "nixpkgs-unstable"],
   ] as const;
   for (const [mode, writableIdentity, kind, identifier] of cases) {
-    const parsed = parseConfig(validRaw({ signerMode: mode, writableIdentity }));
+    const parsed = parseConfig(
+      validRaw({ signerMode: mode, writableIdentity }),
+    );
     assert(parsed.ok);
     assertEquals(parsed.value.writeIntent, {
       mode,
@@ -70,7 +72,17 @@ Deno.test("write-intent diagnostics aggregate without side effects", () => {
   }, { onSideEffect: () => sideEffects++ });
   assert(!parsed.ok);
   assertEquals(sideEffects, 0);
-  assert(parsed.diagnostics.some((diagnostic) => diagnostic.field === "bindPort"));
-  assert(parsed.diagnostics.some((diagnostic) => diagnostic.field === "relayUrls[0]"));
-  assert(parsed.diagnostics.some((diagnostic) => diagnostic.field === "writableIdentity"));
+  assert(
+    parsed.diagnostics.some((diagnostic) => diagnostic.field === "bindPort"),
+  );
+  assert(
+    parsed.diagnostics.some((diagnostic) =>
+      diagnostic.field === "relayUrls[0]"
+    ),
+  );
+  assert(
+    parsed.diagnostics.some((diagnostic) =>
+      diagnostic.field === "writableIdentity"
+    ),
+  );
 });
