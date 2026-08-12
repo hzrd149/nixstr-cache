@@ -32,7 +32,7 @@ The v1 journey starts with the smallest safe walking slice: a stock Nix client s
   4. Large manifests, chunks, and NARs pass through hashing, verification, temporary storage, and HTTP responses with backpressure and bounded memory.
   5. A real `nix` CLI substitutes an uncached store path through the daemon and successfully verifies the returned metadata and NAR.
 
-**Plans:** 9/11 plans executed
+**Plans:** 10/11 plans executed
 
 Plans:
 
@@ -66,7 +66,7 @@ Plans:
 
 **Wave 7** *(gap closure; blocked on the completed production walking slice)*
 
-- [ ] 01-10-PLAN.md — Move durable selection into an Applesauce custom model and wire authenticated BUD-03 discovery into production source resolution.
+- [x] 01-10-PLAN.md — Move durable selection into an Applesauce custom model and wire authenticated BUD-03 discovery into production source resolution.
 - [ ] 01-11-PLAN.md — Validate explicit read-only and complete signer/writable-identity configuration without enabling Phase 3 write behavior.
 
 ### Phase 2: Deterministic Merged Read Cache
@@ -122,7 +122,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Verified Nix Substitution Walking Slice | 9/11 | In Progress|  |
+| 1. Verified Nix Substitution Walking Slice | 10/11 | In Progress|  |
 | 2. Deterministic Merged Read Cache | 0/TBD | Not started | - |
 | 3. Signer-Gated Writable Cache | 0/TBD | Not started | - |
 | 4. Availability-Gated Publication Loop | 0/TBD | Not started | - |

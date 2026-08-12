@@ -16,7 +16,7 @@
 
 ### Blob and Hashtree Reads
 
-- [ ] **TREE-01**: Daemon discovers ordered Blossom sources from valid event `blossom` tags and the publisher's BUD-03 kind `10063` server list, with optional configured mirrors.
+- [x] **TREE-01**: Daemon discovers ordered Blossom sources from valid event `blossom` tags and the publisher's BUD-03 kind `10063` server list, with optional configured mirrors.
 - [ ] **TREE-02**: Daemon streams every fetched blob through SHA-256 verification before parsing, caching, or serving it and discards mismatched bytes before trying another source.
 - [x] **TREE-03**: Daemon applies HTTP(S)-only URL policy, private-network restrictions, DNS/address checks, redirect revalidation, redirect limits, and source-attempt limits to publisher-controlled requests.
 - [x] **TREE-04**: Daemon resolves BUD-16/17/18 Hashtree paths lazily with visited-hash deduplication and configurable bounds on manifests, depth, links, nodes, declared sizes, and total decoded bytes.

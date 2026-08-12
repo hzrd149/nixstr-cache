@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: verified-nix-substitution-walking-slice
 status: executing
-stopped_at: Gap-closure plans 01-10 and 01-11 ready to execute
-last_updated: "2026-08-12T12:49:09.987Z"
+stopped_at: Completed 01-10-PLAN.md
+last_updated: "2026-08-12T13:08:16.470Z"
 last_activity: 2026-08-12
-last_activity_desc: Phase 01 gap-closure planning completed
+last_activity_desc: Phase 01 final gap-closure plans 01-10 and 01-11 created
 progress:
   total_phases: 1
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 01 (verified-nix-substitution-walking-slice) — EXECUTING
-Plan: 10 of 11
+Plan: 11 of 11
 Status: Ready to execute
 Last activity: 2026-08-12 — Phase 01 final gap-closure plans 01-10 and 01-11 created
 
-Progress: [████████░░] 82%
+Progress: [█████████░] 91%
 
 ## Performance Metrics
 
@@ -66,6 +66,7 @@ Progress: [████████░░] 82%
 | Phase 01 P08 | 4 min | 2 tasks | 4 files |
 | Phase 01 P09 | 7 min | 2 tasks | 7 files |
 | Phase 01 P07 | 18 min | 3 tasks | 11 files |
+| Phase 01 P10 | 8 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -96,6 +97,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Materialize only bounded narinfo metadata; keep NAR bodies on the direct stream path.
 - [Phase ?]: Phase 1 derives allowed identities as 17091:<configured-pubkey>: and enforces publisher plus identity before durable admission.
 - [Phase ?]: Corrupt stored selections clear only event tuple fields and preserve signed-history and downgrade-consent policy.
+- [Phase ?]: Keep StateRepository authoritative for rollback and downgrade policy; EventStore receives only verified, authorized, durably accepted cache publications.
+- [Phase ?]: Project authenticated BUD-03 data inside CacheSelectionModel and preserve publisher trust in each request source plan.
 
 ### Pending Todos
 
@@ -117,6 +120,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T12:49:09.976Z
-Stopped at: Completed 01-07-PLAN.md
+Last session: 2026-08-12T13:08:16.459Z
+Stopped at: Completed 01-10-PLAN.md
 Resume file: None
