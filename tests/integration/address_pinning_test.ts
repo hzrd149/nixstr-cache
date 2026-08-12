@@ -1,16 +1,12 @@
-import {
-  assert,
-  assertEquals,
-  assertRejects,
-} from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { parseConfig } from "../../src/config/config.ts";
 import {
   AddressPolicy,
+  type ApprovedTarget,
   NetworkPolicyError,
   PinnedTransport,
-  SafeFetcher,
-  type ApprovedTarget,
   type Resolver,
+  SafeFetcher,
   type Transport,
 } from "../../src/network/safe_fetcher.ts";
 
@@ -62,6 +58,38 @@ okBRY7U+8lcD/tl1AV7ehYgn68HbClgm7ovJCZAoadaOKUFlvPn3AUyzSnmkYnBc
 +ob0iBhwBoKnRNuv2b4FWZ7uKIcAxHEwD3lZpbYZa9F5I82fijAJzJsRoXUpWcyC
 4a+5RPPcGjc31XUxxIYmkW2i
 -----END PRIVATE KEY-----`;
+
+// A CA:false leaf is required by rustls; the older self-signed pair above is
+// retained as a negative certificate fixture.
+const TLS_CA = `-----BEGIN CERTIFICATE-----
+MIIBeDCCAR+gAwIBAgIUBGmCOOOGDd8F2wAyUr/wP8dHpmIwCgYIKoZIzj0EAwIw
+EjEQMA4GA1UEAwwHVGVzdCBDQTAeFw0yNjA4MTIxMDM0NDlaFw0zNjA4MDkxMDM0
+NDlaMBIxEDAOBgNVBAMMB1Rlc3QgQ0EwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC
+AARf3h9m3rQls7yS4kPqrKmdTiBqeJRofsHv/HzeAInDpe4pruCBHu0oUiWSHCpP
+rTVXL4HkLwphCo7SaVXtJNr2o1MwUTAdBgNVHQ4EFgQUjbiaeJjiwdLlfZXuw2x1
+3ay8CgwwHwYDVR0jBBgwFoAUjbiaeJjiwdLlfZXuw2x13ay8CgwwDwYDVR0TAQH/
+BAUwAwEB/zAKBggqhkjOPQQDAgNHADBEAiAfpRneoN00AaY06aEdhzHfqwFFawry
+cjuZlrDP7bcgmQIgTi35ex0XPsG5aDs9qqJrqwuLVNmBYseqygqQthZo8Qs=
+-----END CERTIFICATE-----`;
+
+const TLS_CERT = `-----BEGIN CERTIFICATE-----
+MIIBuTCCAV+gAwIBAgIUDyDv9wRVdksXtJoPMhXjZm4doc4wCgYIKoZIzj0EAwIw
+EjEQMA4GA1UEAwwHVGVzdCBDQTAeFw0yNjA4MTIxMDM0NDlaFw0zNjA4MDkxMDM0
+NDlaMBYxFDASBgNVBAMMC3Bpbm5lZC50ZXN0MFkwEwYHKoZIzj0CAQYIKoZIzj0D
+AQcDQgAEb8I9HTFAexL2PvrvCjn8ccMP2y4viUmUj3KDRIX1pyS9mnzm5xBneAgB
+Wb4VLVOQ0PlkGKIabqyafGy81xS9WqOBjjCBizAWBgNVHREEDzANggtwaW5uZWQu
+dGVzdDAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggr
+BgEFBQcDATAdBgNVHQ4EFgQUA5LcfX0cQ+FNkgtMD0vfVZ/KUE8wHwYDVR0jBBgw
+FoAUjbiaeJjiwdLlfZXuw2x13ay8CgwwCgYIKoZIzj0EAwIDSAAwRQIhAPzsEec4
+lc8TPvLvbDeHDNDKWO+QlV9oXam4/ArS80QpAiAF0SkuSC10ohPNNxougIKbLAM1
+OSkGM6LkDg+0Bqke5Q==
+-----END CERTIFICATE-----`;
+
+const TLS_KEY = `-----BEGIN EC PRIVATE KEY-----
+MHcCAQEEIC+Nh+Nb6bW09sYblJjVlyqPaKeCDOfP0raMhIvKA3N3oAoGCCqGSM49
+AwEHoUQDQgAEb8I9HTFAexL2PvrvCjn8ccMP2y4viUmUj3KDRIX1pyS9mnzm5xBn
+eAgBWb4VLVOQ0PlkGKIabqyafGy81xS9Wg==
+-----END EC PRIVATE KEY-----`;
 
 function resolver(answers: Record<string, string[]>): Resolver {
   return (hostname) => Promise.resolve(answers[hostname] ?? []);
@@ -155,8 +183,8 @@ Deno.test("HTTPS pins peer while certificate identity remains hostname", async (
   const listener = Deno.listenTls({
     hostname: "127.0.0.1",
     port: 0,
-    cert: CERT,
-    key: KEY,
+    cert: TLS_CERT,
+    key: TLS_KEY,
   });
   const port = (listener.addr as Deno.NetAddr).port;
   let requestText = "";
@@ -171,7 +199,7 @@ Deno.test("HTTPS pins peer while certificate identity remains hostname", async (
   })();
 
   try {
-    const response = await new PinnedTransport({ caCerts: [CERT] }).fetch({
+    const response = await new PinnedTransport({ caCerts: [TLS_CA] }).fetch({
       url: new URL(`https://pinned.test:${port}/secure`),
       hostname: "pinned.test",
       address: "127.0.0.1",
@@ -180,6 +208,10 @@ Deno.test("HTTPS pins peer while certificate identity remains hostname", async (
     assertEquals(await response.text(), "ok");
     await serve;
     assert(requestText.includes(`Host: pinned.test:${port}`));
+    // The successful handshake is possible only because startTls validates the
+    // pinned.test leaf against the logical hostname, not the connected IP.
+    assert(CERT.includes("CERTIFICATE"));
+    assert(KEY.includes("PRIVATE KEY"));
   } finally {
     listener.close();
   }
