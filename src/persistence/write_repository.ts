@@ -989,6 +989,11 @@ export class WriteRepository {
         throw new WriteConflict();
       }
       try {
+        // Both paths live below the same owner-only staging root. The synced
+        // inode is published with an atomic create-new hard link: it cannot
+        // overwrite an existing digest and readers can never observe partial
+        // bytes. A crash before SQLite admission leaves only a safe orphan;
+        // retry converges through AlreadyExists and the content digest.
         await Deno.link(temp, destination);
       } catch (error) {
         if (!(error instanceof Deno.errors.AlreadyExists)) throw error;

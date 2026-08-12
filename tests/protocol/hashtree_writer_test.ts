@@ -1,5 +1,5 @@
 import { assertEquals, assertGreater } from "@std/assert";
-import { HashtreeWriter } from "../../src/hashtree/writer.ts";
+import { FILE_CHUNK_BYTES, HashtreeWriter } from "../../src/hashtree/writer.ts";
 import { decodeManifest } from "../../src/protocol/hashtree.ts";
 
 Deno.test("canonical writer is deterministic, reader-compatible, and reuses blobs", async () => {
@@ -134,6 +134,52 @@ Deno.test("bounded durable iteration is single-pass ordered and cancellable", as
     assertEquals(streamed.rootHex, array.rootHex);
     assertEquals(iterations, 1);
     assertEquals(yields, 3);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("pinned canonical boundary hashes detect chunk grouping drift", async () => {
+  // BUD-16/17/18 proposal fixtures pinned by NIP.md on 2026-08-12.
+  const expected = [
+    [
+      FILE_CHUNK_BYTES - 1,
+      "852156fe9bb800db4250e1cc20f16a06beea162751d415061932cb007efde2ab",
+      "nhash1qqsg2g2kl6dmsqxmgfgwrnpq794qd0h2zcn4r4q4qcvn9jcq0m7792cf2764x",
+    ],
+    [
+      FILE_CHUNK_BYTES,
+      "516862c020757d231206ec59642dfa190f8cdc2219f4761fa8bf3132d1893b82",
+      "nhash1qqs9z6rzcqs82lfrzgrwckty9hapjruvms3pnarkr75t7vfj6xynhqs9zzcqs",
+    ],
+    [
+      FILE_CHUNK_BYTES + 1,
+      "85e63254c339fb200759e7cd3986bfa2854f8e1bbb24241876b1342d84fe1629",
+      "nhash1qqsgte3j2npnn7eqqav70nfes6l69p203cdmkfpyrpmtzdpdsnlpv2g3m0p4c",
+    ],
+  ] as const;
+  const root = await Deno.makeTempDir();
+  try {
+    for (const [size, rootHex, rootNhash] of expected) {
+      const source = `${root}/${size}`;
+      await Deno.writeFile(source, new Uint8Array(size).fill(7));
+      const writer = new HashtreeWriter(`${root}/trees-${size}`, {
+        maxLinks: 174,
+        maxInventoryBlobs: 100,
+        maxInventoryBytes: 10_000_000,
+      });
+      const built = await writer.build([
+        { route: "nar/x.nar", path: source, size },
+      ]);
+      assertEquals(built.rootHex, rootHex);
+      assertEquals(built.rootNhash, rootNhash);
+      assertEquals(
+        (await writer.build([
+          { route: "nar/x.nar", path: source, size },
+        ])).createdBlobs,
+        0,
+      );
+    }
   } finally {
     await Deno.remove(root, { recursive: true });
   }
