@@ -1,5 +1,5 @@
-import { assertEquals, assertRejects, assertThrows } from "@std/assert";
-import { ed25519 } from "npm:@noble/curves@2.3.0/ed25519.js";
+import { assertEquals, assertThrows } from "@std/assert";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import {
   classifyEndorsements,
   parseNarInfo,
@@ -64,7 +64,7 @@ Deno.test("endorsement uses key bytes independently of signature names", async (
   }]);
   assertEquals(result, [{ signatureIndex: 0, endorsed: true, keyIndex: 0 }]);
   assertEquals(serializeNarInfo(parsed), text);
-  await assertRejects(async () =>
+  assertThrows(() =>
     classifyEndorsements(parsed, [{
       name: "bad",
       encoded: "",

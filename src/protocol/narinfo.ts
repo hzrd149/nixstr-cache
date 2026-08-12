@@ -1,4 +1,4 @@
-import { ed25519 } from "npm:@noble/curves@2.3.0/ed25519.js";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import type { NixSignatureKey } from "./publication.ts";
 
 export class NarInfoError extends Error {
@@ -96,7 +96,13 @@ export function parseNarInfo(text: string): NarInfo {
         throw new NarInfoError("Sig requires exactly one colon");
       }
       const name = value.slice(0, colon);
-      if (!name || /[\s\x00-\x1f\x7f]/.test(name)) {
+      if (
+        !name ||
+        Array.from(name).some((character) =>
+          /\s/u.test(character) || character.charCodeAt(0) < 32 ||
+          character.charCodeAt(0) === 127
+        )
+      ) {
         throw new NarInfoError("invalid Sig name");
       }
       const encoded = value.slice(colon + 1);
@@ -170,28 +176,26 @@ export function serializeNarInfo(narinfo: NarInfo): string {
   return narinfo.rawText;
 }
 
-export async function classifyEndorsements(
+export function classifyEndorsements(
   narinfo: NarInfo,
   keys: readonly NixSignatureKey[],
-): Promise<readonly Endorsement[]> {
+): readonly Endorsement[] {
   const message = new TextEncoder().encode(narinfo.fingerprint);
-  return await Promise.all(
-    narinfo.signatures.map(async (signature, signatureIndex) => {
-      let keyIndex: number | undefined;
-      for (let index = 0; index < keys.length; index++) {
-        if (keys[index].bytes.length !== 32) {
-          throw new NarInfoError("endorsement key must be 32 bytes");
-        }
-        if (ed25519.verify(signature.bytes, message, keys[index].bytes)) {
-          keyIndex = index;
-          break;
-        }
+  return narinfo.signatures.map((signature, signatureIndex) => {
+    let keyIndex: number | undefined;
+    for (let index = 0; index < keys.length; index++) {
+      if (keys[index].bytes.length !== 32) {
+        throw new NarInfoError("endorsement key must be 32 bytes");
       }
-      return Object.freeze({
-        signatureIndex,
-        endorsed: keyIndex !== undefined,
-        ...(keyIndex === undefined ? {} : { keyIndex }),
-      });
-    }),
-  );
+      if (ed25519.verify(signature.bytes, message, keys[index].bytes)) {
+        keyIndex = index;
+        break;
+      }
+    }
+    return Object.freeze({
+      signatureIndex,
+      endorsed: keyIndex !== undefined,
+      ...(keyIndex === undefined ? {} : { keyIndex }),
+    });
+  });
 }

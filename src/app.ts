@@ -33,10 +33,10 @@ export type CreateAppResult =
   | { readonly ok: true; readonly value: DaemonApp }
   | { readonly ok: false; readonly diagnostics: readonly string[] };
 
-export async function createApp(
+export function createApp(
   raw: RawConfig,
   dependencies: AppDependencies,
-): Promise<CreateAppResult> {
+): CreateAppResult {
   const parsed = parseConfig(raw);
   if (!parsed.ok) {
     return {

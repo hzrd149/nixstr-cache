@@ -1,5 +1,4 @@
 import { assertEquals } from "@std/assert";
-import { Subject } from "rxjs";
 import { createNixHttpHandler } from "../../src/nix/http_handler.ts";
 import { BudgetExceeded, VerifiedAbsent } from "../../src/hashtree/reader.ts";
 import type { SelectedPublication } from "../../src/nostr/selection.ts";
