@@ -109,20 +109,25 @@ Deno.test("populate uses a verified lease and owner disposal waits for upload", 
   const hash = hex(sha256(bytes));
   const blob = new VerifiedBlob(hash, bytes.length, path, "publisher");
   let observedBody = "";
+  let ownerDisposal: Promise<void> | undefined;
   const sink = new BlobCacheSink({
     request: async (_url, _trust, init) => {
       assertEquals(init.method, "PUT");
       assertEquals(init.headers.get("content-length"), String(bytes.length));
       assertEquals(init.headers.get("x-sha-256"), hash);
-      await blob.dispose();
+      ownerDisposal = blob.dispose();
       assertEquals(await exists(path), true);
       observedBody = await new Response(init.body).text();
-      return response(new TextEncoder().encode(JSON.stringify({ sha256: hash })), 201);
+      return response(
+        new TextEncoder().encode(JSON.stringify({ sha256: hash })),
+        201,
+      );
     },
     localOrigin: "http://127.0.0.1:3000",
     maxDescriptorBytes: 1024,
   });
   assertEquals((await sink.populate(blob)).ok, true);
+  await ownerDisposal;
   assertEquals(observedBody, "verified population");
   assertEquals(await exists(path), false);
 });

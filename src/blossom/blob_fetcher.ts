@@ -71,42 +71,69 @@ async function removeIfPresent(path: string): Promise<void> {
 }
 export class VerifiedBlob {
   readonly [verifiedBrand] = true;
-  #disposed = false;
+  #ownerReleased = false;
+  #references = 1;
+  #removal?: Promise<void>;
   constructor(
     readonly hash: string,
     readonly size: number,
     readonly path: string,
+    readonly sourceRole: SourceCandidate["role"] = "publisher",
   ) {}
   open(): ReadableStream<Uint8Array> {
-    if (this.#disposed) throw new Error("verified blob has been disposed");
+    if (this.#ownerReleased) throw new Error("verified blob has been disposed");
+    this.#references++;
     const path = this.path;
+    const release = this.#release.bind(this);
     let file: Deno.FsFile | undefined;
+    let released = false;
+    const finish = async () => {
+      if (released) return;
+      released = true;
+      try {
+        file?.close();
+      } catch { /* already closed */ }
+      file = undefined;
+      await release();
+    };
     return new ReadableStream<Uint8Array>({
-      async start(controller) {
-        file = await Deno.open(path, { read: true });
-        controller.enqueue(new Uint8Array());
+      async start() {
+        try {
+          file = await Deno.open(path, { read: true });
+        } catch (error) {
+          await finish();
+          throw error;
+        }
       },
       async pull(controller) {
-        const buffer = new Uint8Array(64 * 1024);
-        const count = await file!.read(buffer);
-        if (count === null) {
-          file!.close();
-          file = undefined;
-          controller.close();
-        } else controller.enqueue(buffer.subarray(0, count));
-      },
-      cancel() {
         try {
-          file?.close();
-        } catch { /* already closed */ }
-        file = undefined;
+          const buffer = new Uint8Array(64 * 1024);
+          const count = await file!.read(buffer);
+          if (count === null) {
+            await finish();
+            controller.close();
+          } else controller.enqueue(buffer.subarray(0, count));
+        } catch (error) {
+          await finish();
+          controller.error(error);
+        }
+      },
+      async cancel() {
+        await finish();
       },
     });
   }
   async dispose(): Promise<void> {
-    if (this.#disposed) return;
-    this.#disposed = true;
-    await removeIfPresent(this.path);
+    if (this.#ownerReleased) return await (this.#removal ?? Promise.resolve());
+    this.#ownerReleased = true;
+    await this.#release();
+  }
+  async #release(): Promise<void> {
+    this.#references--;
+    if (this.#references === 0) {
+      this.#removal ??= removeIfPresent(this.path);
+      await this.#removal;
+    }
   }
 }
 
@@ -115,18 +142,21 @@ export class BlobFetcher {
   readonly #quarantine: QuarantineRepository;
   readonly #spoolDirectory: string;
   readonly #onLocalDiagnostic?: (diagnostic: LocalCacheDiagnostic) => void;
+  readonly #onVerifiedRemote?: (blob: VerifiedBlob) => void;
   constructor(
     options: {
       readonly fetcher: SafeFetcher | FetchBoundary;
       readonly quarantine: QuarantineRepository;
       readonly spoolDirectory: string;
       readonly onLocalDiagnostic?: (diagnostic: LocalCacheDiagnostic) => void;
+      readonly onVerifiedRemote?: (blob: VerifiedBlob) => void;
     },
   ) {
     this.#fetcher = options.fetcher;
     this.#quarantine = options.quarantine;
     this.#spoolDirectory = options.spoolDirectory;
     this.#onLocalDiagnostic = options.onLocalDiagnostic;
+    this.#onVerifiedRemote = options.onVerifiedRemote;
   }
   release(origin: string): void {
     this.#quarantine.releaseQuarantine(new URL(origin).origin);
@@ -267,8 +297,9 @@ export class BlobFetcher {
       if (actual !== expectedHash) {
         throw new HashMismatch(expectedHash, actual, source);
       }
-      const result = new VerifiedBlob(expectedHash, size, path);
+      const result = new VerifiedBlob(expectedHash, size, path, source.role);
       path = undefined;
+      if (source.role === "publisher") this.#onVerifiedRemote?.(result);
       return result;
     } finally {
       try {

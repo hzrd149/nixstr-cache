@@ -47,7 +47,7 @@ export function buildSourcePlan(
     ordered.push([input.localCache, "configured", "local-cache"]);
   }
   if (input.configured) {
-    ordered.push([input.configured, "publisher", "publisher"]);
+    ordered.push([input.configured, "configured", "publisher"]);
   }
   for (const value of input.event ?? []) {
     ordered.push([value, "publisher", "publisher"]);

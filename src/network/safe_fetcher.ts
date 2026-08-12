@@ -153,13 +153,18 @@ async function defaultResolver(
 
 export class AddressPolicy {
   readonly #resolver: Resolver;
-  readonly #configuredOrigin?: string;
+  readonly #configuredOrigins: ReadonlySet<string>;
 
-  constructor(resolver: Resolver = defaultResolver, configuredOrigin?: string) {
+  constructor(
+    resolver: Resolver = defaultResolver,
+    configuredOrigin?: string | readonly string[],
+  ) {
     this.#resolver = resolver;
-    this.#configuredOrigin = configuredOrigin
-      ? new URL(configuredOrigin).origin
-      : undefined;
+    this.#configuredOrigins = new Set(
+      (typeof configuredOrigin === "string"
+        ? [configuredOrigin]
+        : configuredOrigin ?? []).map((value) => new URL(value).origin),
+    );
   }
 
   async approve(
@@ -174,7 +179,7 @@ export class AddressPolicy {
       throw new NetworkPolicyError("target userinfo is forbidden");
     }
     const configuredLocal = trust === "configured" &&
-      this.#configuredOrigin === url.origin;
+      this.#configuredOrigins.has(url.origin);
     if (trust === "configured" && !configuredLocal) {
       throw new NetworkPolicyError(
         "configured trust applies only to the configured origin",
@@ -214,6 +219,9 @@ export interface Transport {
       readonly signal: AbortSignal;
       readonly connectSignal?: AbortSignal;
       readonly idleTimeoutMs?: number;
+      readonly method?: "GET" | "PUT";
+      readonly headers?: Headers;
+      readonly body?: ReadableStream<Uint8Array>;
     },
   ): Promise<PinnedResponse>;
 }
@@ -441,6 +449,9 @@ export class PinnedTransport implements Transport {
       readonly signal: AbortSignal;
       readonly connectSignal?: AbortSignal;
       readonly idleTimeoutMs?: number;
+      readonly method?: "GET" | "PUT";
+      readonly headers?: Headers;
+      readonly body?: ReadableStream<Uint8Array>;
     },
   ): Promise<PinnedResponse> {
     let conn: Deno.Conn = await Deno.connect({
@@ -467,14 +478,40 @@ export class PinnedTransport implements Transport {
         ? target.hostname
         : `${target.hostname}:${target.port}`;
       const path = `${target.url.pathname}${target.url.search}`;
+      const method = options.method ?? "GET";
+      const requestHeaders = new Headers(options.headers);
+      requestHeaders.delete("host");
+      requestHeaders.delete("connection");
+      if (!requestHeaders.has("accept")) requestHeaders.set("accept", "*/*");
+      const headerLines = [...requestHeaders.entries()].map(([name, value]) =>
+        `${name}: ${value}\r\n`
+      ).join("");
       const request = new TextEncoder().encode(
-        `GET ${
+        `${method} ${
           path || "/"
-        } HTTP/1.1\r\nHost: ${host}\r\nAccept: */*\r\nConnection: close\r\n\r\n`,
+        } HTTP/1.1\r\nHost: ${host}\r\n${headerLines}Connection: close\r\n\r\n`,
       );
       let offset = 0;
       while (offset < request.byteLength) {
         offset += await conn.write(request.subarray(offset));
+      }
+      if (options.body) {
+        const reader = options.body.getReader();
+        try {
+          while (true) {
+            const next = await reader.read();
+            if (next.done) break;
+            let bodyOffset = 0;
+            while (bodyOffset < next.value.byteLength) {
+              bodyOffset += await conn.write(next.value.subarray(bodyOffset));
+            }
+          }
+        } catch (error) {
+          await reader.cancel(error).catch(() => {});
+          throw error;
+        } finally {
+          reader.releaseLock();
+        }
       }
       const { head, remainder } = await readHeaders(conn);
       const lines = new TextDecoder().decode(head).split("\r\n");
@@ -581,8 +618,23 @@ export class SafeFetcher {
     trust: SourceTrust,
     signal?: AbortSignal,
   ): Promise<PinnedResponse> {
+    return await this.request(input, trust, { method: "GET", signal });
+  }
+
+  async request(
+    input: string | URL,
+    trust: SourceTrust,
+    init: {
+      readonly method: "GET" | "PUT";
+      readonly headers?: Headers;
+      readonly body?: ReadableStream<Uint8Array>;
+      readonly signal?: AbortSignal;
+    },
+  ): Promise<PinnedResponse> {
     const total = AbortSignal.timeout(this.limits.totalTimeoutMs);
-    const totalSignal = signal ? AbortSignal.any([signal, total]) : total;
+    const totalSignal = init.signal
+      ? AbortSignal.any([init.signal, total])
+      : total;
     let url = new URL(input);
     for (let hop = 0; hop <= this.limits.maxRedirects; hop++) {
       const target = await this.policy.approve(url, trust, totalSignal);
@@ -591,6 +643,9 @@ export class SafeFetcher {
         signal: totalSignal,
         connectSignal: AbortSignal.any([totalSignal, connect]),
         idleTimeoutMs: this.limits.idleTimeoutMs,
+        method: init.method,
+        headers: init.headers,
+        body: init.body,
       });
       if (![301, 302, 303, 307, 308].includes(response.status)) return response;
       const location = response.headers.get("location");
@@ -599,6 +654,9 @@ export class SafeFetcher {
         throw new NetworkPolicyError(
           "redirect response has no Location header",
         );
+      }
+      if (init.method !== "GET") {
+        throw new NetworkPolicyError("upload redirects are forbidden");
       }
       url = new URL(location, url);
     }

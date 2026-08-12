@@ -8,7 +8,7 @@ interface CloseableRepository {
   close(): void;
 }
 interface DisposableSelection {
-  dispose(): void;
+  dispose(): unknown | Promise<unknown>;
 }
 
 export interface AppDependencies {
@@ -26,7 +26,7 @@ export interface AppDependencies {
 export interface DaemonApp {
   readonly config: ValidatedConfig;
   readonly handler: (request: Request) => Response | Promise<Response>;
-  closeResources(): void;
+  closeResources(): Promise<void>;
 }
 
 export type CreateAppResult =
@@ -57,9 +57,9 @@ export function createApp(
       value: Object.freeze({
         config: parsed.value,
         handler,
-        closeResources() {
+        async closeResources() {
           try {
-            selection?.dispose();
+            await selection?.dispose();
           } finally {
             repository?.close();
           }
@@ -68,7 +68,7 @@ export function createApp(
     };
   } catch (error) {
     try {
-      selection?.dispose();
+      void selection?.dispose();
     } finally {
       repository?.close();
     }
@@ -108,7 +108,7 @@ export function startApp(
       try {
         await listener.shutdown();
       } finally {
-        app.closeResources();
+        await app.closeResources();
       }
     },
   };

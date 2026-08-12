@@ -7,6 +7,7 @@ import {
   startApp,
 } from "../app.ts";
 import { BlobFetcher } from "../blossom/blob_fetcher.ts";
+import { BlobCacheSink } from "../blossom/cache_sink.ts";
 import { buildSourcePlan } from "../blossom/source_plan.ts";
 import { type RawConfig, type ValidatedConfig } from "../config/config.ts";
 import { PathResolver, RequestBudget } from "../hashtree/reader.ts";
@@ -59,6 +60,10 @@ export interface ProductionHooks {
 export function createProductionDependencies(
   hooks: ProductionHooks = {},
 ): AppDependencies {
+  const supervisors = new WeakMap<object, {
+    readonly abort: AbortController;
+    readonly tasks: Set<Promise<void>>;
+  }>();
   return {
     openRepository(config) {
       Deno.mkdirSync(config.spoolDirectory, { recursive: true, mode: 0o700 });
@@ -84,19 +89,28 @@ export function createProductionDependencies(
         onError: (error) => console.error("publication selection error", error),
       });
       let disposed = false;
-      return {
+      const selectionHandle = {
         current: () => selector.current(),
         repository,
         dispose() {
           if (disposed) return;
           disposed = true;
-          try {
-            selector.dispose();
-          } finally {
-            stream.dispose();
+          const supervisor = supervisors.get(selectionHandle);
+          supervisor?.abort.abort("daemon shutdown");
+          const finish = () => {
+            try {
+              selector.dispose();
+            } finally {
+              stream.dispose();
+            }
+          };
+          if (supervisor?.tasks.size) {
+            return Promise.allSettled(supervisor.tasks).then(finish);
           }
+          finish();
         },
       };
+      return selectionHandle;
     },
     createHandler(selection, config) {
       if (
@@ -111,7 +125,12 @@ export function createProductionDependencies(
         throw new TypeError("production selection omitted repository");
       }
       const fetcher = new SafeFetcher(
-        new AddressPolicy(undefined, config.localBlossomUrl?.href),
+        new AddressPolicy(
+          undefined,
+          [config.localBlossomUrl, config.preferredBlossomUrl]
+            .filter((url): url is URL => url !== undefined)
+            .map((url) => url.href),
+        ),
         new PinnedTransport(),
         {
           maxRedirects: config.limits.maxRedirects,
@@ -120,12 +139,36 @@ export function createProductionDependencies(
           totalTimeoutMs: config.limits.totalTimeoutMs,
         },
       );
+      const supervisor = {
+        abort: new AbortController(),
+        tasks: new Set<Promise<void>>(),
+      };
+      supervisors.set(selection as object, supervisor);
+      const cacheSink = config.localBlossomUrl
+        ? new BlobCacheSink({
+          request: fetcher.request.bind(fetcher),
+          localOrigin: config.localBlossomUrl,
+          maxDescriptorBytes: config.limits.decodedMetadataBytes,
+        })
+        : undefined;
       const blobs = new BlobFetcher({
         fetcher,
         quarantine: repository,
         spoolDirectory: config.spoolDirectory,
         onLocalDiagnostic: (diagnostic) =>
           console.warn("local cache diagnostic", diagnostic),
+        onVerifiedRemote: cacheSink
+          ? (blob) => {
+            const task = cacheSink.populate(blob, supervisor.abort.signal)
+              .then((result) => {
+                if (!result.ok) {
+                  console.warn("local cache diagnostic", result.diagnostic);
+                }
+              })
+              .finally(() => supervisor.tasks.delete(task));
+            supervisor.tasks.add(task);
+          }
+          : undefined,
       });
       return createNixHttpHandler({
         decodedMetadataBytes: config.limits.decodedMetadataBytes,
