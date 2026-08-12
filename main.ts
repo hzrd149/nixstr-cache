@@ -1,18 +1,34 @@
-export function handler(req: Request): Response {
-  const url = new URL(req.url);
+import { type AppDependencies, createApp, startApp } from "./src/app.ts";
+import type { RawConfig } from "./src/config/config.ts";
 
-  if (url.pathname === "/api") {
-    return Response.json({
-      message: "Hello, world!",
-      time: new Date().toISOString(),
-    });
+export function rawConfigFromEnvironment(
+  environment: Record<string, string>,
+): RawConfig {
+  return {
+    bindHost: environment.NIXSTR_BIND_HOST,
+    bindPort: environment.NIXSTR_BIND_PORT,
+    publisherPubkeys: environment.NIXSTR_PUBLISHER_PUBKEYS,
+    relayUrls: environment.NIXSTR_RELAY_URLS,
+    preferredBlossomUrl: environment.NIXSTR_PREFERRED_BLOSSOM_URL,
+  };
+}
+
+export async function run(dependencies: AppDependencies): Promise<number> {
+  const result = await createApp(
+    rawConfigFromEnvironment(Deno.env.toObject()),
+    dependencies,
+  );
+  if (!result.ok) {
+    for (const diagnostic of result.diagnostics) console.error(diagnostic);
+    return 1;
   }
-
-  return new Response("<h1>Welcome to Deno!</h1>", {
-    headers: { "content-type": "text/html" },
-  });
+  startApp(result.value);
+  return 0;
 }
 
 if (import.meta.main) {
-  Deno.serve(handler);
+  console.error(
+    "runtime relay/resolver composition is supplied by the daemon launcher",
+  );
+  Deno.exit(1);
 }

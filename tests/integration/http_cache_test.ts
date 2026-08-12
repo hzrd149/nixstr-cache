@@ -3,6 +3,7 @@ import { Subject } from "rxjs";
 import { createNixHttpHandler } from "../../src/nix/http_handler.ts";
 import { BudgetExceeded, VerifiedAbsent } from "../../src/hashtree/reader.ts";
 import type { SelectedPublication } from "../../src/nostr/selection.ts";
+import { createApp, startApp } from "../../src/app.ts";
 
 const encoder = new TextEncoder();
 const narinfo = [
@@ -179,4 +180,61 @@ Deno.test("http cache maps methods, absence, availability, deadline and upstream
     (await make()(new Request("http://cache/not-valid"))).status,
     404,
   );
+});
+
+Deno.test("startup|shutdown invalid startup has no durable or network side effects", async () => {
+  const calls: string[] = [];
+  const result = await createApp(
+    { publisherPubkeys: "bad", relayUrls: "bad" },
+    {
+      openRepository: () => {
+        calls.push("db");
+        throw new Error("unexpected");
+      },
+      createSelection: () => {
+        calls.push("relay");
+        throw new Error("unexpected");
+      },
+      createHandler: () => {
+        calls.push("handler");
+        throw new Error("unexpected");
+      },
+    },
+  );
+  assertEquals(result.ok, false);
+  assertEquals(calls, []);
+});
+
+Deno.test("startup|shutdown restores before binding and releases lifecycle resources", async () => {
+  const calls: string[] = [];
+  const app = await createApp({
+    publisherPubkeys: "a".repeat(64),
+    relayUrls: "wss://relay.example",
+  }, {
+    openRepository: () => ({ close: () => calls.push("db-close") }),
+    createSelection: () => ({ dispose: () => calls.push("selection-dispose") }),
+    createHandler: () => {
+      calls.push("handler-after-restore");
+      return () => new Response("ok");
+    },
+  });
+  if (!app.ok) throw new Error("expected valid app");
+  const running = startApp(app.value, (_handler, options) => {
+    calls.push(`bind:${options.hostname}:${options.port}`);
+    return {
+      shutdown: () => {
+        calls.push("listener-close");
+        return Promise.resolve();
+      },
+    };
+  });
+  assertEquals(calls, ["handler-after-restore", "bind:127.0.0.1:8787"]);
+  await running.shutdown();
+  assertEquals(calls, [
+    "handler-after-restore",
+    "bind:127.0.0.1:8787",
+    "listener-close",
+    "selection-dispose",
+    "db-close",
+  ]);
 });
