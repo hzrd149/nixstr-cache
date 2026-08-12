@@ -1,6 +1,9 @@
 import { assert, assertEquals, assertThrows } from "@std/assert";
 import { parseConfig, type RawConfig } from "../../src/config/config.ts";
-import { rawConfigFromEnvironment } from "../../main.ts";
+import {
+  collectRawConfigFromEnvironment,
+  rawConfigFromEnvironment,
+} from "../../main.ts";
 import { launchDaemon } from "../../src/runtime/daemon.ts";
 import { Subject } from "rxjs";
 import type { RawPublication } from "../../src/protocol/publication.ts";
@@ -100,6 +103,90 @@ Deno.test("environment mapper preserves signer write-intent fields", () => {
   });
   assertEquals(mapped.signerMode, "nip46");
   assertEquals(mapped.writableIdentity, `37091:${PUBKEY}:named`);
+});
+
+Deno.test("production environment collector maps every supported limit", () => {
+  const environment = {
+    NIXSTR_PUBLISHER_PUBKEYS: PUBKEY,
+    NIXSTR_RELAY_URLS: "wss://relay.example",
+    NIXSTR_DATABASE_PATH: "/tmp/nixstr-limit-state.sqlite",
+    NIXSTR_SPOOL_DIRECTORY: "/tmp/nixstr-limit-spool",
+    NIXSTR_LIMIT_MANIFEST_WIRE_BYTES: "1000001",
+    NIXSTR_LIMIT_DECODED_METADATA_BYTES: "100002",
+    NIXSTR_LIMIT_BLOB_TRANSFER_BYTES: "10000003",
+    NIXSTR_LIMIT_REQUEST_TRANSFER_BYTES: "100000004",
+    NIXSTR_LIMIT_REQUEST_OUTPUT_BYTES: "100000005",
+    NIXSTR_LIMIT_TRAVERSAL_DEPTH: "26",
+    NIXSTR_LIMIT_LINKS_PER_NODE: "127",
+    NIXSTR_LIMIT_UNIQUE_MANIFEST_NODES: "1028",
+    NIXSTR_LIMIT_TOTAL_DECODED_MANIFEST_BYTES: "10000009",
+    NIXSTR_LIMIT_SOURCE_ATTEMPTS: "11",
+    NIXSTR_LIMIT_MAX_REDIRECTS: "4",
+    NIXSTR_LIMIT_CONNECT_TIMEOUT_MS: "5001",
+    NIXSTR_LIMIT_IDLE_TIMEOUT_MS: "30002",
+    NIXSTR_LIMIT_TOTAL_TIMEOUT_MS: "300003",
+    NIXSTR_LIMIT_CONCURRENT_FETCHES: "9",
+  } as const;
+  const requested: string[] = [];
+  const raw = collectRawConfigFromEnvironment((name) => {
+    requested.push(name);
+    return environment[name as keyof typeof environment];
+  });
+  const parsed = parseConfig(raw);
+  assert(parsed.ok);
+  assertEquals(parsed.value.limits, {
+    manifestWireBytes: 1000001,
+    decodedMetadataBytes: 100002,
+    blobTransferBytes: 10000003,
+    requestTransferBytes: 100000004,
+    requestOutputBytes: 100000005,
+    traversalDepth: 26,
+    linksPerNode: 127,
+    uniqueManifestNodes: 1028,
+    totalDecodedManifestBytes: 10000009,
+    sourceAttempts: 11,
+    maxRedirects: 4,
+    connectTimeoutMs: 5001,
+    idleTimeoutMs: 30002,
+    totalTimeoutMs: 300003,
+    concurrentFetches: 9,
+  });
+  for (const name of Object.keys(environment)) assert(requested.includes(name));
+});
+
+Deno.test("invalid collected production limit stops before startup", () => {
+  const root = `/tmp/nixstr-limit-invalid-${crypto.randomUUID()}`;
+  const environment: Record<string, string> = {
+    NIXSTR_PUBLISHER_PUBKEYS: PUBKEY,
+    NIXSTR_RELAY_URLS: "wss://relay.example",
+    NIXSTR_DATABASE_PATH: `${root}/state.sqlite`,
+    NIXSTR_SPOOL_DIRECTORY: `${root}/spool`,
+    NIXSTR_LIMIT_MAX_REDIRECTS: "not-an-integer",
+  };
+  const calls: string[] = [];
+  const result = launchDaemon(
+    collectRawConfigFromEnvironment((name) => environment[name]),
+    {
+      createEventStream: () => {
+        calls.push("relay");
+        return { events: new Subject<RawPublication>(), dispose() {} };
+      },
+      bind: () => {
+        calls.push("listener");
+        return { shutdown: () => Promise.resolve() };
+      },
+      signals: [],
+    },
+  );
+  assert(!result.ok);
+  assert(
+    result.diagnostics.some((diagnostic) =>
+      diagnostic.includes("limits.maxRedirects") &&
+      diagnostic.includes("positive integer")
+    ),
+  );
+  assertEquals(calls, []);
+  assertThrows(() => Deno.statSync(root), Deno.errors.NotFound);
 });
 
 Deno.test("partial environment write intent stops before startup side effects", () => {
