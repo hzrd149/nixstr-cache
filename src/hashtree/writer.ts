@@ -167,7 +167,7 @@ export class HashtreeWriter {
             .run(path, directoryParent, name, depth);
         }
       }
-      async function buildFile(file: LogicalFile): Promise<Built> {
+      const buildFile = async (file: LogicalFile): Promise<Built> => {
         const handle = await Deno.open(file.path, { read: true });
         const scope = `file:${file.route}`;
         let sequence = 0;
@@ -204,7 +204,7 @@ export class HashtreeWriter {
           type: built.type,
           count: 1,
         };
-      }
+      };
       const parseLink = (raw: string): ManifestLink => {
         const value = JSON.parse(raw) as {
           hash: string;

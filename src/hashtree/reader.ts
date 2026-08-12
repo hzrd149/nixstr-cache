@@ -316,13 +316,13 @@ export class PathResolver {
     const blob = await this.#fetch(hash, budget, signal, size);
     return cleanupStream(blob, size, budget);
   }
-  async #fileStream(
+  #fileStream(
     hash: string,
     expectedSize: number,
     budget: RequestBudget,
     cache: Map<string, Manifest>,
     signal?: AbortSignal,
-  ): Promise<ReadableStream<Uint8Array>> {
+  ): ReadableStream<Uint8Array> {
     const stack: Array<{
       hash: string;
       depth: number;
