@@ -4,10 +4,10 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 04
 status: completed
-stopped_at: Completed 04-04-PLAN.md
-last_updated: "2026-08-12T17:26:00.000Z"
+stopped_at: Completed quick task 260812-obg
+last_updated: "2026-08-12T17:48:20.678Z"
 last_activity: 2026-08-12
-last_activity_desc: Milestone review closure complete
+last_activity_desc: Phase 04 complete
 progress:
   total_phases: 4
   completed_phases: 4
@@ -81,6 +81,7 @@ Progress: [██████████] 100%
 | Phase 04 P02 | 9min | 2 tasks | 9 files |
 | Phase 04 P03 | 8min | 2 tasks | 6 files |
 | Phase 04 P04 | 11min | 3 tasks | 7 files |
+| Phase quick P260812-obg | 35min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -141,6 +142,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Long publication-expiration timers clamp to the signed 32-bit timer ceiling and recompute on wake.
 - [Quick 260812-nes]: Configured relay OK is the publication barrier; local relay forwarding follows selector admission and cannot delay saga admission.
 - [Quick 260812-nes]: Reclaim candidate content only after transient run and durable batch/history ownership both reach zero.
+- [Phase ?]: Candidate blob ownership is consolidated into WriteRepository so pending admission and durable batch ownership commit atomically.
+- [Phase ?]: Signer route pins own exact-generation leases through response terminal state.
 
 ### Pending Todos
 
@@ -172,6 +175,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T17:26:00Z
-Stopped at: Completed quick task 260812-nes
+Last session: 2026-08-12T17:48:20.664Z
+Stopped at: Completed quick task 260812-obg
 Resume file: None
