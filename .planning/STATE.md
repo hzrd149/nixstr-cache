@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 4
 current_phase_name: Availability-Gated Publication Loop
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-08-12T15:35:03.013Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-08-12T15:46:16.724Z"
 last_activity: 2026-08-12
-last_activity_desc: Phase 04 planned in four sequential tracer-first execution plans
+last_activity_desc: Completed 04-01 availability-gated publication tracer
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 21
-  completed_plans: 18
+  completed_plans: 19
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 4 — Availability-Gated Publication Loop
-Plan: 1 of 4 complete
-Status: In Progress
+Plan: 2 of 4 complete
+Status: Ready to execute
 Last activity: 2026-08-12 — Completed 04-01 availability-gated publication tracer
 
-Progress: [█████████░] 86%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -77,6 +77,7 @@ Progress: [█████████░] 86%
 | Phase 03 P02 | 8min | 2 tasks | 7 files |
 | Phase 03 P03 | 15min | 2 tasks | 9 files |
 | Phase 04 P01 | 6min | 2 tasks | 6 files |
+| Phase 04 P02 | 9min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Keep pending candidate metadata and inventory transactionally separate from the committed signer overlay until Phase 4 availability succeeds.
 - [Phase ?]: Use a serialized repository-authoritative publication coordinator so duplicate ticks cannot sign or publish a second event.
 - [Phase ?]: Verify signed template equality and Nostr validity again at the persistence boundary.
+- [Phase ?]: Archive each committed publication saga before cloning its immutable inventory into an expiration-refresh successor.
+- [Phase ?]: A local relay is cache-only unless its canonical URL is explicitly configured as a publication relay.
+- [Phase ?]: Use repository-driven nearest-due scheduling with stable target-derived retry jitter.
 
 ### Pending Todos
 
@@ -156,6 +160,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T15:35:03.000Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-08-12T15:46:16.711Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None

@@ -48,8 +48,8 @@
 - [x] **PUBL-02**: Daemon builds a deterministic plaintext BUD-16/17/18 copy-on-write tree containing only the dependency-closed eligible batch.
 - [x] **PUBL-03**: Daemon uploads all newly reachable blobs to the signer's current BUD-03 Blossom servers and proves at least one advertised server contains the complete reachable tree before signing.
 - [x] **PUBL-04**: Daemon signs and publishes the correct kind `17091` or `37091` event only after the completeness barrier passes, then reactively commits that root to the signer-first read view.
-- [ ] **PUBL-05**: Daemon records incomplete replicas after publication and retries them asynchronously without blocking the committed root.
-- [ ] **PUBL-06**: Daemon can publish observed and newly signed events to an optional local relay configured as a read/write-through event cache.
+- [x] **PUBL-05**: Daemon records incomplete replicas after publication and retries them asynchronously without blocking the committed root.
+- [x] **PUBL-06**: Daemon can publish observed and newly signed events to an optional local relay configured as a read/write-through event cache.
 - [ ] **PUBL-07**: A real `nix` CLI can upload a store object through the daemon, trigger publication, remove the local object, and substitute it back from the newly published cache root.
 
 ### Configuration and Operations
@@ -122,8 +122,8 @@
 | PUBL-02 | Phase 3 | Complete |
 | PUBL-03 | Phase 4 | Complete |
 | PUBL-04 | Phase 4 | Complete |
-| PUBL-05 | Phase 4 | Pending |
-| PUBL-06 | Phase 4 | Pending |
+| PUBL-05 | Phase 4 | Complete |
+| PUBL-06 | Phase 4 | Complete |
 | PUBL-07 | Phase 4 | Pending |
 | OPER-01 | Phase 1 | Gaps Found |
 | OPER-02 | Phase 4 | Pending |
