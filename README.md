@@ -28,6 +28,37 @@ nix-store --realise /nix/store/<hash>-<name> \
   --option fallback false --option require-sigs true
 ```
 
+## Nix packaging
+
+The flake packages the daemon with [deno2nix](https://github.com/hzrd149/deno2nix)
+and ships a NixOS module and a disposable demonstration VM:
+
+```sh
+nix build .#nixstr-cache   # wrapped `deno run` with vendored dependencies
+nix run .#vm -- -nographic # demonstration VM, forwarded to 127.0.0.1:8787
+nix develop                # deno plus the Nix version the E2E gate asserts
+```
+
+`nixosModules.default` exposes `services.nixstr-cache` as a hardened
+`DynamicUser` systemd service. Configuration passes through as `NIXSTR_*`
+environment variables, with `NIXSTR_BIND_HOST`, `NIXSTR_BIND_PORT`,
+`NIXSTR_DATABASE_PATH`, and `NIXSTR_SPOOL_DIRECTORY` defaulted by the module:
+
+```nix
+services.nixstr-cache = {
+  enable = true;
+  settings = {
+    NIXSTR_CACHE_IDENTITIES = "17091:<64-hex-pubkey>:";
+    NIXSTR_RELAY_URLS = "wss://relay.example.com";
+  };
+};
+```
+
+Anything in `settings` enters the world-readable Nix store, so signing material
+for the writable overlay belongs in `environmentFile` or in files referenced by
+absolute path. See [`nix/VM-EXAMPLE.md`](./nix/VM-EXAMPLE.md) for the full
+walkthrough, including how to match `trusted-public-keys` to a publication.
+
 Publisher URLs remain SSRF-restricted. An operator-configured local Blossom
 origin is allowed only by exact origin match. A cryptographically mismatching
 origin is quarantined durably; after investigating and correcting that server,

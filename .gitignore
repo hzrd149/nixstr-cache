@@ -1,0 +1,5 @@
+.env
+data/
+result
+result-*
+*.qcow2
