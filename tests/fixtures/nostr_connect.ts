@@ -13,6 +13,7 @@ interface RequestMessage {
 export interface NostrConnectFixture {
   readonly relayUrl: string;
   readonly nbunksec: string;
+  readonly remoteOwner: string;
   readonly facts: {
     readonly methods: string[];
     readonly permissions: string[];
@@ -166,7 +167,16 @@ export async function createNostrConnectFixture(options: {
               result:
                 options.outcome === "denied" || options.outcome === "failed"
                   ? "invalid-remote-owner"
-                  : options.returnedOwner,
+                  : options.outcome === "mismatch"
+                  ? options.returnedOwner
+                  : remotePubkey,
+            });
+          } else if (request.method === "sign_event") {
+            const template = JSON.parse(request.params[0] ?? "null");
+            const signed = await remote.signEvent(template);
+            await sendResponse(socket, event.pubkey, {
+              id: request.id,
+              result: JSON.stringify(signed),
             });
           }
         })();
@@ -187,6 +197,7 @@ export async function createNostrConnectFixture(options: {
   return {
     relayUrl,
     nbunksec,
+    remoteOwner: remotePubkey,
     facts,
     get sensitiveValues() {
       return [

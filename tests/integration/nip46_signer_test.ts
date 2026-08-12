@@ -4,6 +4,7 @@ import { Subject } from "rxjs";
 import type { RawConfig } from "../../src/config/config.ts";
 import type { RawPublication } from "../../src/protocol/publication.ts";
 import { launchDaemon } from "../../src/runtime/daemon.ts";
+import { createSignerCapability } from "../../src/signer/capability.ts";
 import {
   createNostrConnectFixture,
   type NostrConnectOutcome,
@@ -32,13 +33,14 @@ async function scenario(
   outcome: NostrConnectOutcome,
 ) {
   const root = await Deno.makeTempDir({ prefix: "nixstr-nip46-" });
-  const expectedOwner = getPublicKey(generateSecretKey());
+  let expectedOwner = getPublicKey(generateSecretKey());
   const fixture = await createNostrConnectFixture({
     outcome,
     returnedOwner: outcome === "mismatch"
       ? getPublicKey(generateSecretKey())
       : expectedOwner,
   });
+  if (outcome === "success") expectedOwner = fixture.remoteOwner;
   let handler: ((request: Request) => Response | Promise<Response>) | undefined;
   const diagnostics: unknown[][] = [];
   const warn = console.warn;
@@ -143,4 +145,64 @@ Deno.test("production NIP-46 fails closed for mismatch denial and connection fai
   await scenario(17091, "mismatch");
   await scenario(17091, "denied");
   await scenario(17091, "failed");
+});
+
+Deno.test("remote publication delegates sign_event through the owned NIP-46 capability", async () => {
+  const root = await Deno.makeTempDir({ prefix: "nixstr-nip46-sign-" });
+  const fixture = await createNostrConnectFixture({
+    outcome: "success",
+    returnedOwner: getPublicKey(generateSecretKey()),
+  });
+  const owner = fixture.remoteOwner;
+  try {
+    const sessionPath = `${root}/session`;
+    await Deno.writeTextFile(sessionPath, fixture.nbunksec, { mode: 0o600 });
+    const capability = createSignerCapability({
+      intent: {
+        mode: "nip46",
+        identity: { kind: 17091, pubkey: owner, identifier: "" },
+      },
+      nip46SessionPath: sessionPath,
+      createNip46Signer: async (session, permissionKind) => {
+        const { RelayPool } = await import("applesauce-relay");
+        const { NostrConnectSigner } = await import(
+          "applesauce-signers/signers/nostr-connect-signer"
+        );
+        const pool = new RelayPool();
+        const remote = await NostrConnectSigner.fromNbunksec(session, {
+          permissions: NostrConnectSigner.buildSigningPermissions([
+            permissionKind,
+          ]),
+          subscriptionMethod: (relays, filters) =>
+            pool.subscription(relays, filters),
+          publishMethod: (relays, event) => pool.publish(relays, event),
+          onAuth: async () => {},
+        });
+        return {
+          getPublicKey: () => remote.getPublicKey(),
+          signEvent: (template) => remote.signEvent(template),
+          async close() {
+            await remote.close();
+            pool.close();
+          },
+        };
+      },
+    });
+    const starting = capability.start();
+    await fixture.waitForRequests(1, deadline);
+    await fixture.completeAuthorization();
+    await starting;
+    const event = await capability.signEvent({
+      kind: 17091,
+      created_at: 1,
+      tags: [["x", "root"]],
+      content: "",
+    });
+    assertEquals(event.pubkey, owner);
+    assert(fixture.facts.methods.includes("sign_event"));
+    await capability.close();
+  } finally {
+    await fixture.close();
+    await Deno.remove(root, { recursive: true });
+  }
 });

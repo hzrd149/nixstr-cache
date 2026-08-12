@@ -170,6 +170,7 @@ export function createProductionDependencies(
             });
             return {
               getPublicKey: () => remote.getPublicKey(),
+              signEvent: (template) => remote.signEvent(template),
               async close() {
                 try {
                   await remote.close();
