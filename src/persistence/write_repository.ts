@@ -261,7 +261,7 @@ export class WriteRepository {
   }
 
   /** Commits already-staged routes as one immutable generation (also useful to non-Narinfo producers). */
-  commitOverlayForTest(routes: readonly string[]): number {
+  commitOverlayRoutes(routes: readonly string[]): number {
     this.#db.exec("BEGIN IMMEDIATE");
     try {
       const previous = this.currentGeneration();

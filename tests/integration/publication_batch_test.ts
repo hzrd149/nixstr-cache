@@ -47,7 +47,7 @@ Deno.test("quiet window builds one unpublished pending candidate", async () => {
     );
     await repository.stage("a.narinfo", new Blob(["metadata"]).stream());
     repository.commitOverlay([]);
-    const generation = repository.commitOverlayForTest(["a.narinfo"]);
+    const generation = repository.commitOverlayRoutes(["a.narinfo"]);
     const before = repository.currentGeneration();
     const clock = new FakeClock();
     const writer = new HashtreeWriter(`${root}/trees`, {
@@ -82,7 +82,7 @@ Deno.test("sustained windows race safely and builds serialize across restart", a
       aggregateBytes: 65536,
     });
     await repository.stage("one", new Blob(["1"]).stream());
-    const one = repository.commitOverlayForTest(["one"]);
+    const one = repository.commitOverlayRoutes(["one"]);
     const clock = new FakeClock();
     const scheduler = new PublicationBatchScheduler(
       repository,
@@ -126,7 +126,7 @@ Deno.test("workers serialize and an interrupted frozen batch rebuilds after rest
       aggregateBytes: 65536,
     });
     await repository.stage("one", new Blob(["1"]).stream());
-    const generation = repository.commitOverlayForTest(["one"]);
+    const generation = repository.commitOverlayRoutes(["one"]);
     const first = repository.markPublicationDirty(generation, 0);
     assertExists(repository.claimPublicationBatch(first.token));
     repository.close();
