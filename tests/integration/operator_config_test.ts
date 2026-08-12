@@ -9,6 +9,7 @@ import { Subject } from "rxjs";
 import type { RawPublication } from "../../src/protocol/publication.ts";
 
 const PUBKEY = "a".repeat(64);
+const SECOND_PUBKEY = "b".repeat(64);
 
 function validRaw(overrides: Partial<RawConfig> = {}): RawConfig {
   return {
@@ -19,6 +20,59 @@ function validRaw(overrides: Partial<RawConfig> = {}): RawConfig {
     ...overrides,
   };
 }
+
+Deno.test("operator config preserves canonical ordered default and named identities", () => {
+  const identities = [
+    `17091:${PUBKEY}:`,
+    `37091:${SECOND_PUBKEY}:Nixpkgs-Unstable`,
+  ];
+  const parsed = parseConfig(validRaw({
+    cacheIdentities: identities.join(","),
+    publisherPubkeys: undefined,
+  }));
+  assert(parsed.ok);
+  assertEquals(parsed.value.identities, identities);
+  assertEquals(parsed.value.publisherPubkeys, [PUBKEY, SECOND_PUBKEY]);
+  assert(Object.isFrozen(parsed.value.identities));
+});
+
+Deno.test("operator config rejects malformed duplicate and excessive identities before side effects", () => {
+  const invalidLists = [
+    [`17091:${PUBKEY}:`, `17091:${PUBKEY}:`],
+    [`17092:${PUBKEY}:`],
+    [`17091:${PUBKEY}:named`],
+    [`37091:${PUBKEY}:`],
+    [`37091:${PUBKEY}:named:extra`],
+    [`17091:${PUBKEY.toUpperCase()}:`],
+    Array.from(
+      { length: 33 },
+      (_, index) => `37091:${PUBKEY}:cache-${index}`,
+    ),
+  ];
+  for (const identities of invalidLists) {
+    let sideEffects = 0;
+    const parsed = parseConfig(validRaw({
+      cacheIdentities: identities.join(","),
+      publisherPubkeys: undefined,
+    }), { onSideEffect: () => sideEffects++ });
+    assert(!parsed.ok, identities.join(","));
+    assertEquals(sideEffects, 0);
+    assert(
+      parsed.diagnostics.some((diagnostic) =>
+        diagnostic.field.startsWith("cacheIdentities")
+      ),
+    );
+  }
+});
+
+Deno.test("environment mapper preserves ordered cache identities", () => {
+  const value = `17091:${PUBKEY}:,37091:${SECOND_PUBKEY}:named`;
+  assertEquals(
+    rawConfigFromEnvironment({ NIXSTR_CACHE_IDENTITIES: value })
+      .cacheIdentities,
+    value,
+  );
+});
 
 Deno.test("operator config defaults to explicit read-only write intent", () => {
   for (const raw of [validRaw(), validRaw({ signerMode: "disabled" })]) {

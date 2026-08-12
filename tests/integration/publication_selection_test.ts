@@ -13,6 +13,8 @@ import { DatabaseSync } from "node:sqlite";
 
 const secret = generateSecretKey();
 const publisher = getPublicKey(secret);
+const namedSecret = generateSecretKey();
+const namedPublisher = getPublicKey(namedSecret);
 const authorization = {
   publisherPubkeys: [publisher],
   identities: [`17091:${publisher}:`],
@@ -41,6 +43,46 @@ function event(
     tags,
   }, secret);
 }
+
+function namedEvent(createdAt: number, name: string): RawPublication {
+  return finalizeEvent({
+    kind: 37091,
+    created_at: createdAt,
+    content: "",
+    tags: [["d", name], ["htree", `htree://${nhash}`]],
+  }, namedSecret);
+}
+
+Deno.test("ordered default and named publications form a frozen production snapshot", async () => {
+  const path = await tempDb();
+  try {
+    const events = new Subject<RawPublication>();
+    const repository = new StateRepository(path);
+    const identities = [
+      `17091:${publisher}:`,
+      `37091:${namedPublisher}:Nixpkgs-Unstable`,
+    ];
+    const selector = startPublicationSelection({
+      publisherPubkeys: [publisher, namedPublisher],
+      identities,
+      events,
+      repository,
+      now: () => 100,
+    });
+    events.next(namedEvent(99, "Nixpkgs-Unstable"));
+    events.next(event(90));
+    const snapshot = selector.current();
+    assertEquals(snapshot.map((item) => cacheIdentity(item)), identities);
+    assertEquals(snapshot[0].event.created_at, 90);
+    assertEquals(snapshot[1].event.created_at, 99);
+    assertEquals(Object.isFrozen(snapshot), true);
+    assertEquals(Object.isFrozen(snapshot[0]), true);
+    selector.dispose();
+    repository.close();
+  } finally {
+    await Deno.remove(path);
+  }
+});
 
 async function tempDb(): Promise<string> {
   return await Deno.makeTempFile({ suffix: ".sqlite" });
