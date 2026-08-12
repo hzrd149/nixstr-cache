@@ -11,7 +11,11 @@ import { BlobFetcher } from "../blossom/blob_fetcher.ts";
 import { BlobCacheSink } from "../blossom/cache_sink.ts";
 import { buildSourcePlan } from "../blossom/source_plan.ts";
 import { type RawConfig, type ValidatedConfig } from "../config/config.ts";
-import { PathResolver, RequestBudget } from "../hashtree/reader.ts";
+import {
+  PathResolver,
+  RequestBudget,
+  VerifiedAbsent,
+} from "../hashtree/reader.ts";
 import {
   AddressPolicy,
   PinnedTransport,
@@ -25,6 +29,8 @@ import { WinnerRouteRegistry } from "../nix/merged_cache.ts";
 import { startPublicationSelection } from "../nostr/selection.ts";
 import { StateRepository } from "../persistence/state_repository.ts";
 import { WriteRepository } from "../persistence/write_repository.ts";
+import { EligibilityModel } from "../write/eligibility.ts";
+import { SignerOverlay } from "../write/overlay.ts";
 import {
   createSignerCapability,
   type SignerCapability,
@@ -232,6 +238,66 @@ export function createProductionDependencies(
           }
           : undefined,
       });
+      const budgetFor = () =>
+        new RequestBudget({
+          maxDepth: config.limits.traversalDepth,
+          maxLinks: config.limits.linksPerNode *
+            config.limits.uniqueManifestNodes,
+          maxUniqueNodes: config.limits.uniqueManifestNodes,
+          maxDecodedBytes: config.limits.totalDecodedManifestBytes,
+          maxAttempts: config.limits.sourceAttempts,
+          maxRedirects: config.limits.maxRedirects,
+          maxConcurrent: config.limits.concurrentFetches,
+          maxBlobTransferBytes: config.limits.blobTransferBytes,
+          maxTransferredBytes: config.limits.requestTransferBytes,
+          maxOutputBytes: config.limits.requestOutputBytes,
+          deadline: Date.now() + config.limits.totalTimeoutMs,
+        });
+      const publisherResolver = (
+        snapshot: import("../nostr/selection.ts").SelectedPublication,
+      ) => {
+        const sources = buildSourcePlan({
+          localCache: config.localBlossomUrl,
+          configured: config.preferredBlossomUrl,
+          event: snapshot.blossomServers,
+          bud03: snapshot.bud03Servers,
+          isQuarantined: (origin) => repository.isQuarantined(origin),
+        });
+        return new PathResolver(blobs, sources, {
+          maxWireBytes: config.limits.manifestWireBytes,
+          maxDecodedBytes: config.limits.totalDecodedManifestBytes,
+          maxLinks: config.limits.linksPerNode,
+        });
+      };
+      const overlay = writeRepository
+        ? new SignerOverlay(writeRepository)
+        : undefined;
+      const eligibility = writeRepository && overlay
+        ? new EligibilityModel(writeRepository, overlay, {
+          maxVisited: config.limits.uniqueManifestNodes,
+          maxMetadataBytes: config.limits.totalDecodedManifestBytes,
+          lowerHasStorePath: async (hash) => {
+            const publishers = (selection as unknown as {
+              current(): readonly import("../nostr/selection.ts").SelectedPublication[];
+            }).current();
+            for (const publication of publishers) {
+              try {
+                await publisherResolver(publication).resolve(
+                  publication.root.hex,
+                  `${hash}.narinfo`,
+                  "HEAD",
+                  budgetFor(),
+                  supervisor.abort.signal,
+                );
+                return true;
+              } catch (error) {
+                if (!(error instanceof VerifiedAbsent)) throw error;
+              }
+            }
+            return false;
+          },
+        })
+        : undefined;
       return createNixHttpHandler({
         decodedMetadataBytes: config.limits.decodedMetadataBytes,
         selection: {
@@ -242,6 +308,7 @@ export function createProductionDependencies(
               .current(),
         } satisfies SelectionView,
         routes: new WinnerRouteRegistry(4096, 5 * 60_000),
+        overlay,
         diagnostics: {
           emit: (diagnostic) =>
             console.warn("merged cache diagnostic", diagnostic),
@@ -260,39 +327,16 @@ export function createProductionDependencies(
                 ready: state.status === "ready" && writeRepository.health() &&
                   config.relayUrls.length > 0 && hasDestination,
                 repository: writeRepository,
+                onStaged: (route) =>
+                  eligibility?.changed(route) ?? Promise.resolve(false),
               };
             },
           }
           : undefined,
         resolverFor(snapshot) {
-          const sources = buildSourcePlan({
-            localCache: config.localBlossomUrl,
-            configured: config.preferredBlossomUrl,
-            event: snapshot.blossomServers,
-            bud03: snapshot.bud03Servers,
-            isQuarantined: (origin) => repository.isQuarantined(origin),
-          });
-          return new PathResolver(blobs, sources, {
-            maxWireBytes: config.limits.manifestWireBytes,
-            maxDecodedBytes: config.limits.totalDecodedManifestBytes,
-            maxLinks: config.limits.linksPerNode,
-          });
+          return publisherResolver(snapshot);
         },
-        budgetFor: () =>
-          new RequestBudget({
-            maxDepth: config.limits.traversalDepth,
-            maxLinks: config.limits.linksPerNode *
-              config.limits.uniqueManifestNodes,
-            maxUniqueNodes: config.limits.uniqueManifestNodes,
-            maxDecodedBytes: config.limits.totalDecodedManifestBytes,
-            maxAttempts: config.limits.sourceAttempts,
-            maxRedirects: config.limits.maxRedirects,
-            maxConcurrent: config.limits.concurrentFetches,
-            maxBlobTransferBytes: config.limits.blobTransferBytes,
-            maxTransferredBytes: config.limits.requestTransferBytes,
-            maxOutputBytes: config.limits.requestOutputBytes,
-            deadline: Date.now() + config.limits.totalTimeoutMs,
-          }),
+        budgetFor,
       });
     },
   };

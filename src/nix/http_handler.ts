@@ -15,6 +15,7 @@ import {
 import {
   type DiagnosticSink,
   resolveMergedNarInfo,
+  SignerRouteRegistry,
   WinnerRouteRegistry,
 } from "./merged_cache.ts";
 
@@ -86,7 +87,7 @@ function mapped(error: unknown): Response {
 export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
   const routes = dependencies.routes ??
     new WinnerRouteRegistry(1024, 5 * 60_000);
-  const signerRoutes = new Map<string, SignerOverlaySnapshot>();
+  const signerRoutes = new SignerRouteRegistry(1024, 5 * 60_000);
   return async (request: Request): Promise<Response> => {
     const snapshot = dependencies.selection.current();
     const overlaySnapshot = dependencies.overlay?.current();

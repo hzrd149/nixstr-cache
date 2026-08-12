@@ -1,10 +1,13 @@
 import type { WriteRepository } from "../persistence/write_repository.ts";
 import type { SignerOverlay } from "./overlay.ts";
+import type { Subscription } from "rxjs";
 
 export interface EligibilityOptions {
   readonly maxVisited: number;
   readonly maxMetadataBytes: number;
-  readonly lowerHasStorePath: (storePathHash: string) => boolean;
+  readonly lowerHasStorePath: (
+    storePathHash: string,
+  ) => boolean | Promise<boolean>;
 }
 
 export class EligibilityModel {
@@ -19,7 +22,15 @@ export class EligibilityModel {
     this.#serial = next.catch(() => false);
     return next;
   }
-  #recompute(changed: string): boolean {
+  start(): Subscription {
+    return this.repository.changes$.subscribe((route) => {
+      void this.changed(route);
+    });
+  }
+  idle(): Promise<boolean> {
+    return this.#serial;
+  }
+  async #recompute(changed: string): Promise<boolean> {
     const candidates = this.repository.affectedCandidates(
       changed,
       this.options.maxVisited,
@@ -42,12 +53,17 @@ export class EligibilityModel {
           admitted.has(candidate.storePathHash)
         ) continue;
         if (!this.repository.lookup(candidate.narRoute)) continue;
-        if (
-          candidate.references.every((reference) =>
-            committed.has(reference) || admitted.has(reference) ||
-            this.options.lowerHasStorePath(reference)
-          )
-        ) {
+        let closed = true;
+        for (const reference of candidate.references) {
+          if (
+            !committed.has(reference) && !admitted.has(reference) &&
+            !await this.options.lowerHasStorePath(reference)
+          ) {
+            closed = false;
+            break;
+          }
+        }
+        if (closed) {
           admitted.add(candidate.storePathHash);
           progressed = true;
         }
