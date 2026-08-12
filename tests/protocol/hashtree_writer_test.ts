@@ -1,6 +1,8 @@
 import { assertEquals, assertGreater, assertRejects } from "@std/assert";
 import { FILE_CHUNK_BYTES, HashtreeWriter } from "../../src/hashtree/writer.ts";
 import { decodeManifest } from "../../src/protocol/hashtree.ts";
+import { WriteRepository } from "../../src/persistence/write_repository.ts";
+import { DatabaseSync } from "node:sqlite";
 
 Deno.test("canonical writer is deterministic, reader-compatible, and reuses blobs", async () => {
   const root = await Deno.makeTempDir();
@@ -98,6 +100,53 @@ Deno.test("close build race drains active operation and rejects after closing", 
     await closing;
     assertEquals(closed, true);
     await writer.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("cleanup tombstone survives deletion failure and clears on retry", async () => {
+  const root = await Deno.makeTempDir();
+  const dbPath = `${root}/write.db`;
+  try {
+    const source = `${root}/source`;
+    await Deno.writeTextFile(source, "x");
+    let repository = new WriteRepository(
+      dbPath,
+      `${root}/spool`,
+      { perBodyBytes: 64, aggregateBytes: 1024 },
+      () => {
+        throw new Deno.errors.PermissionDenied("injected");
+      },
+    );
+    const writer = new HashtreeWriter(`${root}/trees`, {
+      maxLinks: 2,
+      maxInventoryBlobs: 32,
+      maxInventoryBytes: 4096,
+    }, repository);
+    const build = await writer.build([{ route: "a", path: source, size: 1 }]);
+    await build.dispose();
+    await writer.close();
+    repository.close();
+    let inspect = new DatabaseSync(dbPath, { readOnly: true });
+    assertEquals(
+      (inspect.prepare("SELECT COUNT(*) count FROM writer_run_cleanup")
+        .get() as { count: number }).count,
+      1,
+    );
+    inspect.close();
+    repository = new WriteRepository(dbPath, `${root}/spool`, {
+      perBodyBytes: 64,
+      aggregateBytes: 1024,
+    });
+    repository.close();
+    inspect = new DatabaseSync(dbPath, { readOnly: true });
+    assertEquals(
+      (inspect.prepare("SELECT COUNT(*) count FROM writer_run_cleanup")
+        .get() as { count: number }).count,
+      0,
+    );
+    inspect.close();
   } finally {
     await Deno.remove(root, { recursive: true });
   }

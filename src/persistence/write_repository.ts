@@ -102,14 +102,21 @@ export class WriteRepository {
   readonly #db: DatabaseSync;
   readonly #root: string;
   readonly #limits: WriteLimits;
+  readonly #removeWriterFile: (path: string) => void;
   #healthy = true;
   readonly #generationLeases = new Map<number, number>();
   #admittedGeneration = 0;
   readonly #writerSession = crypto.randomUUID();
 
-  constructor(databasePath: string, root: string, limits: WriteLimits) {
+  constructor(
+    databasePath: string,
+    root: string,
+    limits: WriteLimits,
+    removeWriterFile: (path: string) => void = Deno.removeSync,
+  ) {
     this.#root = root;
     this.#limits = limits;
+    this.#removeWriterFile = removeWriterFile;
     Deno.mkdirSync(root, { recursive: true, mode: 0o700 });
     Deno.chmodSync(root, 0o700);
     Deno.mkdirSync(`${root}/tmp`, { recursive: true, mode: 0o700 });
@@ -131,7 +138,8 @@ export class WriteRepository {
     this.#db.exec(
       `CREATE TABLE IF NOT EXISTS content_blobs(hash TEXT PRIMARY KEY,size INTEGER NOT NULL,path TEXT NOT NULL);
        CREATE TABLE IF NOT EXISTS blob_owners(owner TEXT NOT NULL,hash TEXT NOT NULL,PRIMARY KEY(owner,hash),FOREIGN KEY(hash) REFERENCES content_blobs(hash));
-       CREATE TABLE IF NOT EXISTS writer_runs(owner TEXT PRIMARY KEY,index_path TEXT NOT NULL,session TEXT NOT NULL);`,
+       CREATE TABLE IF NOT EXISTS writer_runs(owner TEXT PRIMARY KEY,index_path TEXT NOT NULL,session TEXT NOT NULL);
+       CREATE TABLE IF NOT EXISTS writer_run_cleanup(owner TEXT PRIMARY KEY,index_path TEXT NOT NULL);`,
     );
     this.#db.exec(
       `CREATE TABLE IF NOT EXISTS publication_clock(singleton INTEGER PRIMARY KEY CHECK(singleton=1), next_token INTEGER NOT NULL, active_token INTEGER, generation INTEGER, opened_at INTEGER, last_dirty_at INTEGER, base_root TEXT);
@@ -212,12 +220,22 @@ export class WriteRepository {
     this.#db.exec("BEGIN IMMEDIATE");
     try {
       this.#db.prepare("DELETE FROM blob_owners WHERE owner=?").run(runId);
+      const run = this.#db.prepare(
+        "SELECT index_path FROM writer_runs WHERE owner=?",
+      )
+        .get(runId) as { index_path: string } | undefined;
+      if (run) {
+        this.#db.prepare(
+          "INSERT OR REPLACE INTO writer_run_cleanup(owner,index_path) VALUES(?,?)",
+        ).run(runId, run.index_path);
+      }
       this.#db.prepare("DELETE FROM writer_runs WHERE owner=?").run(runId);
       this.#db.exec("COMMIT");
     } catch (error) {
       this.#db.exec("ROLLBACK");
       throw error;
     }
+    this.#retryWriterRunCleanup();
     this.#sweepCandidateBlobsSync();
     return Promise.resolve();
   }
@@ -234,6 +252,9 @@ export class WriteRepository {
         this.#db.prepare("DELETE FROM blob_owners WHERE owner=?").run(
           run.owner,
         );
+        this.#db.prepare(
+          "INSERT OR REPLACE INTO writer_run_cleanup(owner,index_path) VALUES(?,?)",
+        ).run(run.owner, run.index_path);
         this.#db.prepare("DELETE FROM writer_runs WHERE owner=?").run(
           run.owner,
         );
@@ -243,18 +264,30 @@ export class WriteRepository {
       this.#db.exec("ROLLBACK");
       throw error;
     }
-    for (const run of abandoned) {
+    this.#retryWriterRunCleanup();
+    this.#sweepCandidateBlobsSync();
+  }
+  #retryWriterRunCleanup(): void {
+    const rows = this.#db.prepare(
+      "SELECT owner,index_path FROM writer_run_cleanup ORDER BY owner",
+    ).all() as unknown as { owner: string; index_path: string }[];
+    for (const row of rows) {
+      const name = row.index_path.slice(row.index_path.lastIndexOf("/") + 1);
+      if (!/^inventory-[0-9a-f-]{36}\.sqlite$/.test(name)) continue;
+      let complete = true;
       for (const suffix of ["", "-wal", "-shm"]) {
         try {
-          Deno.removeSync(run.index_path + suffix);
+          this.#removeWriterFile(row.index_path + suffix);
         } catch (error) {
-          if (!(error instanceof Deno.errors.NotFound)) {
-            /* retry next open */
-          }
+          if (!(error instanceof Deno.errors.NotFound)) complete = false;
         }
       }
+      if (complete) {
+        this.#db.prepare("DELETE FROM writer_run_cleanup WHERE owner=?").run(
+          row.owner,
+        );
+      }
     }
-    this.#sweepCandidateBlobsSync();
   }
   #sweepCandidateBlobsSync(): void {
     const rows = this.#db.prepare(
