@@ -12,6 +12,8 @@ export function rawConfigFromEnvironment(
     preferredBlossomUrl: environment.NIXSTR_PREFERRED_BLOSSOM_URL,
     databasePath: environment.NIXSTR_DATABASE_PATH,
     spoolDirectory: environment.NIXSTR_SPOOL_DIRECTORY,
+    signerMode: environment.NIXSTR_SIGNER_MODE,
+    writableIdentity: environment.NIXSTR_WRITABLE_IDENTITY,
     limits: {
       manifestWireBytes: environment.NIXSTR_LIMIT_MANIFEST_WIRE_BYTES,
       decodedMetadataBytes: environment.NIXSTR_LIMIT_DECODED_METADATA_BYTES,
@@ -42,6 +44,8 @@ if (import.meta.main) {
     "NIXSTR_PREFERRED_BLOSSOM_URL",
     "NIXSTR_DATABASE_PATH",
     "NIXSTR_SPOOL_DIRECTORY",
+    "NIXSTR_SIGNER_MODE",
+    "NIXSTR_WRITABLE_IDENTITY",
   ] as const;
   const environment: Record<string, string> = {};
   for (const name of names) {
