@@ -5,10 +5,10 @@ milestone_name: milestone
 current_phase: 4
 current_phase_name: Availability-Gated Publication Loop
 status: planning
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-08-12T15:13:26.996Z"
+stopped_at: Phase 04 planning complete; ready for 04-01-PLAN.md
+last_updated: "2026-08-12T15:27:00.000Z"
 last_activity: 2026-08-12
-last_activity_desc: Phase 03 complete, transitioned to Phase 4
+last_activity_desc: Phase 04 planned in four sequential tracer-first execution plans
 progress:
   total_phases: 3
   completed_phases: 3
@@ -23,22 +23,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** An unmodified Nix client can reliably read and publish a decentralized binary cache while preserving NIP.md trust, integrity, freshness, and bounded-resource guarantees.
-**Current focus:** Phase 03 — signer-gated writable cache
+**Current focus:** Phase 04 — availability-gated publication loop
 
 ## Current Position
 
 Phase: 4 — Availability-Gated Publication Loop
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-12 — Phase 03 complete, transitioned to Phase 4
+Status: Planned
+Last activity: 2026-08-12 — Phase 04 planned in four sequential tracer-first execution plans
 
-Progress: [██████████] 100%
+Progress: [████████░░] 81%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 17
+- Total plans completed: 17 (21 planned through Phase 4)
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -135,7 +135,7 @@ None yet.
 - [Phase 1]: Pin current BUD-16/17/18 revisions and supported Nix version during planning; proposal and CLI details may have changed.
 - [Phase 1]: Confirm an address-bound outbound transport strategy that closes DNS rebinding gaps while preserving HTTP Host and TLS SNI.
 - [Phase 3]: Confirm daemon-safe NIP-46 authorization and protected local-key lifecycle before enabling PUT.
-- [Phase 4]: Define concrete Blossom upload/completeness evidence and relay acknowledgement/reconciliation policy before publication.
+- [Phase 4]: Planning resolved concrete same-server Blossom proof, exact configured-relay OK acknowledgement, durable repair, and refresh policies; implementation remains pending.
 
 ### Quick Tasks Completed
 
