@@ -1,6 +1,6 @@
 ---
 id: SEED-001
-status: dormant
+status: implemented
 planted: 2026-08-12
 planted_during: project initialization
 trigger_when: when relevant
@@ -30,4 +30,4 @@ This seed will surface during `$gsd-new-milestone` when the milestone scope matc
 
 ## Notes
 
-_Captured via one-shot seed capture. Enrich with trigger, why, and scope at your convenience._
+Implemented in v1.0. `tests/e2e/nix_substitution_test.ts` exercises stock-Nix HTTP-cache reads and verified local reuse; `tests/e2e/nix_publication_roundtrip_test.ts` exercises stock-Nix uploads and publication across two distinct generations, deletes the source objects, and substitutes both back through the production daemon.
