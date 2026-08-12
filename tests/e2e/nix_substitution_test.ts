@@ -20,7 +20,7 @@ async function command(args: string[], options: Deno.CommandOptions = {}) {
   return { stdout, stderr };
 }
 
-Deno.test("stock Nix substitutes solely through production main.ts", async () => {
+Deno.test("stock Nix substitutes merged winner and reuses populated local Blossom", async () => {
   assertMatch(
     (await command(["nix", "--version"])).stdout,
     /^nix \(Nix\) 2\.(?:34\.7|35\.1)$/,
@@ -251,6 +251,7 @@ Deno.test("stock Nix substitutes solely through production main.ts", async () =>
       ["nixstr-cache walking slice\n", "nixstr-cache walking slice\n"],
     );
     assertMatch(blossomPaths.join("\n"), /GET \/[0-9a-f]{64}/);
+    assertMatch(blossomPaths.join("\n"), /PUT \/upload/);
     assert(
       relayRequests >= 2,
       "daemon restart must restore through relay admission",
