@@ -116,3 +116,63 @@ Deno.test("sustained windows race safely and builds serialize across restart", a
     await Deno.remove(root, { recursive: true });
   }
 });
+
+Deno.test("workers serialize and an interrupted frozen batch rebuilds after restart", async () => {
+  const root = await Deno.makeTempDir();
+  const db = `${root}/write.db`, spool = `${root}/spool`;
+  try {
+    let repository = new WriteRepository(db, spool, {
+      perBodyBytes: 4096,
+      aggregateBytes: 65536,
+    });
+    await repository.stage("one", new Blob(["1"]).stream());
+    const generation = repository.commitOverlayForTest(["one"]);
+    const first = repository.markPublicationDirty(generation, 0);
+    assertExists(repository.claimPublicationBatch(first.token));
+    repository.close();
+    repository = new WriteRepository(db, spool, {
+      perBodyBytes: 4096,
+      aggregateBytes: 65536,
+    });
+    let active = 0, maximum = 0;
+    const real = new HashtreeWriter(`${root}/trees`, {
+      maxLinks: 174,
+      maxInventoryBlobs: 100,
+      maxInventoryBytes: 65536,
+    });
+    const writer = {
+      async build(...args: Parameters<HashtreeWriter["build"]>) {
+        active++;
+        maximum = Math.max(maximum, active);
+        await Promise.resolve();
+        try {
+          return await real.build(...args);
+        } finally {
+          active--;
+        }
+      },
+    };
+    const clock = new FakeClock();
+    const scheduler = new PublicationBatchScheduler(repository, writer, clock);
+    scheduler.dirty(generation);
+    await clock.advance(5_000);
+    await scheduler.idle();
+    assertEquals(maximum, 1);
+    assertEquals(repository.batches().map((x) => x.status), [
+      "pending",
+      "pending",
+    ]);
+    await scheduler.close();
+    repository.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("phase three daemon contains no signing upload publish or pending-root promotion", async () => {
+  const source = await Deno.readTextFile("src/runtime/daemon.ts");
+  assertEquals(
+    /signEvent|uploadBlob|relay\.publish|promotePending/.test(source),
+    false,
+  );
+});

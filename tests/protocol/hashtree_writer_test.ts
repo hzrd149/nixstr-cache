@@ -67,3 +67,36 @@ Deno.test("directory ordering is UTF-8 bytewise and fanout stays bounded", async
     await Deno.remove(root, { recursive: true });
   }
 });
+
+Deno.test("one-path updates reuse unchanged persistent blobs", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const a = `${root}/a`, b = `${root}/b`;
+    await Deno.writeTextFile(a, "same");
+    await Deno.writeTextFile(b, "before");
+    const writer = new HashtreeWriter(`${root}/trees`, {
+      maxLinks: 174,
+      maxInventoryBlobs: 100,
+      maxInventoryBytes: 65536,
+    });
+    const first = await writer.build([
+      { route: "a", path: a, size: 4 },
+      { route: "b", path: b, size: 6 },
+    ]);
+    await Deno.writeTextFile(b, "after!");
+    const second = await writer.build([
+      { route: "a", path: a, size: 4 },
+      { route: "b", path: b, size: 6 },
+    ], first);
+    assertEquals(first.rootHex === second.rootHex, false);
+    assertEquals(second.createdBlobs < second.inventory.length, true);
+    assertEquals(
+      second.inventory.some((blob) =>
+        first.inventory.some((old) => old.hash === blob.hash)
+      ),
+      true,
+    );
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
