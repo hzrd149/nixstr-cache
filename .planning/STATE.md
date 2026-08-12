@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 4
 current_phase_name: Availability-Gated Publication Loop
 status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-08-12T15:46:16.724Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-08-12T15:52:41.950Z"
 last_activity: 2026-08-12
 last_activity_desc: Completed 04-01 availability-gated publication tracer
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 21
-  completed_plans: 19
+  completed_plans: 20
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 4 — Availability-Gated Publication Loop
-Plan: 2 of 4 complete
+Plan: 3 of 4 complete
 Status: Ready to execute
 Last activity: 2026-08-12 — Completed 04-01 availability-gated publication tracer
 
-Progress: [█████████░] 90%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -78,6 +78,7 @@ Progress: [█████████░] 90%
 | Phase 03 P03 | 15min | 2 tasks | 9 files |
 | Phase 04 P01 | 6min | 2 tasks | 6 files |
 | Phase 04 P02 | 9min | 2 tasks | 9 files |
+| Phase 04 P03 | 8min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Archive each committed publication saga before cloning its immutable inventory into an expiration-refresh successor.
 - [Phase ?]: A local relay is cache-only unless its canonical URL is explicitly configured as a publication relay.
 - [Phase ?]: Use repository-driven nearest-due scheduling with stable target-derived retry jitter.
+- [Phase ?]: Health providers receive only synchronous state readers and expose no network, signer, timer, or mutation capability.
+- [Phase ?]: Operational JSON is constructed field-by-field from a closed union; unknown properties and recursive errors are never traversed.
 
 ### Pending Todos
 
@@ -160,6 +163,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T15:46:16.711Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-08-12T15:52:41.936Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None

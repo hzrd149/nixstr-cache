@@ -55,8 +55,8 @@
 ### Configuration and Operations
 
 - [x] **OPER-01**: Operator can start the daemon from validated configuration covering listen address, whitelist order, relays, optional local caches, limits, signer mode, and writable identity.
-- [ ] **OPER-02**: Daemon emits structured logs for event rejection, cache conflicts, upstream failures, signer state, batch state, replication, and publication outcomes without exposing secrets.
-- [ ] **OPER-03**: Operator can query a basic health endpoint that distinguishes process health, read availability, and write availability.
+- [x] **OPER-02**: Daemon emits structured logs for event rejection, cache conflicts, upstream failures, signer state, batch state, replication, and publication outcomes without exposing secrets.
+- [x] **OPER-03**: Operator can query a basic health endpoint that distinguishes process health, read availability, and write availability.
 - [x] **OPER-04**: Automated tests cover strict protocol fixtures, hostile inputs, bounded streaming behavior, local relay/Blossom integration, and real `nix` CLI read/write workflows.
 
 ## v2 Requirements
@@ -126,8 +126,8 @@
 | PUBL-06 | Phase 4 | Complete |
 | PUBL-07 | Phase 4 | Pending |
 | OPER-01 | Phase 1 | Gaps Found |
-| OPER-02 | Phase 4 | Pending |
-| OPER-03 | Phase 4 | Pending |
+| OPER-02 | Phase 4 | Complete |
+| OPER-03 | Phase 4 | Complete |
 | OPER-04 | Phase 4 | Complete |
 
 **Coverage:**
