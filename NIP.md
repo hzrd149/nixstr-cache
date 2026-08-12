@@ -514,17 +514,19 @@ enforce the size declared for each link and abort a transfer that exceeds it.
 
 ### Consuming `.narinfo` records
 
-A client MUST accept a `.narinfo` record's `Sig` only if the Ed25519 signature
-verifies against the key bytes of a `nixSigKey` from the selected publication
-event. The names in the `Sig` field and in the `nixSigKey` tag take no part in
-this match, and clients MUST NOT compare either to a serving domain. Local Nix
-signature policy MAY impose stricter requirements.
+A client MUST treat a `.narinfo` record's `Sig` as publisher-endorsed only if
+the Ed25519 signature verifies against the key bytes of a `nixSigKey` from the
+selected publication event. The names in the `Sig` field and in the
+`nixSigKey` tag take no part in this endorsement match, and clients MUST NOT
+compare either to a serving domain. This endorsement is separate from local Nix
+signature policy.
 
-A client MUST ignore any `Sig` it cannot verify against that key set, including
-every `Sig` in an unsigned cache. An unverifiable `Sig` does not invalidate the
-record. A gateway MUST strip such fields before serving the record onward, so
-that content published under this NIP is never attributed to a key the selected
-event did not declare.
+Every syntactically valid `Sig` field MUST be preserved unchanged when a
+gateway serves the record onward, including signatures that do not verify
+against a declared `nixSigKey` and every signature in an unsigned cache. Such a
+signature is not publisher-endorsed under this NIP, but it can still satisfy a
+stock Nix client's independently configured `trusted-public-keys` policy. An
+unverifiable signature does not invalidate the record.
 
 In an unsigned cache, trust comes from the chain:
 
@@ -537,12 +539,13 @@ reference. Hash verification authenticates each reachable tree node, `.narinfo`
 record, and cache blob relative to that root.
 
 Where no `Sig` verifies against the declared key set, the client MUST attribute
-the record to the event's `pubkey` rather than to any Nix signing key, and MUST
-reject the record if local policy requires a Nix signature. Rejecting one record
-does not require rejecting the cache, though a client MAY do so. A client MAY
-reject an unsigned cache outright according to local policy; one that accepts it
-MUST verify the event signature and every hash from the `htree` root through the
-requested `.narinfo` record and cache blob.
+the publication to the event's `pubkey` rather than to any Nix signing key.
+Whether the record satisfies a required Nix signature remains the consuming Nix
+client's local policy decision. Rejecting one record does not require rejecting
+the cache, though a client MAY do so. A client MAY reject an unsigned cache
+outright according to local policy; one that accepts it MUST verify the event
+signature and every hash from the `htree` root through the requested `.narinfo`
+record and cache blob.
 
 ## Trust and Security
 
@@ -571,11 +574,12 @@ its own configured mirrors, not only against a publisher's.
 
 ### Downgrade
 
-An event that declares no `nixSigKey` tag turns off Nix signature checking for
-that cache. A client that has previously accepted a signed cache for an identity
-MUST NOT silently accept that identity becoming unsigned; it MUST obtain
-explicit user consent first. Without this rule, anyone able to publish as the
-publisher can remove the signature requirement unnoticed.
+An event that declares no `nixSigKey` tag removes the publisher's declaration of
+endorsed Nix signing keys; it does not change the consuming Nix client's own
+signature checks. A client that has previously accepted a signed cache for an
+identity MUST NOT silently accept that identity becoming unsigned; it MUST
+obtain explicit user consent first. Without this rule, anyone able to publish as
+the publisher can remove the publisher-endorsed key set unnoticed.
 
 Rollback of the Hashtree root itself is addressed under Resolution.
 

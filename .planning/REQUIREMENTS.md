@@ -28,7 +28,7 @@
 - [ ] **READ-01**: Nix client can GET and HEAD `nix-cache-info` from one stable daemon URL with valid binary-cache metadata.
 - [ ] **READ-02**: Nix client can GET and HEAD `.narinfo` and referenced NAR paths resolved across selected trees in configured priority order.
 - [ ] **READ-03**: Each request uses one immutable merged-root snapshot so relay updates cannot change publisher roots midway through resolution.
-- [ ] **READ-04**: Daemon strips `.narinfo` signatures not verified by key bytes declared in the selected event and preserves authorized signatures.
+- [ ] **READ-04**: Daemon preserves every syntactically valid `.narinfo` `Sig` field unchanged, records which signatures verify against key bytes declared in the selected event as publisher-endorsed, and leaves trust selection to the Nix client.
 - [ ] **READ-05**: Daemon unions `Sig` fields from duplicate `.narinfo` records only when all non-signature semantic fields agree.
 - [ ] **READ-06**: Daemon serves the highest-priority record and emits a structured warning when duplicate `.narinfo` records disagree semantically.
 - [ ] **READ-07**: A real `nix` CLI can substitute an uncached store path through the daemon and verify the returned metadata and NAR successfully.

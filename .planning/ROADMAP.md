@@ -24,7 +24,7 @@ The v1 journey starts with the smallest safe walking slice: a stock Nix client s
 **Requirements**: PROT-02, PROT-03, PROT-04, PROT-05, PROT-06, TREE-01, TREE-02, TREE-03, TREE-04, TREE-05, READ-01, READ-02, READ-03, READ-04, READ-07, OPER-01
 **Success Criteria** (what must be TRUE):
   1. Operator can start the daemon from validated read configuration and see the latest eligible plaintext publication selected reactively, while invalid, expired, stale, rollback, downgrade, and BUD-15 candidates remain unselected across restarts.
-  2. Nix client can GET or HEAD cache metadata, `.narinfo`, and its referenced NAR from the daemon, with unauthorized `.narinfo` signatures removed.
+  2. Nix client can GET or HEAD cache metadata, `.narinfo`, and its referenced NAR from the daemon, with every syntactically valid signature preserved unchanged and publisher-endorsed signatures identified independently.
   3. Every publisher-controlled fetch is constrained by the configured network and traversal limits, and corrupt or oversized content is rejected before it can be parsed, cached, or served.
   4. Large manifests, chunks, and NARs pass through hashing, verification, temporary storage, and HTTP responses with backpressure and bounded memory.
   5. A real `nix` CLI substitutes an uncached store path through the daemon and successfully verifies the returned metadata and NAR.
@@ -37,7 +37,7 @@ The v1 journey starts with the smallest safe walking slice: a stock Nix client s
 **Requirements**: PROT-01, TREE-06, READ-05, READ-06
 **Success Criteria** (what must be TRUE):
   1. Operator can configure an ordered whitelist of default and exact named cache identities and observe their selected roots through one stable daemon URL in that priority order.
-  2. Nix receives the union of authorized signatures when duplicate `.narinfo` records agree on every non-signature semantic field.
+  2. Nix receives the union of syntactically valid signatures when duplicate `.narinfo` records agree on every non-signature semantic field.
   3. When duplicate records disagree, Nix receives the highest-priority record and the operator receives a structured conflict warning identifying the disagreement.
   4. Operator can enable a local Blossom read/write-through cache, and only hash-verified immutable blobs are placed in it or reused from it.
 **Plans**: TBD
