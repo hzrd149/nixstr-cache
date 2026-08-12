@@ -71,7 +71,7 @@ Plans:
 
 ### Phase 2: Deterministic Merged Read Cache
 
-**Goal**: An operator can expose several trusted publishers as one predictable binary cache without hiding overlap conflicts.
+**Goal:** As a Nix cache operator, I want to expose several trusted publishers through one deterministic cache, so that overlaps are resolved predictably without hiding conflicts.
 **Mode:** mvp
 **Depends on**: Phase 1
 **Requirements**: PROT-01, TREE-06, READ-05, READ-06
