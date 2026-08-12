@@ -20,7 +20,7 @@ The v1 journey starts with the smallest safe walking slice: a stock Nix client s
 
 ### Phase 1: Verified Nix Substitution Walking Slice
 
-**Goal**: An operator can point a real Nix client at the daemon and safely substitute an uncached store path from a valid plaintext Nostr-published cache.
+**Goal:** As a Nix cache operator, I want to point a real Nix client at the daemon and safely substitute an uncached store path from a valid plaintext Nostr-published cache, so that I can use a decentralized binary cache without modifying Nix.
 **Mode:** mvp
 **Depends on**: Nothing (first phase)
 **Requirements**: PROT-02, PROT-03, PROT-04, PROT-05, PROT-06, TREE-01, TREE-02, TREE-03, TREE-04, TREE-05, READ-01, READ-02, READ-03, READ-04, READ-07, OPER-01
