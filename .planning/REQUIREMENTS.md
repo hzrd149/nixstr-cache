@@ -91,16 +91,50 @@
 
 ## Traceability
 
-Roadmap phase mapping will be populated during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| PROT-01 | Phase 2 | Pending |
+| PROT-02 | Phase 1 | Pending |
+| PROT-03 | Phase 1 | Pending |
+| PROT-04 | Phase 1 | Pending |
+| PROT-05 | Phase 1 | Pending |
+| PROT-06 | Phase 1 | Pending |
+| TREE-01 | Phase 1 | Pending |
+| TREE-02 | Phase 1 | Pending |
+| TREE-03 | Phase 1 | Pending |
+| TREE-04 | Phase 1 | Pending |
+| TREE-05 | Phase 1 | Pending |
+| TREE-06 | Phase 2 | Pending |
+| READ-01 | Phase 1 | Pending |
+| READ-02 | Phase 1 | Pending |
+| READ-03 | Phase 1 | Pending |
+| READ-04 | Phase 1 | Pending |
+| READ-05 | Phase 2 | Pending |
+| READ-06 | Phase 2 | Pending |
+| READ-07 | Phase 1 | Pending |
+| WRIT-01 | Phase 3 | Pending |
+| WRIT-02 | Phase 3 | Pending |
+| WRIT-03 | Phase 3 | Pending |
+| WRIT-04 | Phase 3 | Pending |
+| WRIT-05 | Phase 3 | Pending |
+| WRIT-06 | Phase 3 | Pending |
+| PUBL-01 | Phase 3 | Pending |
+| PUBL-02 | Phase 3 | Pending |
+| PUBL-03 | Phase 4 | Pending |
+| PUBL-04 | Phase 4 | Pending |
+| PUBL-05 | Phase 4 | Pending |
+| PUBL-06 | Phase 4 | Pending |
+| PUBL-07 | Phase 4 | Pending |
+| OPER-01 | Phase 1 | Pending |
+| OPER-02 | Phase 4 | Pending |
+| OPER-03 | Phase 4 | Pending |
+| OPER-04 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 36 total
-- Mapped to phases: 0
-- Unmapped: 36
+- Mapped to phases: 36
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-08-12*
-*Last updated: 2026-08-12 after initial definition*
+*Last updated: 2026-08-12 after roadmap creation*
