@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: verified-nix-substitution-walking-slice
 status: executing
-stopped_at: Completed 01-08-PLAN.md
-last_updated: "2026-08-12T12:28:23.300Z"
+stopped_at: Completed 01-09-PLAN.md
+last_updated: "2026-08-12T12:36:24.260Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 01 gap-closure planning completed
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 01 (verified-nix-substitution-walking-slice) — EXECUTING
-Plan: 6 of 9
+Plan: 7 of 9
 Status: Ready to execute
 Last activity: 2026-08-12 — Phase 01 gap-closure planning completed
 
-Progress: [████████░░] 78%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [████████░░] 78%
 | Phase 01 P05 | 6 min | 2 tasks | 5 files |
 | Phase 01 P06 | 3 min | 2 tasks | 2 files |
 | Phase 01 P08 | 4 min | 2 tasks | 4 files |
+| Phase 01 P09 | 7 min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Require one unambiguous supported HTTP response framing mode before exposing publisher bytes.
 - [Phase ?]: Normalize IPv4-mapped IPv6 into IPv4 bytes before forbidden CIDR evaluation.
 - [Phase ?]: Keep transport socket and abort ownership active through body terminal state.
+- [Phase ?]: Treat authenticated blob sizes only as equality requirements that may narrow operator transfer ceilings.
+- [Phase ?]: Debit every received chunk at the BlobFetcher boundary and every delivered chunk before response enqueue.
+- [Phase ?]: Materialize only bounded narinfo metadata; keep NAR bodies on the direct stream path.
 
 ### Pending Todos
 
@@ -110,6 +114,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T12:28:23.289Z
-Stopped at: Completed 01-08-PLAN.md
+Last session: 2026-08-12T12:36:24.248Z
+Stopped at: Completed 01-09-PLAN.md
 Resume file: None
