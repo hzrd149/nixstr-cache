@@ -31,7 +31,7 @@
 - [x] **READ-04**: Daemon preserves every syntactically valid `.narinfo` `Sig` field unchanged, records which signatures verify against key bytes declared in the selected event as publisher-endorsed, and leaves trust selection to the Nix client.
 - [ ] **READ-05**: Daemon unions `Sig` fields from duplicate `.narinfo` records only when all non-signature semantic fields agree.
 - [ ] **READ-06**: Daemon serves the highest-priority record and emits a structured warning when duplicate `.narinfo` records disagree semantically.
-- [ ] **READ-07**: A real `nix` CLI can substitute an uncached store path through the daemon and verify the returned metadata and NAR successfully.
+- [x] **READ-07**: A real `nix` CLI can substitute an uncached store path through the daemon and verify the returned metadata and NAR successfully.
 
 ### Signers and Write API
 
@@ -111,7 +111,7 @@
 | READ-04 | Phase 1 | Complete |
 | READ-05 | Phase 2 | Pending |
 | READ-06 | Phase 2 | Pending |
-| READ-07 | Phase 1 | Pending |
+| READ-07 | Phase 1 | Complete |
 | WRIT-01 | Phase 3 | Pending |
 | WRIT-02 | Phase 3 | Pending |
 | WRIT-03 | Phase 3 | Pending |
