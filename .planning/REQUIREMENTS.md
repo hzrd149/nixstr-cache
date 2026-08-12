@@ -44,8 +44,8 @@
 
 ### Publication
 
-- [ ] **PUBL-01**: Daemon freezes one serialized publication batch after five seconds without writes or after sixty seconds of sustained write activity.
-- [ ] **PUBL-02**: Daemon builds a deterministic plaintext BUD-16/17/18 copy-on-write tree containing only the dependency-closed eligible batch.
+- [x] **PUBL-01**: Daemon freezes one serialized publication batch after five seconds without writes or after sixty seconds of sustained write activity.
+- [x] **PUBL-02**: Daemon builds a deterministic plaintext BUD-16/17/18 copy-on-write tree containing only the dependency-closed eligible batch.
 - [ ] **PUBL-03**: Daemon uploads all newly reachable blobs to the signer's current BUD-03 Blossom servers and proves at least one advertised server contains the complete reachable tree before signing.
 - [ ] **PUBL-04**: Daemon signs and publishes the correct kind `17091` or `37091` event only after the completeness barrier passes, then reactively commits that root to the signer-first read view.
 - [ ] **PUBL-05**: Daemon records incomplete replicas after publication and retries them asynchronously without blocking the committed root.
@@ -118,8 +118,8 @@
 | WRIT-04 | Phase 3 | Complete |
 | WRIT-05 | Phase 3 | Complete |
 | WRIT-06 | Phase 3 | Complete |
-| PUBL-01 | Phase 3 | Pending |
-| PUBL-02 | Phase 3 | Pending |
+| PUBL-01 | Phase 3 | Complete |
+| PUBL-02 | Phase 3 | Complete |
 | PUBL-03 | Phase 4 | Pending |
 | PUBL-04 | Phase 4 | Pending |
 | PUBL-05 | Phase 4 | Pending |

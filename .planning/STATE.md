@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 3
 current_phase_name: Signer-Gated Writable Cache
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-08-12T14:46:13.840Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-08-12T14:56:15.455Z"
 last_activity: 2026-08-12
 last_activity_desc: Completed signer-gated streamed PUT staging
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 17
-  completed_plans: 16
+  completed_plans: 17
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 3 — Signer-Gated Writable Cache
-Plan: 2 of 3 complete
+Plan: 3 of 3 complete
 Status: Ready to execute
 Last activity: 2026-08-12 — Completed signer-gated streamed PUT staging
 
-Progress: [█████████░] 94%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -74,6 +74,7 @@ Progress: [█████████░] 94%
 | Phase 02 P03 | 12 min | 3 tasks | 12 files |
 | Phase 03 P01 | 28min | 2 tasks | 10 files |
 | Phase 03 P02 | 8min | 2 tasks | 7 files |
+| Phase 03 P03 | 15min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Capture signer ownership, repository health, publication relays, and a current configured/BUD-03 Blossom destination as one PUT readiness fact.
 - [Phase ?]: Treat only the current atomic signer overlay generation as readable; mutable staging is never a resolver input.
 - [Phase ?]: Pin signer NAR routes to the immutable generation that supplied their Narinfo.
+- [Phase ?]: Freeze publication batches by copying one immutable overlay generation into durable batch-entry rows before canonical tree construction.
+- [Phase ?]: Keep pending candidate metadata and inventory transactionally separate from the committed signer overlay until Phase 4 availability succeeds.
 
 ### Pending Todos
 
@@ -148,6 +151,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T14:46:13.828Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-08-12T14:56:15.442Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None
