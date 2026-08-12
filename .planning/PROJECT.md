@@ -24,7 +24,7 @@ An unmodified Nix client can reliably read and publish a decentralized binary ca
 - [ ] Expose a single standard Nix HTTP binary-cache endpoint supporting GET and HEAD for `nix-cache-info`, `.narinfo`, and referenced NAR paths.
 - [ ] Merge whitelisted caches in configured priority order, with the connected signer's writable cache first.
 - [ ] For duplicate `.narinfo` paths, merge compatible signature fields; when non-signature fields conflict, serve the highest-priority record and emit a structured warning and metric.
-- [ ] Stream Hashtree manifests, chunks, NARs, HTTP request bodies, HTTP responses, hashing, verification, encryption/decryption, and Blossom transfers with bounded memory use.
+- [ ] Stream Hashtree manifests, chunks, NARs, HTTP request bodies, HTTP responses, hashing, verification, and Blossom transfers with bounded memory use.
 - [ ] Verify every Nostr signature and every fetched Blossom blob against its expected hash before decoding, caching, or serving it.
 - [ ] Enforce the validation, traversal limits, redirect checks, outbound-network restrictions, signature filtering, and decompression bounds specified by `NIP.md`.
 - [ ] Optionally use an operator-configured local Nostr relay and local Blossom server as read/write-through caches for events and verified immutable blobs.
@@ -36,7 +36,7 @@ An unmodified Nix client can reliably read and publish a decentralized binary ca
 - [ ] Resolve the signer's BUD-03 server list, upload all newly referenced blobs, and publish only after at least one advertised server holds a complete reachable tree.
 - [ ] Retry incomplete replication to the remaining BUD-03 Blossom servers asynchronously after publication.
 - [ ] Publish the updated kind `17091` or `37091` event through the configured Nostr relays only after its referenced tree is retrievable, then update the merged read view reactively.
-- [ ] Provide daemon configuration, structured logs, health/readiness information, and operational metrics sufficient to diagnose relay, Blossom, validation, conflict, replication, and publication failures.
+- [ ] Provide validated daemon configuration, structured logs, and a basic health endpoint sufficient to diagnose core relay, Blossom, validation, conflict, replication, and publication failures.
 - [ ] Provide automated protocol, streaming, integration, and end-to-end tests against local Nostr relay and Blossom test services.
 
 ### Out of Scope
@@ -47,8 +47,10 @@ An unmodified Nix client can reliably read and publish a decentralized binary ca
 - Replacing or extending the Nix client — compatibility is provided through the existing HTTP binary-cache protocol.
 - Defining new Hashtree, Blossom, Nostr, or Nix formats — `NIP.md`, its referenced BUDs/NIPs, and the Nix binary-cache protocol are authoritative.
 - Treating BUD-15 self-encryption as confidentiality or access control — it provides storage opacity only, as specified in `NIP.md`.
+- BUD-15 self-encrypted Hashtree reads and writes — defer until the plaintext read/write path is interoperable and the draft's bounded-memory implementation has been validated.
 - Requiring every configured Blossom replica before publication — one complete advertised replica is sufficient; other replicas converge in the background.
 - Persisting large cache contents in daemon memory — all large or unbounded data paths must remain streamed and resource-bounded.
+- Production-grade operational hardening — metrics, quotas, exhaustive crash-injection, and advanced readiness/drain behavior are deferred; v1 retains structured logs and basic health reporting.
 
 ## Context
 
@@ -74,7 +76,7 @@ Local cache URLs are optional infrastructure rather than an embedded database re
 - **Streaming**: Avoid whole-file and whole-dataset buffering — hashing, upload, download, verification, tree traversal, and HTTP serving must use streams with backpressure.
 - **Resource safety**: Bound manifest size, depth, links per node, total visited nodes, decoded bytes, redirect depth, server attempts, and decompressed output — hostile signed publishers and hostile transports are within the threat model.
 - **Network safety**: Re-check SSRF restrictions after DNS resolution and on every redirect for publisher-provided URLs; operator-configured local services may be explicitly allowed.
-- **Integrity**: Verify Nostr events and content hashes before selection or use; verify ciphertext before BUD-15 decryption and plaintext against its content key afterward.
+- **Integrity**: Verify Nostr events and content hashes before selection or use; v1 rejects BUD-15 self-encrypted roots as unsupported.
 - **Freshness**: Persist the greatest accepted `created_at` per cache identity, honor expiration, and do not silently roll back or downgrade a formerly signed identity to unsigned.
 - **Compatibility**: Serve stock Nix's HTTP binary-cache paths and semantics; gateway validation supplements but does not replace Nix's own signature and hash checks.
 - **Write authorization**: HTTP PUT is unavailable without a connected signer and configured owned identity; only that identity can be mutated.
@@ -97,6 +99,8 @@ Local cache URLs are optional infrastructure rather than an embedded database re
 | Require one complete advertised Blossom replica before publishing | Prevents announcing an unavailable root while tolerating partial server outages | — Pending |
 | Use optional local relay and Blossom services as read/write-through caches | Reuses protocol-native services and avoids building a separate large-object cache into the daemon | — Pending |
 | Build around Applesauce reactive casting | Aligns Nostr ingestion, derived cache selection, signer state, and publication updates with the required reactive architecture | — Pending |
+| Defer BUD-15 self-encrypted Hashtrees | Ship the plaintext interoperability path first while BUD-15 remains a moving proposal with unresolved bounded-streaming details | — Pending |
+| Keep v1 operations minimal | Prioritize functional Nix/Nostr/Blossom read/write behavior; retain logs and health while deferring production hardening | — Pending |
 
 ## Evolution
 
