@@ -8,8 +8,8 @@
 ### Protocol and Trust
 
 - [ ] **PROT-01**: Operator can configure an ordered whitelist of kind `17091` default-cache and kind `37091` named-cache identities using raw Nostr pubkeys and exact `d` values.
-- [ ] **PROT-02**: Daemon accepts only publication events that pass every applicable validation and expiration rule in `NIP.md`, and reports rejected candidates without selecting them.
-- [ ] **PROT-03**: Daemon selects the latest valid event per raw cache identity using NIP-01 replaceable/addressable ordering and atomically exposes updated selections through Applesauce reactive casts.
+- [x] **PROT-02**: Daemon accepts only publication events that pass every applicable validation and expiration rule in `NIP.md`, and reports rejected candidates without selecting them.
+- [x] **PROT-03**: Daemon selects the latest valid event per raw cache identity using NIP-01 replaceable/addressable ordering and atomically exposes updated selections through Applesauce reactive casts.
 - [ ] **PROT-04**: Daemon persists the greatest accepted timestamp and tie-break state per identity so a restart or stale relay cannot silently roll a cache back.
 - [ ] **PROT-05**: Daemon refuses a signed-to-unsigned cache downgrade unless the operator has recorded explicit consent for that identity.
 - [ ] **PROT-06**: Daemon rejects BUD-15 self-encrypted `nhash` roots as unsupported in v1 while accepting valid plaintext BUD-18 roots.
@@ -31,7 +31,7 @@
 - [ ] **READ-04**: Daemon preserves every syntactically valid `.narinfo` `Sig` field unchanged, records which signatures verify against key bytes declared in the selected event as publisher-endorsed, and leaves trust selection to the Nix client.
 - [ ] **READ-05**: Daemon unions `Sig` fields from duplicate `.narinfo` records only when all non-signature semantic fields agree.
 - [ ] **READ-06**: Daemon serves the highest-priority record and emits a structured warning when duplicate `.narinfo` records disagree semantically.
-- [ ] **READ-07**: A real `nix` CLI can substitute an uncached store path through the daemon and verify the returned metadata and NAR successfully.
+- [x] **READ-07**: A real `nix` CLI can substitute an uncached store path through the daemon and verify the returned metadata and NAR successfully.
 
 ### Signers and Write API
 
@@ -54,7 +54,7 @@
 
 ### Configuration and Operations
 
-- [ ] **OPER-01**: Operator can start the daemon from validated configuration covering listen address, whitelist order, relays, optional local caches, limits, signer mode, and writable identity.
+- [x] **OPER-01**: Operator can start the daemon from validated configuration covering listen address, whitelist order, relays, optional local caches, limits, signer mode, and writable identity.
 - [ ] **OPER-02**: Daemon emits structured logs for event rejection, cache conflicts, upstream failures, signer state, batch state, replication, and publication outcomes without exposing secrets.
 - [ ] **OPER-03**: Operator can query a basic health endpoint that distinguishes process health, read availability, and write availability.
 - [ ] **OPER-04**: Automated tests cover strict protocol fixtures, hostile inputs, bounded streaming behavior, local relay/Blossom integration, and real `nix` CLI read/write workflows.

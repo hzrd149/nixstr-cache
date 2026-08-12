@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: verified-nix-substitution-walking-slice
 status: executing
-stopped_at: Completed 01-09-PLAN.md
-last_updated: "2026-08-12T12:36:24.260Z"
+stopped_at: Completed 01-07-PLAN.md
+last_updated: "2026-08-12T12:49:09.987Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 01 gap-closure planning completed
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 9
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 01 (verified-nix-substitution-walking-slice) — EXECUTING
-Plan: 7 of 9
+Plan: 8 of 9
 Status: Ready to execute
 Last activity: 2026-08-12 — Phase 01 gap-closure planning completed
 
-Progress: [█████████░] 89%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Progress: [█████████░] 89%
 | Phase 01 P06 | 3 min | 2 tasks | 2 files |
 | Phase 01 P08 | 4 min | 2 tasks | 4 files |
 | Phase 01 P09 | 7 min | 2 tasks | 7 files |
+| Phase 01 P07 | 18 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Treat authenticated blob sizes only as equality requirements that may narrow operator transfer ceilings.
 - [Phase ?]: Debit every received chunk at the BlobFetcher boundary and every delivered chunk before response enqueue.
 - [Phase ?]: Materialize only bounded narinfo metadata; keep NAR bodies on the direct stream path.
+- [Phase ?]: Phase 1 derives allowed identities as 17091:<configured-pubkey>: and enforces publisher plus identity before durable admission.
+- [Phase ?]: Corrupt stored selections clear only event tuple fields and preserve signed-history and downgrade-consent policy.
 
 ### Pending Todos
 
@@ -114,6 +117,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T12:36:24.248Z
-Stopped at: Completed 01-09-PLAN.md
+Last session: 2026-08-12T12:49:09.976Z
+Stopped at: Completed 01-07-PLAN.md
 Resume file: None
