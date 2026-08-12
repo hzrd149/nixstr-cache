@@ -63,6 +63,28 @@ export interface PublicationSaga {
   readonly committed: boolean;
   readonly admitted: boolean;
 }
+export type EndpointWorkKind = "replica" | "relay";
+export type EndpointWorkStatus =
+  | "pending"
+  | "claimed"
+  | "retry"
+  | "complete"
+  | "exhausted";
+export type EndpointWorkCode =
+  | "ok"
+  | "unavailable"
+  | "timeout"
+  | "rejected"
+  | "attempt_limit";
+export interface EndpointWork {
+  readonly batchId: number;
+  readonly kind: EndpointWorkKind;
+  readonly target: string;
+  readonly status: EndpointWorkStatus;
+  readonly attempts: number;
+  readonly nextAttemptAt: number;
+  readonly code: EndpointWorkCode;
+}
 
 export class WriteRepository {
   readonly changes$ = new Subject<string>();
@@ -104,6 +126,21 @@ export class WriteRepository {
       `CREATE TABLE IF NOT EXISTS publication_sagas(batch_id INTEGER PRIMARY KEY, candidate_json TEXT NOT NULL, destinations_json TEXT NOT NULL, complete_server TEXT, template_json TEXT, signed_event_json TEXT, acknowledged_relay TEXT, committed INTEGER NOT NULL DEFAULT 0, admitted INTEGER NOT NULL DEFAULT 0);
        CREATE TABLE IF NOT EXISTS publication_saga_blobs(batch_id INTEGER NOT NULL, hash TEXT NOT NULL, size INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY(batch_id,hash));
        CREATE TABLE IF NOT EXISTS publication_blob_proofs(batch_id INTEGER NOT NULL, server TEXT NOT NULL, hash TEXT NOT NULL, PRIMARY KEY(batch_id,server,hash));`,
+    );
+    this.#db.exec(
+      `CREATE TABLE IF NOT EXISTS publication_endpoint_work(
+        batch_id INTEGER NOT NULL,
+        kind TEXT NOT NULL CHECK(kind IN ('replica','relay')),
+        target TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('pending','claimed','retry','complete','exhausted')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER NOT NULL,
+        code TEXT NOT NULL CHECK(code IN ('ok','unavailable','timeout','rejected','attempt_limit')),
+        PRIMARY KEY(batch_id,kind,target)
+      );
+      CREATE INDEX IF NOT EXISTS publication_endpoint_work_due
+        ON publication_endpoint_work(status,next_attempt_at,batch_id,kind,target);
+      UPDATE publication_endpoint_work SET status='retry' WHERE status='claimed';`,
     );
     this.#db.prepare(
       "UPDATE publication_batches SET status='failed' WHERE status='building'",
@@ -508,6 +545,85 @@ export class WriteRepository {
       this.#db.exec("ROLLBACK");
       throw error;
     }
+  }
+  ensureEndpointWork(
+    batchId: number,
+    kind: EndpointWorkKind,
+    targets: readonly string[],
+    now: number,
+  ): void {
+    const insert = this.#db.prepare(
+      "INSERT OR IGNORE INTO publication_endpoint_work(batch_id,kind,target,status,next_attempt_at,code) VALUES(?,?,?,'pending',?,'unavailable')",
+    );
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const target of targets) insert.run(batchId, kind, target, now);
+      this.#db.exec("COMMIT");
+      this.changes$.next("publication-work");
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  endpointWork(): readonly EndpointWork[] {
+    const rows = this.#db.prepare(
+      `SELECT batch_id batchId,kind,target,status,attempts,
+       next_attempt_at nextAttemptAt,code FROM publication_endpoint_work
+       ORDER BY next_attempt_at,batch_id,kind,target`,
+    ).all() as unknown as EndpointWork[];
+    return Object.freeze(rows.map((row) => Object.freeze(row)));
+  }
+  nextDueWork(): EndpointWork | undefined {
+    return this.endpointWork().find((row) =>
+      row.status === "pending" || row.status === "retry"
+    );
+  }
+  claimDueWork(now: number, limit: number): readonly EndpointWork[] {
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      const rows = this.#db.prepare(
+        `SELECT batch_id batchId,kind,target,status,attempts,
+         next_attempt_at nextAttemptAt,code FROM publication_endpoint_work
+         WHERE status IN ('pending','retry') AND next_attempt_at<=?
+         ORDER BY next_attempt_at,batch_id,kind,target LIMIT ?`,
+      ).all(now, limit) as unknown as EndpointWork[];
+      const claim = this.#db.prepare(
+        "UPDATE publication_endpoint_work SET status='claimed' WHERE batch_id=? AND kind=? AND target=? AND status IN ('pending','retry')",
+      );
+      for (const row of rows) claim.run(row.batchId, row.kind, row.target);
+      this.#db.exec("COMMIT");
+      return Object.freeze(
+        rows.map((row) =>
+          Object.freeze({ ...row, status: "claimed" as const })
+        ),
+      );
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  recordEndpointOutcome(
+    work: EndpointWork,
+    outcome: {
+      readonly ok: boolean;
+      readonly nextAttemptAt: number;
+      readonly code: EndpointWorkCode;
+      readonly exhausted?: boolean;
+    },
+  ): void {
+    const result = this.#db.prepare(
+      `UPDATE publication_endpoint_work SET status=?,attempts=attempts+1,
+       next_attempt_at=?,code=? WHERE batch_id=? AND kind=? AND target=? AND status='claimed'`,
+    ).run(
+      outcome.ok ? "complete" : outcome.exhausted ? "exhausted" : "retry",
+      outcome.nextAttemptAt,
+      outcome.code,
+      work.batchId,
+      work.kind,
+      work.target,
+    );
+    if (result.changes !== 1) throw new Error("endpoint work claim lost");
+    this.changes$.next("publication-work");
   }
   publicationSaga(): PublicationSaga | undefined {
     const row = this.#db.prepare(

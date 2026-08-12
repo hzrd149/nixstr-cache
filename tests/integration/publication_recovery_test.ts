@@ -37,47 +37,81 @@ Deno.test("restart repairs replicas and relays without rolling back committed ro
     totalBytes: 1,
   }, [{ hash: "22".repeat(32), size: 1, path: `${root}/blob` }]);
   const signer = createSignerCapability({
-    intent: { mode: "local", identity: { kind: 17091, pubkey, identifier: "" } },
+    intent: {
+      mode: "local",
+      identity: { kind: 17091, pubkey, identifier: "" },
+    },
     localKeyPath: `${root}/key`,
   });
   await signer.start();
   const state = new StateRepository(`${root}/state.sqlite`);
   const selection = startPublicationSelection({
-    events: new Subject(), repository: state, publisherPubkeys: [pubkey],
-    identities: [`17091:${pubkey}:`], now: () => now,
+    events: new Subject(),
+    repository: state,
+    publisherPubkeys: [pubkey],
+    identities: [`17091:${pubkey}:`],
+    now: () => now,
   });
-  const make = () => new PublicationCoordinator({
-    repository: write, signer, selector: selection,
-    identity: { kind: 17091, pubkey, identifier: "" },
-    blossomServers: ["http://127.0.0.1:9001", "http://127.0.0.1:9002"],
-    nixSigKeys: [], publicationRelays: ["ws://127.0.0.1:7447", "ws://127.0.0.1:7448"],
-    lifetimeSeconds: 3600, now: () => now,
-    replica: { prove: (server) => Promise.resolve(server.endsWith("9001") || secondReplica) },
-    publishRelays: (event, relays) => Promise.resolve(relays.map((relay) => ({
-      relay, ok: relay.endsWith("7447") || secondRelay,
-    }))),
-    retry: { baseSeconds: 10, maxSeconds: 60, maxAttempts: 5, concurrency: 1, jitter: () => 0 },
-  });
+  const make = () =>
+    new PublicationCoordinator({
+      repository: write,
+      signer,
+      selector: selection,
+      identity: { kind: 17091, pubkey, identifier: "" },
+      blossomServers: ["http://127.0.0.1:9001", "http://127.0.0.1:9002"],
+      nixSigKeys: [],
+      publicationRelays: ["ws://127.0.0.1:7447", "ws://127.0.0.1:7448"],
+      lifetimeSeconds: 3600,
+      now: () => now,
+      replica: {
+        prove: (server) =>
+          Promise.resolve(server.endsWith("9001") || secondReplica),
+      },
+      publishRelays: (event, relays) =>
+        Promise.resolve(relays.map((relay) => ({
+          relay,
+          ok: relay.endsWith("7447") || secondRelay,
+        }))),
+      retry: {
+        baseSeconds: 10,
+        maxSeconds: 60,
+        maxAttempts: 5,
+        concurrency: 2,
+        jitter: () => 0,
+      },
+    });
   try {
     await make().tick();
     const committed = write.publicationSaga()!;
     assert(committed.committed && committed.admitted && committed.signedEvent);
     const eventId = committed.signedEvent.id;
-    assertEquals(write.endpointWork().filter((row) => row.status === "retry").length, 2);
+    assertEquals(
+      write.endpointWork().filter((row) => row.status === "retry").length,
+      2,
+    );
     write.close();
     write = open();
     now = 109;
     await make().tick();
     assertEquals(write.publicationSaga()?.signedEvent?.id, eventId);
-    assertEquals(write.endpointWork().filter((row) => row.status === "retry").length, 2);
+    assertEquals(
+      write.endpointWork().filter((row) => row.status === "retry").length,
+      2,
+    );
     secondReplica = secondRelay = true;
     now = 110;
     await make().tick();
     assertEquals(write.publicationSaga()?.signedEvent?.id, eventId);
-    assertEquals(write.endpointWork().every((row) => row.status === "complete"), true);
+    assertEquals(
+      write.endpointWork().every((row) => row.status === "complete"),
+      true,
+    );
     assertEquals(selection.current()[0]?.event.id, eventId);
   } finally {
-    selection.dispose(); state.close(); write.close(); await signer.close();
+    selection.dispose();
+    state.close();
+    write.close();
+    await signer.close();
     await Deno.remove(root, { recursive: true });
   }
 });
