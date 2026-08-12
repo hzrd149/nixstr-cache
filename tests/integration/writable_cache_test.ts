@@ -240,3 +240,75 @@ Deno.test("complete object commits to signer-first immutable overlay", async () 
   repository.close();
   await Deno.remove(root, { recursive: true });
 });
+
+Deno.test("reverse dependencies cycles restart and concurrent generations remain closed", async () => {
+  const root = await Deno.makeTempDir();
+  const db = `${root}/write.db`;
+  const spool = `${root}/spool`;
+  let repository = new WriteRepository(db, spool, {
+    perBodyBytes: 4096,
+    aggregateBytes: 65536,
+  });
+  const a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const make = (hash: string, url: string, references: string[]) =>
+    [
+      `StorePath: /nix/store/${hash}-item`,
+      `URL: ${url}`,
+      "Compression: none",
+      "FileHash: sha256:abc",
+      "FileSize: 1",
+      "NarHash: sha256:abc",
+      "NarSize: 1",
+      `References: ${references.map((value) => `${value}-item`).join(" ")}`,
+      "",
+    ].join("\n");
+  for (
+    const [hash, url, refs] of [[a, "nar/a.nar", [b]], [b, "nar/b.nar", [
+      a,
+    ]]] as const
+  ) {
+    const raw = make(hash, url, [...refs]);
+    await repository.stage(`${hash}.narinfo`, new Blob([raw]).stream());
+    repository.recordNarInfo(`${hash}.narinfo`, parseNarInfo(raw));
+    await repository.stage(url, new Blob([hash[0]]).stream());
+  }
+  let anchored = false;
+  let overlay = new SignerOverlay(repository);
+  let eligibility = new EligibilityModel(repository, overlay, {
+    maxVisited: 8,
+    maxMetadataBytes: 8192,
+    lowerHasStorePath: (hash) => anchored && hash === a,
+  });
+  assertEquals(await eligibility.changed(b), false);
+  assertEquals(overlay.current().generation, 0);
+  anchored = true;
+  assertEquals(await eligibility.changed(a), true);
+  assertEquals(overlay.current().storePaths, new Set([a, b]));
+  const generationOne = overlay.current();
+  repository.close();
+  repository = new WriteRepository(db, spool, {
+    perBodyBytes: 4096,
+    aggregateBytes: 65536,
+  });
+  overlay = new SignerOverlay(repository);
+  assertEquals(overlay.current().generation, 1);
+  assertEquals(overlay.current().entries.size, 4);
+  const c = "cccccccccccccccccccccccccccccccc";
+  const raw = make(c, "nar/c.nar", []);
+  eligibility = new EligibilityModel(repository, overlay, {
+    maxVisited: 8,
+    maxMetadataBytes: 8192,
+    lowerHasStorePath: () => false,
+  });
+  const subscription = eligibility.start();
+  await repository.stage(`${c}.narinfo`, new Blob([raw]).stream());
+  repository.recordNarInfo(`${c}.narinfo`, parseNarInfo(raw));
+  await repository.stage("nar/c.nar", new Blob(["c"]).stream());
+  await eligibility.idle();
+  assertEquals(overlay.current().generation, 2);
+  assertEquals(generationOne.entries.has("nar/c.nar"), false);
+  subscription.unsubscribe();
+  repository.close();
+  await Deno.remove(root, { recursive: true });
+});
