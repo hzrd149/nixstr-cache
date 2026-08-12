@@ -85,6 +85,7 @@ export class PublicationCoordinator {
   async close(): Promise<void> {
     this.#closed = true;
     this.#abort.abort("publication coordinator closed");
+    this.options.repository.restoreClaimedWork(this.options.now());
     this.#subscription?.unsubscribe();
     if (this.#timer !== undefined) clearTimeout(this.#timer);
     await this.#serial;

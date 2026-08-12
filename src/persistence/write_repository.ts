@@ -708,6 +708,12 @@ export class WriteRepository {
       throw error;
     }
   }
+  restoreClaimedWork(now: number): void {
+    this.#db.prepare(
+      "UPDATE publication_endpoint_work SET status='retry',next_attempt_at=?,code='unavailable' WHERE status='claimed'",
+    ).run(now);
+    this.changes$.next("publication-work");
+  }
   recordEndpointOutcome(
     work: EndpointWork,
     outcome: {
