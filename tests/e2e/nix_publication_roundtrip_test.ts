@@ -28,8 +28,25 @@ async function waitUntil<T>(
   throw new Error(`timed out waiting for ${description}`);
 }
 
+async function removeNixStoreRoot(path: string): Promise<void> {
+  try {
+    for await (const entry of Deno.readDir(path)) {
+      const child = `${path}/${entry.name}`;
+      if (entry.isDirectory) await removeNixStoreRoot(child);
+      else await Deno.chmod(child, 0o600).catch(() => {});
+    }
+    await Deno.chmod(path, 0o700).catch(() => {});
+    await Deno.remove(path, { recursive: true });
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
+  }
+}
+
 Deno.test("stock Nix uploads through production and substitutes from the newly published root", async () => {
-  assertMatch((await command(["nix", "--version"])).stdout, /^nix \(Nix\) 2\.(?:34\.7|35\.1)$/);
+  assertMatch(
+    (await command(["nix", "--version"])).stdout,
+    /^nix \(Nix\) 2\.(?:34\.7|35\.1)$/,
+  );
   const root = await Deno.makeTempDir({ prefix: "nixstr-publish-e2e-" });
   await Deno.chmod(root, 0o700);
   const fixture = await createPublicationFixture();
@@ -46,10 +63,23 @@ Deno.test("stock Nix uploads through production and substitutes from the newly p
     await Deno.writeTextFile(`${input}/payload`, "published by nixstr-cache\n");
     await Deno.writeFile(`${root}/nostr-key`, nostrKey, { mode: 0o600 });
     nostrKey.fill(0);
-    await command(["nix-store", "--generate-binary-cache-key", "nixstr-publish-1", nixSecret, nixPublic]);
+    await command([
+      "nix-store",
+      "--generate-binary-cache-key",
+      "nixstr-publish-1",
+      nixSecret,
+      nixPublic,
+    ]);
     await Deno.chmod(nixSecret, 0o600);
     const nixPublicText = (await Deno.readTextFile(nixPublic)).trim();
-    const storePath = (await command(["nix", "store", "add", "--store", `local?root=${source}`, input])).stdout;
+    const storePath = (await command([
+      "nix",
+      "store",
+      "add",
+      "--store",
+      `local?root=${source}`,
+      input,
+    ])).stdout;
     const storeHash = /^\/nix\/store\/([0-9a-z]{32})-/.exec(storePath)?.[1];
     assert(storeHash);
 
@@ -57,7 +87,14 @@ Deno.test("stock Nix uploads through production and substitutes from the newly p
     const daemonPort = (listener.addr as Deno.NetAddr).port;
     listener.close();
     child = new Deno.Command(Deno.execPath(), {
-      args: ["run", "--allow-env", "--allow-net=127.0.0.1", `--allow-read=${root},${Deno.cwd()}`, `--allow-write=${root}`, `${Deno.cwd()}/main.ts`],
+      args: [
+        "run",
+        "--allow-env",
+        "--allow-net=127.0.0.1",
+        `--allow-read=${root},${Deno.cwd()}`,
+        `--allow-write=${root}`,
+        `${Deno.cwd()}/main.ts`,
+      ],
       stdout: "null",
       stderr: "inherit",
       env: {
@@ -76,29 +113,74 @@ Deno.test("stock Nix uploads through production and substitutes from the newly p
       },
     }).spawn();
     await waitUntil(
-      () => fetch(`http://127.0.0.1:${daemonPort}/health`).then((r) => r.json()).catch(() => undefined),
-      (health) => Boolean(health && health.write?.ready),
+      () =>
+        fetch(`http://127.0.0.1:${daemonPort}/health`).then((r) => r.json())
+          .catch(() => undefined),
+      (health) => Boolean(health && health.write?.status === "ready"),
       "production daemon write readiness",
     );
 
-    await command(["nix", "copy", "--from", `local?root=${source}`, "--to", `http://127.0.0.1:${daemonPort}`, storePath]);
+    await command([
+      "nix",
+      "copy",
+      "--from",
+      `local?root=${source}`,
+      "--to",
+      `http://127.0.0.1:${daemonPort}`,
+      storePath,
+    ]);
     const event = await fixture.waitForPublication(20_000);
     assertEquals(event.pubkey, nostrPubkey);
     const rootTag = event.tags.find((tag) => tag[0] === "htree")?.[1];
     assertMatch(rootTag ?? "", /^htree:\/\/nhash1/);
-    assert(fixture.blobCount > 0, "publication must upload immutable tree blobs");
+    assert(
+      fixture.blobCount > 0,
+      "publication must upload immutable tree blobs",
+    );
 
-    await Deno.remove(source, { recursive: true });
+    await removeNixStoreRoot(source);
     await Deno.remove(input, { recursive: true });
-    assertEquals(await command(["nix", "path-info", "--store", `local?root=${destination}`, storePath]).catch(() => undefined), undefined);
-    await command(["nix-store", "--store", `local?root=${destination}`, "--realise", storePath, "--option", "substituters", `http://127.0.0.1:${daemonPort}`, "--option", "trusted-public-keys", nixPublicText, "--option", "fallback", "false", "--option", "require-sigs", "true"]);
-    assertEquals(await Deno.readTextFile(`${destination}${storePath}/payload`), "published by nixstr-cache\n");
+    assertEquals(
+      await command([
+        "nix",
+        "path-info",
+        "--store",
+        `local?root=${destination}`,
+        storePath,
+      ]).catch(() => undefined),
+      undefined,
+    );
+    await command([
+      "nix-store",
+      "--store",
+      `local?root=${destination}`,
+      "--realise",
+      storePath,
+      "--option",
+      "substituters",
+      `http://127.0.0.1:${daemonPort}`,
+      "--option",
+      "trusted-public-keys",
+      nixPublicText,
+      "--option",
+      "fallback",
+      "false",
+      "--option",
+      "require-sigs",
+      "true",
+    ]);
+    assertEquals(
+      await Deno.readTextFile(`${destination}${storePath}/payload`),
+      "published by nixstr-cache\n",
+    );
   } finally {
     if (child) {
-      try { child.kill("SIGTERM"); await child.status; } catch { /* stopped */ }
+      try {
+        child.kill("SIGTERM");
+        await child.status;
+      } catch { /* stopped */ }
     }
     await fixture.close();
-    await Deno.chmod(root, 0o700).catch(() => {});
-    await Deno.remove(root, { recursive: true }).catch(() => {});
+    await removeNixStoreRoot(root).catch(() => {});
   }
 });

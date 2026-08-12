@@ -154,10 +154,17 @@ export function startPublicationSelection(
         undefined,
       );
       if (nearestExpiry !== undefined) {
+        // JavaScript timers use a signed 32-bit millisecond delay. Long-lived
+        // cache events (the production default is 30 days) must wake once at
+        // the timer ceiling and recompute, rather than overflowing to 1ms.
+        const delay = Math.min(
+          2_147_483_647,
+          Math.max(0, nearestExpiry - now()) * 1000,
+        );
         expirationHandle = schedule(() => {
           expirationHandle = undefined;
           refresh.next();
-        }, Math.max(0, nearestExpiry - now()) * 1000);
+        }, delay);
       }
     },
     error: options.onError,

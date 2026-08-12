@@ -188,6 +188,12 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
     if (
       snapshot.length === 0 && !overlaySnapshot?.entries.has(pathname.slice(1))
     ) {
+      // Stock `nix copy --to` probes the destination before uploading. A
+      // writable empty cache must report an absent route, not an unavailable
+      // cache, or Nix aborts before issuing the first PUT.
+      if (dependencies.write?.current().ready) {
+        return new Response("not found\n", { status: 404 });
+      }
       return new Response("cache unavailable\n", { status: 503 });
     }
     const path = narinfoMatch ? `${narinfoMatch[1]}.narinfo` : narMatch![1];
