@@ -10,14 +10,14 @@
 - [ ] **PROT-01**: Operator can configure an ordered whitelist of kind `17091` default-cache and kind `37091` named-cache identities using raw Nostr pubkeys and exact `d` values.
 - [x] **PROT-02**: Daemon accepts only publication events that pass every applicable validation and expiration rule in `NIP.md`, and reports rejected candidates without selecting them.
 - [x] **PROT-03**: Daemon selects the latest valid event per raw cache identity using NIP-01 replaceable/addressable ordering and atomically exposes updated selections through Applesauce reactive casts.
-- [ ] **PROT-04**: Daemon persists the greatest accepted timestamp and tie-break state per identity so a restart or stale relay cannot silently roll a cache back.
-- [ ] **PROT-05**: Daemon refuses a signed-to-unsigned cache downgrade unless the operator has recorded explicit consent for that identity.
-- [ ] **PROT-06**: Daemon rejects BUD-15 self-encrypted `nhash` roots as unsupported in v1 while accepting valid plaintext BUD-18 roots.
+- [x] **PROT-04**: Daemon persists the greatest accepted timestamp and tie-break state per identity so a restart or stale relay cannot silently roll a cache back.
+- [x] **PROT-05**: Daemon refuses a signed-to-unsigned cache downgrade unless the operator has recorded explicit consent for that identity.
+- [x] **PROT-06**: Daemon rejects BUD-15 self-encrypted `nhash` roots as unsupported in v1 while accepting valid plaintext BUD-18 roots.
 
 ### Blob and Hashtree Reads
 
 - [x] **TREE-01**: Daemon discovers ordered Blossom sources from valid event `blossom` tags and the publisher's BUD-03 kind `10063` server list, with optional configured mirrors.
-- [ ] **TREE-02**: Daemon streams every fetched blob through SHA-256 verification before parsing, caching, or serving it and discards mismatched bytes before trying another source.
+- [x] **TREE-02**: Daemon streams every fetched blob through SHA-256 verification before parsing, caching, or serving it and discards mismatched bytes before trying another source.
 - [x] **TREE-03**: Daemon applies HTTP(S)-only URL policy, private-network restrictions, DNS/address checks, redirect revalidation, redirect limits, and source-attempt limits to publisher-controlled requests.
 - [x] **TREE-04**: Daemon resolves BUD-16/17/18 Hashtree paths lazily with visited-hash deduplication and configurable bounds on manifests, depth, links, nodes, declared sizes, and total decoded bytes.
 - [x] **TREE-05**: Daemon streams manifests, chunks, NARs, hashing, temporary storage, and responses with backpressure and without whole-file or whole-tree memory buffering.
@@ -25,10 +25,10 @@
 
 ### Merged Nix Read API
 
-- [ ] **READ-01**: Nix client can GET and HEAD `nix-cache-info` from one stable daemon URL with valid binary-cache metadata.
-- [ ] **READ-02**: Nix client can GET and HEAD `.narinfo` and referenced NAR paths resolved across selected trees in configured priority order.
-- [ ] **READ-03**: Each request uses one immutable merged-root snapshot so relay updates cannot change publisher roots midway through resolution.
-- [ ] **READ-04**: Daemon preserves every syntactically valid `.narinfo` `Sig` field unchanged, records which signatures verify against key bytes declared in the selected event as publisher-endorsed, and leaves trust selection to the Nix client.
+- [x] **READ-01**: Nix client can GET and HEAD `nix-cache-info` from one stable daemon URL with valid binary-cache metadata.
+- [x] **READ-02**: Nix client can GET and HEAD `.narinfo` and referenced NAR paths resolved across selected trees in configured priority order.
+- [x] **READ-03**: Each request uses one immutable merged-root snapshot so relay updates cannot change publisher roots midway through resolution.
+- [x] **READ-04**: Daemon preserves every syntactically valid `.narinfo` `Sig` field unchanged, records which signatures verify against key bytes declared in the selected event as publisher-endorsed, and leaves trust selection to the Nix client.
 - [ ] **READ-05**: Daemon unions `Sig` fields from duplicate `.narinfo` records only when all non-signature semantic fields agree.
 - [ ] **READ-06**: Daemon serves the highest-priority record and emits a structured warning when duplicate `.narinfo` records disagree semantically.
 - [x] **READ-07**: A real `nix` CLI can substitute an uncached store path through the daemon and verify the returned metadata and NAR successfully.

@@ -11,7 +11,7 @@ The v1 journey starts with the smallest safe walking slice: a stock Nix client s
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Verified Nix Substitution Walking Slice** - A real Nix client safely substitutes from one selected Nostr/Blossom cache through a bounded, verified stream.
+- [x] **Phase 1: Verified Nix Substitution Walking Slice** - A real Nix client safely substitutes from one selected Nostr/Blossom cache through a bounded, verified stream. (completed 2026-08-12)
 - [ ] **Phase 2: Deterministic Merged Read Cache** - Multiple whitelisted publishers appear as one stable priority-ordered cache with safe conflict handling and local verified caching.
 - [ ] **Phase 3: Signer-Gated Writable Cache** - A connected signer can stream complete store objects into a private writable overlay while incomplete data remains invisible.
 - [ ] **Phase 4: Availability-Gated Publication Loop** - Eligible writes become retrievable signed roots and pass a complete real-Nix upload, publish, and substitute-back workflow.
@@ -32,7 +32,7 @@ The v1 journey starts with the smallest safe walking slice: a stock Nix client s
   4. Large manifests, chunks, and NARs pass through hashing, verification, temporary storage, and HTTP responses with backpressure and bounded memory.
   5. A real `nix` CLI substitutes an uncached store path through the daemon and successfully verifies the returned metadata and NAR.
 
-**Plans:** 11/11 plans executed
+**Plans:** 11/11 plans complete
 
 Plans:
 
@@ -122,7 +122,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Verified Nix Substitution Walking Slice | 11/11 | In Progress|  |
+| 1. Verified Nix Substitution Walking Slice | 11/11 | Complete    | 2026-08-12 |
 | 2. Deterministic Merged Read Cache | 0/TBD | Not started | - |
 | 3. Signer-Gated Writable Cache | 0/TBD | Not started | - |
 | 4. Availability-Gated Publication Loop | 0/TBD | Not started | - |
