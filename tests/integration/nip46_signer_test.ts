@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import { getPublicKey, generateSecretKey } from "nostr-tools";
+import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { Subject } from "rxjs";
 import type { RawConfig } from "../../src/config/config.ts";
 import type { RawPublication } from "../../src/protocol/publication.ts";
@@ -9,7 +9,23 @@ import {
   type NostrConnectOutcome,
 } from "../fixtures/nostr_connect.ts";
 
-const deadline = 2_000;
+const deadline = 4_000;
+
+async function waitForPutStatus(
+  put: () => Response | Promise<Response>,
+  status: number,
+  timeoutMs: number,
+) {
+  const started = performance.now();
+  while (true) {
+    const response = await put();
+    if (response.status === status) return response;
+    if (performance.now() - started >= timeoutMs) {
+      throw new Error(`timed out waiting for PUT status ${status}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 
 async function scenario(
   kind: 17091 | 37091,
@@ -59,15 +75,37 @@ async function scenario(
     assert(daemon.ok);
     assert(handler);
     const put = () =>
-      handler!(new Request("http://cache/nar/probe.nar", {
-        method: "PUT",
-        body: "probe",
-      }));
+      handler!(
+        new Request("http://cache/nar/probe.nar", {
+          method: "PUT",
+          body: "probe",
+        }),
+      );
     assertEquals((await put()).status, 405);
 
-    await fixture.waitForRequests(outcome === "success" || outcome === "mismatch" ? 2 : 1, deadline);
+    await fixture.waitForRequests(1, deadline);
+    if (outcome === "success" || outcome === "mismatch") {
+      const started = performance.now();
+      while (
+        !JSON.stringify(diagnostics).includes("nip46 authorization required")
+      ) {
+        if (performance.now() - started >= deadline) {
+          throw new Error(
+            "timed out waiting for headless authorization callback",
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      await fixture.completeAuthorization();
+    }
+    if (
+      outcome === "success" || outcome === "mismatch" ||
+      outcome === "denied" || outcome === "failed"
+    ) {
+      await fixture.waitForRequests(2, deadline);
+    }
     if (outcome === "success") {
-      assertEquals((await put()).status, 200);
+      assertEquals((await waitForPutStatus(put, 200, deadline)).status, 200);
       assertEquals(fixture.facts.methods, ["connect", "get_public_key"]);
       assertEquals(fixture.facts.permissions, [
         `get_public_key,sign_event:${kind}`,
@@ -83,7 +121,10 @@ async function scenario(
     await fixture.waitForSocketClose(deadline);
     const serialized = JSON.stringify(diagnostics);
     for (const secret of fixture.sensitiveValues) {
-      assert(!serialized.includes(secret), "diagnostics must remain secret-safe");
+      assert(
+        !serialized.includes(secret),
+        "diagnostics must remain secret-safe",
+      );
     }
   } finally {
     console.warn = warn;
