@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { sha256 } from "@noble/hashes/sha2.js";
 import type { RawPublication } from "../../src/protocol/publication.ts";
+import type { PinnedResponse } from "../../src/network/safe_fetcher.ts";
 
 export interface PublicationFixture {
   readonly blossomUrl: string;
@@ -131,6 +132,177 @@ export async function createPublicationFixture(): Promise<PublicationFixture> {
     async close() {
       for (const socket of sockets) socket.close();
       await Promise.all([relay.shutdown(), blossom.shutdown()]);
+    },
+  };
+}
+
+export type BlossomMode =
+  | "ok"
+  | "descriptor-hash"
+  | "descriptor-size"
+  | "truncated-proof"
+  | "false-possession";
+
+export async function createControlledBlossomFixture(
+  options: { readonly throttleMs?: number } = {},
+) {
+  const blobs = new Map<string, Uint8Array>();
+  const control: { mode: BlossomMode } = { mode: "ok" };
+  const facts = { activeUploads: 0, maxActiveUploads: 0, uploadChunks: 0 };
+  const server = Deno.serve(
+    { hostname: "127.0.0.1", port: 0, onListen: () => {} },
+    async (request) => {
+      const path = new URL(request.url).pathname;
+      if (request.method === "PUT" && path === "/upload") {
+        facts.activeUploads++;
+        facts.maxActiveUploads = Math.max(
+          facts.maxActiveUploads,
+          facts.activeUploads,
+        );
+        try {
+          const chunks: Uint8Array[] = [];
+          let size = 0;
+          const reader = request.body!.getReader();
+          while (true) {
+            const part = await reader.read();
+            if (part.done) break;
+            facts.uploadChunks++;
+            chunks.push(part.value);
+            size += part.value.length;
+            if (options.throttleMs) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, options.throttleMs)
+              );
+            }
+          }
+          const bytes = new Uint8Array(size);
+          let offset = 0;
+          for (const chunk of chunks) {
+            bytes.set(chunk, offset);
+            offset += chunk.length;
+          }
+          const hash = request.headers.get("x-sha-256")!;
+          blobs.set(hash, bytes);
+          const descriptor = JSON.stringify({
+            sha256: control.mode === "descriptor-hash" ? "0".repeat(64) : hash,
+            size: control.mode === "descriptor-size" ? size + 1 : size,
+          });
+          return new Response(descriptor, { status: 201 });
+        } finally {
+          facts.activeUploads--;
+        }
+      }
+      if (request.method === "GET") {
+        if (control.mode === "false-possession") {
+          return new Response(null, { status: 404 });
+        }
+        const body = blobs.get(path.slice(1));
+        if (!body) return new Response(null, { status: 404 });
+        return new Response(
+          control.mode === "truncated-proof" ? body.slice(0, -1) : body.slice(),
+        );
+      }
+      return new Response(null, { status: 405 });
+    },
+  );
+  const url = `http://127.0.0.1:${(server.addr as Deno.NetAddr).port}`;
+  const request = async (
+    input: string | URL,
+    _trust: unknown,
+    init: {
+      method: "GET" | "PUT";
+      headers?: Headers;
+      body?: ReadableStream<Uint8Array>;
+      signal?: AbortSignal;
+    },
+  ): Promise<PinnedResponse> => {
+    const response = await fetch(
+      input,
+      { ...init, duplex: init.body ? "half" : undefined } as RequestInit,
+    );
+    const body = response.body ??
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close();
+        },
+      });
+    return {
+      status: response.status,
+      headers: response.headers,
+      body,
+      peerAddress: "127.0.0.1",
+      text: () => response.text(),
+      cancel: async (reason) => {
+        await body.cancel(reason).catch(() => {});
+      },
+    };
+  };
+  return { url, control, facts, request, close: () => server.shutdown() };
+}
+
+export type RelayMode =
+  | "true"
+  | "false"
+  | "foreign"
+  | "absent"
+  | "duplicate-true";
+
+export async function createControlledRelayFixture() {
+  const control: { mode: RelayMode } = { mode: "true" };
+  const facts = { eventIds: [] as string[] };
+  const sockets = new Set<WebSocket>();
+  const server = Deno.serve(
+    { hostname: "127.0.0.1", port: 0, onListen: () => {} },
+    (request) => {
+      const { socket, response } = Deno.upgradeWebSocket(request);
+      socket.onopen = () => sockets.add(socket);
+      socket.onclose = () => sockets.delete(socket);
+      socket.onmessage = (message) => {
+        const frame = JSON.parse(String(message.data));
+        if (frame[0] !== "EVENT") return;
+        const event = frame[1] as RawPublication;
+        facts.eventIds.push(event.id);
+        if (control.mode === "absent") return;
+        const id = control.mode === "foreign" ? "f".repeat(64) : event.id;
+        const ok = control.mode !== "false";
+        socket.send(JSON.stringify(["OK", id, ok, ok ? "saved" : "rejected"]));
+        if (control.mode === "duplicate-true") {
+          socket.send(JSON.stringify(["OK", id, true, "duplicate"]));
+        }
+      };
+      return response;
+    },
+  );
+  const url = `ws://127.0.0.1:${(server.addr as Deno.NetAddr).port}`;
+  const publish = (event: RawPublication, timeoutMs: number) =>
+    new Promise<boolean>((resolve) => {
+      const socket = new WebSocket(url);
+      let settled = false;
+      const finish = (value: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        socket.close();
+        resolve(value);
+      };
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      socket.onopen = () => socket.send(JSON.stringify(["EVENT", event]));
+      socket.onmessage = (message) => {
+        const frame = JSON.parse(String(message.data));
+        if (frame[0] === "OK" && frame[1] === event.id && frame[2] === true) {
+          finish(true);
+        }
+      };
+      socket.onerror = () => finish(false);
+    });
+  return {
+    url,
+    control,
+    facts,
+    publish,
+    async close() {
+      for (const socket of sockets) socket.close();
+      await server.shutdown();
     },
   };
 }
