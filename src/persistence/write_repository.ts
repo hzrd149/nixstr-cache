@@ -601,13 +601,30 @@ export class WriteRepository {
     destinations: readonly string[],
   ): PublicationSaga | undefined {
     const current = this.publicationSaga();
-    if (current) return current;
     const candidate = this.pendingCandidate();
+    if (
+      current &&
+      (!current.admitted || !candidate ||
+        candidate.generation <= current.candidate.generation)
+    ) return current;
     if (!candidate || destinations.length === 0) return undefined;
     this.#db.exec("BEGIN IMMEDIATE");
     try {
       const existing = this.publicationSaga();
-      if (!existing) {
+      if (
+        existing?.admitted &&
+        candidate.generation > existing.candidate.generation
+      ) {
+        this.#db.prepare(
+          `INSERT OR REPLACE INTO publication_saga_history
+           SELECT batch_id,candidate_json,destinations_json,complete_server,template_json,signed_event_json,acknowledged_relay,committed,admitted,?
+           FROM publication_sagas WHERE batch_id=?`,
+        ).run(Date.now(), existing.batchId);
+        this.#db.prepare("DELETE FROM publication_sagas WHERE batch_id=?").run(
+          existing.batchId,
+        );
+      }
+      if (!existing || existing.admitted) {
         this.#db.prepare(
           "INSERT INTO publication_sagas(batch_id,candidate_json,destinations_json) VALUES(?,?,?)",
         )
@@ -620,6 +637,8 @@ export class WriteRepository {
           "INSERT INTO publication_saga_blobs SELECT batch_id,hash,size,path FROM pending_candidate_blobs WHERE batch_id=?",
         )
           .run(candidate.batchId);
+        this.#db.prepare("DELETE FROM pending_candidate").run();
+        this.#db.prepare("DELETE FROM pending_candidate_blobs").run();
       }
       this.#db.exec("COMMIT");
       return this.publicationSaga();

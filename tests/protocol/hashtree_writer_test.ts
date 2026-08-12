@@ -33,6 +33,15 @@ Deno.test("canonical writer is deterministic, reader-compatible, and reuses blob
       }).type,
       "directory",
     );
+    await first.dispose();
+    await second.dispose();
+    const artifacts = [...Deno.readDirSync(`${root}/trees`)].map((entry) =>
+      entry.name
+    );
+    assertEquals(
+      artifacts.some((name) => name.startsWith("inventory-")),
+      false,
+    );
   } finally {
     await Deno.remove(root, { recursive: true });
   }

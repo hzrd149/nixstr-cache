@@ -12,7 +12,11 @@ import type { PublicationSelector } from "../nostr/selection.ts";
 import type { OperationalDiagnosticSink } from "../operations/diagnostics.ts";
 
 export interface ReplicaPublisher {
-  prove(server: string, entry: PendingInventoryEntry): Promise<boolean>;
+  prove(
+    server: string,
+    entry: PendingInventoryEntry,
+    signal?: AbortSignal,
+  ): Promise<boolean>;
 }
 export interface RelayOutcome {
   readonly relay: string;
@@ -32,6 +36,7 @@ export interface PublicationCoordinatorOptions {
   readonly publishRelays: (
     event: RawPublication,
     relays: readonly string[],
+    signal?: AbortSignal,
   ) => Promise<readonly RelayOutcome[]>;
   readonly retry?: {
     readonly baseSeconds: number;
@@ -61,6 +66,7 @@ export class PublicationCoordinator {
   #timer?: ReturnType<typeof setTimeout>;
   #subscription?: { unsubscribe(): void };
   #closed = false;
+  readonly #abort = new AbortController();
   constructor(readonly options: PublicationCoordinatorOptions) {}
 
   tick(): Promise<void> {
@@ -78,6 +84,7 @@ export class PublicationCoordinator {
   }
   async close(): Promise<void> {
     this.#closed = true;
+    this.#abort.abort("publication coordinator closed");
     this.#subscription?.unsubscribe();
     if (this.#timer !== undefined) clearTimeout(this.#timer);
     await this.#serial;
@@ -97,6 +104,7 @@ export class PublicationCoordinator {
   }
 
   async #run(): Promise<void> {
+    this.#abort.signal.throwIfAborted();
     const o = this.options;
     o.repository.beginPublicationRefresh(
       o.now(),
@@ -132,7 +140,7 @@ export class PublicationCoordinator {
       for (const server of saga.destinations) {
         let complete = true;
         for (const entry of inventory) {
-          if (await o.replica.prove(server, entry)) {
+          if (await o.replica.prove(server, entry, this.#abort.signal)) {
             o.repository.recordBlobProof(saga.batchId, server, entry.hash);
           } else complete = false;
         }
@@ -167,6 +175,7 @@ export class PublicationCoordinator {
         content: "",
       };
       const event = await o.signer.signEvent(template) as RawPublication;
+      this.#abort.signal.throwIfAborted();
       if (!exactTemplate(event, template, o.identity.pubkey)) {
         throw new Error("signer changed publication template");
       }
@@ -188,6 +197,7 @@ export class PublicationCoordinator {
       const outcomes = await o.publishRelays(
         saga.signedEvent!,
         o.publicationRelays,
+        this.#abort.signal,
       );
       for (const relay of o.publicationRelays) {
         this.#recordInitial(
@@ -322,7 +332,7 @@ export class PublicationCoordinator {
       if (work.kind === "replica") {
         let ok = true;
         for (const entry of o.repository.publicationInventory(work.batchId)) {
-          if (await o.replica.prove(work.target, entry)) {
+          if (await o.replica.prove(work.target, entry, this.#abort.signal)) {
             o.repository.recordBlobProof(work.batchId, work.target, entry.hash);
           } else ok = false;
         }
@@ -340,7 +350,7 @@ export class PublicationCoordinator {
       } else {
         const outcomes = await o.publishRelays(saga.signedEvent!, [
           work.target,
-        ]);
+        ], this.#abort.signal);
         this.#outcome(
           work,
           outcomes.some((x) => x.relay === work.target && x.ok),

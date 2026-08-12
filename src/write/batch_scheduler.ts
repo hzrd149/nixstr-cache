@@ -77,8 +77,9 @@ export class PublicationBatchScheduler {
   }
   #enqueue(batch: FrozenBatch): void {
     this.#serial = this.#serial.catch(() => {}).then(async () => {
+      let candidate: HashtreeBuild | undefined;
       try {
-        const candidate = await this.writer.build(
+        candidate = await this.writer.build(
           this.repository.publicationBatchFiles(
             batch,
             batch.entryCount,
@@ -106,6 +107,8 @@ export class PublicationBatchScheduler {
           });
         } catch { /* diagnostics are non-authoritative */ }
         throw error;
+      } finally {
+        await candidate?.dispose();
       }
     });
   }

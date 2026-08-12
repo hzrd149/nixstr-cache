@@ -50,7 +50,12 @@ export class PublicationUploader {
     },
   ) {}
 
-  async prove(server: string, entry: PendingInventoryEntry): Promise<boolean> {
+  async prove(
+    server: string,
+    entry: PendingInventoryEntry,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    signal?.throwIfAborted();
     const headers = new Headers({
       "content-length": String(entry.size),
       "content-type": "application/octet-stream",
@@ -68,6 +73,7 @@ export class PublicationUploader {
           method: "PUT",
           headers,
           body: file.readable,
+          signal,
         },
       );
       if (response.status !== 200 && response.status !== 201) {
@@ -91,7 +97,7 @@ export class PublicationUploader {
       const proof = await this.options.request(
         new URL(`/${entry.hash}`, server),
         "configured",
-        { method: "GET" },
+        { method: "GET", signal },
       );
       if (proof.status !== 200) {
         await proof.cancel("possession absent");
