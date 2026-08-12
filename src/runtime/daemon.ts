@@ -475,10 +475,9 @@ export function createProductionDependencies(
                 return { relay, ok: false };
               }
             }));
-            if (
-              localRelay &&
-              !relays.some((relay) => new URL(relay).href === localRelay.relay)
-            ) await localRelay.publishSigned(event);
+            // The local relay observes only selector-admitted events. Forwarding
+            // here would put an auxiliary cache behind the configured relay-OK
+            // publication barrier and can strand an otherwise committed saga.
             return outcomes;
           },
           retry: {
