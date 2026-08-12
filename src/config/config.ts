@@ -33,6 +33,11 @@ export interface RawConfig {
   readonly stagingDirectory?: string;
   readonly stagingBodyBytes?: string;
   readonly stagingAggregateBytes?: string;
+  readonly nixSigKeys?: string;
+  readonly publicationLifetimeSeconds?: string;
+  readonly localRelayUrl?: string;
+  readonly publicationConcurrency?: string;
+  readonly publicationMaxAttempts?: string;
   readonly limits?: Partial<Record<keyof Limits, string>>;
 }
 
@@ -69,6 +74,11 @@ export interface ValidatedConfig {
   readonly stagingDirectory?: string;
   readonly stagingBodyBytes: number;
   readonly stagingAggregateBytes: number;
+  readonly nixSigKeys: readonly string[];
+  readonly publicationLifetimeSeconds: number;
+  readonly localRelayUrl?: URL;
+  readonly publicationConcurrency: number;
+  readonly publicationMaxAttempts: number;
   readonly limits: Limits;
 }
 
@@ -254,6 +264,14 @@ export function parseConfig(
     });
   }
   const relayUrls: URL[] = [];
+  const seenRelays = new Set<string>();
+  if (relayValues.length > 32) {
+    diagnostics.push({
+      field: "relayUrls",
+      code: "out_of_range",
+      message: "relay URLs must not exceed 32",
+    });
+  }
   for (const [index, value] of relayValues.entries()) {
     try {
       const url = new URL(value);
@@ -261,6 +279,8 @@ export function parseConfig(
         !(url.protocol === "ws:" || url.protocol === "wss:") || url.username ||
         url.password
       ) throw new TypeError();
+      if (seenRelays.has(url.href)) throw new TypeError();
+      seenRelays.add(url.href);
       relayUrls.push(url);
     } catch {
       diagnostics.push({
@@ -308,6 +328,78 @@ export function parseConfig(
     8 * 1024 * 1024 * 1024,
     diagnostics,
   );
+  const nixSigKeys = (raw.nixSigKeys ?? "").split(",").map((value) =>
+    value.trim()
+  ).filter(Boolean);
+  const seenNixKeys = new Set<string>();
+  if (nixSigKeys.length > 32) {
+    diagnostics.push({
+      field: "nixSigKeys",
+      code: "out_of_range",
+      message: "Nix signature keys must not exceed 32",
+    });
+  }
+  for (const [index, key] of nixSigKeys.entries()) {
+    const separator = key.indexOf(":");
+    let canonical = false;
+    try {
+      const encoded = separator > 0 ? key.slice(separator + 1) : "";
+      const decoded = Uint8Array.from(
+        atob(encoded),
+        (char) => char.charCodeAt(0),
+      );
+      canonical = separator > 0 && !key.slice(0, separator).includes(":") &&
+        decoded.length === 32 &&
+        btoa(String.fromCharCode(...decoded)) === encoded;
+    } catch { /* diagnostic below */ }
+    if (!canonical || seenNixKeys.has(key)) {
+      diagnostics.push({
+        field: `nixSigKeys[${index}]`,
+        code: "invalid",
+        message:
+          "Nix signature keys must be unique canonical name:base64 public keys",
+      });
+    }
+    seenNixKeys.add(key);
+  }
+  const publicationLifetimeSeconds = parseBoundedPositive(
+    raw.publicationLifetimeSeconds,
+    "publicationLifetimeSeconds",
+    2_592_000,
+    31_536_000,
+    diagnostics,
+  );
+  const publicationConcurrency = parseBoundedPositive(
+    raw.publicationConcurrency,
+    "publicationConcurrency",
+    2,
+    64,
+    diagnostics,
+  );
+  const publicationMaxAttempts = parseBoundedPositive(
+    raw.publicationMaxAttempts,
+    "publicationMaxAttempts",
+    8,
+    32,
+    diagnostics,
+  );
+  let localRelayUrl: URL | undefined;
+  if (raw.localRelayUrl) {
+    try {
+      const parsed = new URL(raw.localRelayUrl);
+      if (
+        !(parsed.protocol === "ws:" || parsed.protocol === "wss:") ||
+        parsed.username || parsed.password
+      ) throw new TypeError();
+      localRelayUrl = parsed;
+    } catch {
+      diagnostics.push({
+        field: "localRelayUrl",
+        code: "invalid",
+        message: "local relay must be an absolute credential-free WS(S) URL",
+      });
+    }
+  }
   if (signerMode !== "disabled") {
     if (!stagingDirectory) {
       diagnostics.push({
@@ -407,9 +499,33 @@ export function parseConfig(
       stagingDirectory,
       stagingBodyBytes,
       stagingAggregateBytes,
+      nixSigKeys: Object.freeze([...nixSigKeys]),
+      publicationLifetimeSeconds,
+      localRelayUrl,
+      publicationConcurrency,
+      publicationMaxAttempts,
       limits: Object.freeze(limits as unknown as Limits),
     }),
   };
+}
+
+function parseBoundedPositive(
+  value: string | undefined,
+  field: string,
+  fallback: number,
+  ceiling: number,
+  diagnostics: ConfigDiagnostic[],
+): number {
+  const parsed = value === undefined ? fallback : Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > ceiling) {
+    diagnostics.push({
+      field,
+      code: "out_of_range",
+      message: `${field} must be a positive integer no greater than ${ceiling}`,
+    });
+    return fallback;
+  }
+  return parsed;
 }
 
 function parsePositiveBytes(

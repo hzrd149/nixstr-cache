@@ -9,6 +9,7 @@ import {
 } from "../app.ts";
 import { BlobFetcher } from "../blossom/blob_fetcher.ts";
 import { BlobCacheSink } from "../blossom/cache_sink.ts";
+import { PublicationUploader } from "../blossom/publication_uploader.ts";
 import { buildSourcePlan } from "../blossom/source_plan.ts";
 import { type RawConfig, type ValidatedConfig } from "../config/config.ts";
 import {
@@ -28,11 +29,13 @@ import {
 } from "../nix/http_handler.ts";
 import { WinnerRouteRegistry } from "../nix/merged_cache.ts";
 import { startPublicationSelection } from "../nostr/selection.ts";
+import { LocalRelayCache } from "../nostr/local_relay_cache.ts";
 import { StateRepository } from "../persistence/state_repository.ts";
 import { WriteRepository } from "../persistence/write_repository.ts";
 import { EligibilityModel } from "../write/eligibility.ts";
 import { SignerOverlay } from "../write/overlay.ts";
 import { PublicationBatchScheduler } from "../write/batch_scheduler.ts";
+import { PublicationCoordinator } from "../write/publication_coordinator.ts";
 import {
   createSignerCapability,
   type SignerCapability,
@@ -94,6 +97,18 @@ export function createProductionDependencies(
       const stream = (hooks.createEventStream ?? createPublicationEventStream)(
         config,
       );
+      const localRelayPool = config.localRelayUrl ? new RelayPool() : undefined;
+      const localRelay = config.localRelayUrl && localRelayPool
+        ? new LocalRelayCache(config.localRelayUrl, async (relay, event) => {
+          try {
+            return (await localRelayPool.publish([relay], event)).some((
+              outcome,
+            ) => outcome.ok);
+          } catch {
+            return false;
+          }
+        })
+        : undefined;
       const selector = startPublicationSelection({
         events: stream.events,
         repository,
@@ -102,6 +117,9 @@ export function createProductionDependencies(
         onReject: (_event, reason) =>
           console.error(`publication rejected: ${reason}`),
         onError: (error) => console.error("publication selection error", error),
+        onAdmit: localRelay
+          ? (event) => void localRelay.acceptObserved(event)
+          : undefined,
       });
       const writeRepository = config.writeIntent.mode === "disabled"
         ? undefined
@@ -114,6 +132,7 @@ export function createProductionDependencies(
           },
         );
       let signer: SignerCapability | undefined;
+      let signerReady: Promise<void> | undefined;
       if (config.writeIntent.mode !== "disabled") {
         signer = createSignerCapability({
           intent: config.writeIntent,
@@ -145,7 +164,7 @@ export function createProductionDependencies(
             };
           },
         });
-        void signer.start();
+        signerReady = signer.start();
       }
       let disposed = false;
       const selectionHandle = {
@@ -153,6 +172,8 @@ export function createProductionDependencies(
         repository,
         writeRepository,
         signer,
+        signerReady,
+        localRelay,
         async dispose() {
           if (disposed) return;
           disposed = true;
@@ -163,6 +184,7 @@ export function createProductionDependencies(
               selector.dispose();
             } finally {
               stream.dispose();
+              localRelayPool?.close();
               try {
                 await signer?.close();
               } finally {
@@ -200,6 +222,12 @@ export function createProductionDependencies(
           .writeRepository;
       const signer =
         (selection as typeof selection & { signer?: SignerCapability }).signer;
+      const localRelay =
+        (selection as typeof selection & { localRelay?: LocalRelayCache })
+          .localRelay;
+      const signerReady =
+        (selection as typeof selection & { signerReady?: Promise<void> })
+          .signerReady;
       const fetcher = new SafeFetcher(
         new AddressPolicy(
           undefined,
@@ -319,6 +347,82 @@ export function createProductionDependencies(
         )
         : undefined;
       if (batchScheduler) supervisor.drains.add(() => batchScheduler.close());
+      if (writeRepository && signer && config.writeIntent.mode !== "disabled") {
+        const writableIdentity = config.writeIntent.identity;
+        const publishPool = new RelayPool();
+        const uploader = new PublicationUploader({
+          request: fetcher.request.bind(fetcher),
+        });
+        const coordinator = new PublicationCoordinator({
+          repository: writeRepository,
+          signer,
+          selector:
+            selection as unknown as import("../nostr/selection.ts").PublicationSelector,
+          identity: writableIdentity,
+          blossomServers: () => {
+            const owned = (selection as unknown as {
+              current(): readonly import("../nostr/selection.ts").SelectedPublication[];
+            }).current().find((item) =>
+              item.event.pubkey === writableIdentity.pubkey
+            );
+            return Object.freeze([
+              ...new Set([
+                ...(config.preferredBlossomUrl
+                  ? [config.preferredBlossomUrl.origin]
+                  : []),
+                ...(config.localBlossomUrl
+                  ? [config.localBlossomUrl.origin]
+                  : []),
+                ...(owned?.bud03Servers ?? []),
+              ]),
+            ]);
+          },
+          nixSigKeys: config.nixSigKeys,
+          publicationRelays: config.relayUrls.map(String),
+          lifetimeSeconds: config.publicationLifetimeSeconds,
+          now: () => Math.floor(Date.now() / 1000),
+          replica: uploader,
+          publishRelays: async (event, relays) => {
+            const outcomes = await Promise.all(relays.map(async (relay) => {
+              if (localRelay?.relay === new URL(relay).href) {
+                return { relay, ok: await localRelay.publishSigned(event) };
+              }
+              try {
+                const response = await publishPool.publish([relay], event);
+                return { relay, ok: response.some((item) => item.ok) };
+              } catch {
+                return { relay, ok: false };
+              }
+            }));
+            if (
+              localRelay &&
+              !relays.some((relay) => new URL(relay).href === localRelay.relay)
+            ) await localRelay.publishSigned(event);
+            return outcomes;
+          },
+          retry: {
+            baseSeconds: 30,
+            maxSeconds: 3600,
+            maxAttempts: config.publicationMaxAttempts,
+            concurrency: config.publicationConcurrency,
+            jitter: (_kind, target) => {
+              let value = 0;
+              for (const byte of new TextEncoder().encode(target)) {
+                value = (value * 33 + byte) >>> 0;
+              }
+              return value % 11;
+            },
+          },
+        });
+        const startTask = (signerReady ?? Promise.resolve()).then(() => {
+          coordinator.start();
+        }).finally(() => supervisor.tasks.delete(startTask));
+        supervisor.tasks.add(startTask);
+        supervisor.drains.add(async () => {
+          await coordinator.close();
+          publishPool.close();
+        });
+      }
       return createNixHttpHandler({
         decodedMetadataBytes: config.limits.decodedMetadataBytes,
         selection: {

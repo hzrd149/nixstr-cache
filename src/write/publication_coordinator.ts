@@ -22,7 +22,7 @@ export interface PublicationCoordinatorOptions {
   readonly signer: SignerCapability;
   readonly selector: PublicationSelector;
   readonly identity: CacheIdentity;
-  readonly blossomServers: readonly string[];
+  readonly blossomServers: readonly string[] | (() => readonly string[]);
   readonly nixSigKeys: readonly string[];
   readonly publicationRelays: readonly string[];
   readonly lifetimeSeconds: number;
@@ -39,6 +39,7 @@ export interface PublicationCoordinatorOptions {
     readonly concurrency: number;
     readonly jitter: (kind: "replica" | "relay", target: string) => number;
   };
+  readonly refreshLeadSeconds?: number;
 }
 
 function exactTemplate(
@@ -55,6 +56,9 @@ function exactTemplate(
 
 export class PublicationCoordinator {
   #serial: Promise<void> = Promise.resolve();
+  #timer?: ReturnType<typeof setTimeout>;
+  #subscription?: { unsubscribe(): void };
+  #closed = false;
   constructor(readonly options: PublicationCoordinatorOptions) {}
 
   tick(): Promise<void> {
@@ -63,9 +67,44 @@ export class PublicationCoordinator {
     return work;
   }
 
+  start(): void {
+    if (this.#closed || this.#subscription) return;
+    this.#subscription = this.options.repository.changes$.subscribe(() =>
+      this.#schedule(0)
+    );
+    this.#schedule(0);
+  }
+  async close(): Promise<void> {
+    this.#closed = true;
+    this.#subscription?.unsubscribe();
+    if (this.#timer !== undefined) clearTimeout(this.#timer);
+    await this.#serial;
+  }
+  #schedule(delayMs?: number): void {
+    if (this.#closed) return;
+    if (this.#timer !== undefined) clearTimeout(this.#timer);
+    const next = this.options.repository.nextDueWork();
+    const computed = delayMs ??
+      (next
+        ? Math.max(0, next.nextAttemptAt - this.options.now()) * 1000
+        : 1000);
+    this.#timer = setTimeout(() => {
+      this.#timer = undefined;
+      void this.tick().catch(() => {}).finally(() => this.#schedule());
+    }, computed);
+  }
+
   async #run(): Promise<void> {
     const o = this.options;
-    let saga = o.repository.claimPublication(o.blossomServers);
+    o.repository.beginPublicationRefresh(
+      o.now(),
+      o.refreshLeadSeconds ??
+        Math.min(86_400, Math.max(60, Math.floor(o.lifetimeSeconds / 10))),
+    );
+    const destinations = typeof o.blossomServers === "function"
+      ? o.blossomServers()
+      : o.blossomServers;
+    let saga = o.repository.claimPublication(destinations);
     if (!saga) return;
     o.repository.ensureEndpointWork(
       saga.batchId,
@@ -109,7 +148,12 @@ export class PublicationCoordinator {
       tags.push(["expiration", String(o.now() + o.lifetimeSeconds)]);
       const template: EventTemplate = {
         kind: o.identity.kind,
-        created_at: o.now(),
+        created_at: Math.max(
+          o.now(),
+          ...o.repository.publicationHistory().map((item) =>
+            (item.signedEvent?.created_at ?? -1) + 1
+          ),
+        ),
         tags,
         content: "",
       };

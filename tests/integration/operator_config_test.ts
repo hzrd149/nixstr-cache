@@ -195,17 +195,24 @@ Deno.test("environment mapper preserves signer write-intent fields", () => {
 
 Deno.test("publication policy is canonical bounded and explicitly mapped", () => {
   const mapped = rawConfigFromEnvironment({
-    NIXSTR_NIX_SIG_KEYS: "cache-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=,other-1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
+    NIXSTR_NIX_SIG_KEYS:
+      "cache-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=,other-1:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
     NIXSTR_PUBLICATION_LIFETIME_SECONDS: "86400",
     NIXSTR_LOCAL_RELAY_URL: "ws://127.0.0.1:7447",
     NIXSTR_PUBLICATION_CONCURRENCY: "3",
     NIXSTR_PUBLICATION_MAX_ATTEMPTS: "7",
   });
-  const parsed = parseConfig(validRaw(mapped));
+  const parsed = parseConfig(validRaw({
+    nixSigKeys: mapped.nixSigKeys,
+    publicationLifetimeSeconds: mapped.publicationLifetimeSeconds,
+    localRelayUrl: mapped.localRelayUrl,
+    publicationConcurrency: mapped.publicationConcurrency,
+    publicationMaxAttempts: mapped.publicationMaxAttempts,
+  }));
   assert(parsed.ok);
   assertEquals(parsed.value.nixSigKeys, [
     "cache-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-    "other-1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
+    "other-1:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
   ]);
   assertEquals(parsed.value.publicationLifetimeSeconds, 86400);
   assertEquals(parsed.value.localRelayUrl?.href, "ws://127.0.0.1:7447/");
@@ -215,14 +222,19 @@ Deno.test("publication policy is canonical bounded and explicitly mapped", () =>
   assert(defaults.ok);
   assertEquals(defaults.value.nixSigKeys, []);
   assertEquals(defaults.value.publicationLifetimeSeconds, 2_592_000);
-  for (const overrides of [
-    { nixSigKeys: "bad" },
-    { nixSigKeys: "cache-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=,cache-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
-    { publicationLifetimeSeconds: "0" },
-    { localRelayUrl: "ws://secret@127.0.0.1:7447" },
-    { publicationConcurrency: "0" },
-    { publicationMaxAttempts: "1000" },
-  ]) assert(!parseConfig(validRaw(overrides)).ok);
+  for (
+    const overrides of [
+      { nixSigKeys: "bad" },
+      {
+        nixSigKeys:
+          "cache-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=,cache-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      },
+      { publicationLifetimeSeconds: "0" },
+      { localRelayUrl: "ws://secret@127.0.0.1:7447" },
+      { publicationConcurrency: "0" },
+      { publicationMaxAttempts: "1000" },
+    ]
+  ) assert(!parseConfig(validRaw(overrides)).ok);
 });
 
 Deno.test("enabled signer requires exactly its protected source and staging limits", () => {

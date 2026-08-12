@@ -68,7 +68,7 @@ Deno.test("restart repairs replicas and relays without rolling back committed ro
         prove: (server) =>
           Promise.resolve(server.endsWith("9001") || secondReplica),
       },
-      publishRelays: (event, relays) =>
+      publishRelays: (_event, relays) =>
         Promise.resolve(relays.map((relay) => ({
           relay,
           ok: relay.endsWith("7447") || secondRelay,
@@ -80,6 +80,7 @@ Deno.test("restart repairs replicas and relays without rolling back committed ro
         concurrency: 2,
         jitter: () => 0,
       },
+      refreshLeadSeconds: 600,
     });
   try {
     await make().tick();
@@ -108,6 +109,16 @@ Deno.test("restart repairs replicas and relays without rolling back committed ro
       true,
     );
     assertEquals(selection.current()[0]?.event.id, eventId);
+    now = 3_100;
+    await make().tick();
+    const refreshed = write.publicationSaga()!;
+    assert(refreshed.committed && refreshed.admitted);
+    assert(refreshed.signedEvent && refreshed.signedEvent.id !== eventId);
+    assertEquals(refreshed.candidate.rootHex, committed.candidate.rootHex);
+    assertEquals(
+      write.publicationHistory().map((item) => item.signedEvent?.id),
+      [eventId],
+    );
   } finally {
     selection.dispose();
     state.close();
@@ -119,10 +130,13 @@ Deno.test("restart repairs replicas and relays without rolling back committed ro
 
 Deno.test("local relay forwards only admitted and exact locally signed events", async () => {
   const sent: string[] = [];
-  const cache = new LocalRelayCache("ws://127.0.0.1:7447", async (_relay, event) => {
-    sent.push(event.id);
-    return true;
-  });
+  const cache = new LocalRelayCache(
+    "ws://127.0.0.1:7447",
+    (_relay, event) => {
+      sent.push(event.id);
+      return Promise.resolve(true);
+    },
+  );
   const invalid = { id: "0".repeat(64) } as never;
   assertEquals(await cache.acceptObserved(invalid), false);
   assertEquals(sent, []);
@@ -131,13 +145,25 @@ Deno.test("local relay forwards only admitted and exact locally signed events", 
   const pubkey = getPublicKey(secret);
   await Deno.writeFile(`${root}/key`, secret, { mode: 0o600 });
   const signer = createSignerCapability({
-    intent: { mode: "local", identity: { kind: 17091, pubkey, identifier: "" } },
+    intent: {
+      mode: "local",
+      identity: { kind: 17091, pubkey, identifier: "" },
+    },
     localKeyPath: `${root}/key`,
   });
   await signer.start();
   try {
-    const nhash = bech32.encode("nhash", bech32.toWords(Uint8Array.from([0, 32, ...new Uint8Array(32).fill(1)])), 200);
-    const event = await signer.signEvent({ kind: 17091, created_at: 100, tags: [["htree", `htree://${nhash}`], ["expiration", "200"]], content: "" });
+    const nhash = bech32.encode(
+      "nhash",
+      bech32.toWords(Uint8Array.from([0, 32, ...new Uint8Array(32).fill(1)])),
+      200,
+    );
+    const event = await signer.signEvent({
+      kind: 17091,
+      created_at: 100,
+      tags: [["htree", `htree://${nhash}`], ["expiration", "200"]],
+      content: "",
+    });
     assertEquals(await cache.acceptObserved(event as never), true);
     assertEquals(await cache.publishSigned(event as never), true);
     assertEquals(sent, [event.id, event.id]);

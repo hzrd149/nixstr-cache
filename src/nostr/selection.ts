@@ -104,6 +104,7 @@ export interface SelectionOptions {
   readonly onError?: (error: unknown) => void;
   readonly schedule?: (callback: () => void, delayMs: number) => TimerHandle;
   readonly cancelSchedule?: (handle: TimerHandle) => void;
+  readonly onAdmit?: (event: RawPublication) => void;
 }
 
 export function startPublicationSelection(
@@ -185,6 +186,7 @@ export function startPublicationSelection(
         return void options.onReject?.(event, acceptance.reason ?? "rejected");
       }
       add(result.value.event);
+      options.onAdmit?.(result.value.event);
     } catch (error) {
       options.onError?.(error);
     }

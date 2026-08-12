@@ -128,6 +128,13 @@ export class WriteRepository {
        CREATE TABLE IF NOT EXISTS publication_blob_proofs(batch_id INTEGER NOT NULL, server TEXT NOT NULL, hash TEXT NOT NULL, PRIMARY KEY(batch_id,server,hash));`,
     );
     this.#db.exec(
+      `CREATE TABLE IF NOT EXISTS publication_saga_history(
+        batch_id INTEGER PRIMARY KEY,candidate_json TEXT NOT NULL,destinations_json TEXT NOT NULL,
+        complete_server TEXT,template_json TEXT,signed_event_json TEXT,acknowledged_relay TEXT,
+        committed INTEGER NOT NULL,admitted INTEGER NOT NULL,archived_at INTEGER NOT NULL
+      );`,
+    );
+    this.#db.exec(
       `CREATE TABLE IF NOT EXISTS publication_endpoint_work(
         batch_id INTEGER NOT NULL,
         kind TEXT NOT NULL CHECK(kind IN ('replica','relay')),
@@ -557,9 +564,14 @@ export class WriteRepository {
     );
     this.#db.exec("BEGIN IMMEDIATE");
     try {
-      for (const target of targets) insert.run(batchId, kind, target, now);
+      let changed = false;
+      for (const target of targets) {
+        if (insert.run(batchId, kind, target, now).changes === 1) {
+          changed = true;
+        }
+      }
       this.#db.exec("COMMIT");
-      this.changes$.next("publication-work");
+      if (changed) this.changes$.next("publication-work");
     } catch (error) {
       this.#db.exec("ROLLBACK");
       throw error;
@@ -653,6 +665,85 @@ export class WriteRepository {
       committed: row.committed === 1,
       admitted: row.admitted === 1,
     });
+  }
+  publicationHistory(): readonly PublicationSaga[] {
+    const rows = this.#db.prepare(
+      "SELECT batch_id,candidate_json,destinations_json,complete_server,template_json,signed_event_json,acknowledged_relay,committed,admitted FROM publication_saga_history ORDER BY batch_id",
+    ).all() as unknown as Record<string, unknown>[];
+    return Object.freeze(rows.map((row) =>
+      Object.freeze({
+        batchId: row.batch_id as number,
+        candidate: Object.freeze(JSON.parse(row.candidate_json as string)),
+        destinations: Object.freeze(
+          JSON.parse(row.destinations_json as string),
+        ),
+        ...(row.complete_server
+          ? { completeServer: row.complete_server as string }
+          : {}),
+        ...(row.template_json
+          ? { template: Object.freeze(JSON.parse(row.template_json as string)) }
+          : {}),
+        ...(row.signed_event_json
+          ? {
+            signedEvent: Object.freeze(
+              JSON.parse(row.signed_event_json as string),
+            ),
+          }
+          : {}),
+        ...(row.acknowledged_relay
+          ? { acknowledgedRelay: row.acknowledged_relay as string }
+          : {}),
+        committed: row.committed === 1,
+        admitted: row.admitted === 1,
+      })
+    ));
+  }
+  beginPublicationRefresh(now: number, refreshLeadSeconds: number): boolean {
+    const saga = this.publicationSaga();
+    const expiration = saga?.signedEvent?.tags.find((tag) =>
+      tag[0] === "expiration"
+    )?.[1];
+    if (
+      !saga?.committed || !saga.admitted || !expiration ||
+      Number(expiration) > now + refreshLeadSeconds
+    ) return false;
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      const nextBatchId = (this.#db.prepare(
+        "SELECT MAX(batch_id) value FROM (SELECT batch_id FROM publication_sagas UNION ALL SELECT batch_id FROM publication_saga_history)",
+      ).get() as unknown as { value: number | null }).value! + 1;
+      this.#db.prepare(
+        `INSERT OR IGNORE INTO publication_saga_history
+         SELECT batch_id,candidate_json,destinations_json,complete_server,template_json,signed_event_json,acknowledged_relay,committed,admitted,?
+         FROM publication_sagas WHERE batch_id=?`,
+      ).run(now, saga.batchId);
+      this.#db.prepare(
+        "INSERT INTO publication_saga_blobs SELECT ?,hash,size,path FROM publication_saga_blobs WHERE batch_id=?",
+      ).run(nextBatchId, saga.batchId);
+      this.#db.prepare("DELETE FROM publication_endpoint_work WHERE batch_id=?")
+        .run(saga.batchId);
+      this.#db.prepare("DELETE FROM publication_blob_proofs WHERE batch_id=?")
+        .run(saga.batchId);
+      this.#db.prepare("DELETE FROM publication_saga_blobs WHERE batch_id=?")
+        .run(saga.batchId);
+      this.#db.prepare("DELETE FROM publication_sagas WHERE batch_id=?").run(
+        saga.batchId,
+      );
+      const candidate = { ...saga.candidate, batchId: nextBatchId };
+      this.#db.prepare(
+        "INSERT INTO publication_sagas(batch_id,candidate_json,destinations_json) VALUES(?,?,?)",
+      ).run(
+        nextBatchId,
+        JSON.stringify(candidate),
+        JSON.stringify(saga.destinations),
+      );
+      this.#db.exec("COMMIT");
+      this.changes$.next("publication-refresh");
+      return true;
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
   }
   publicationInventory(batchId: number): readonly PendingInventoryEntry[] {
     return Object.freeze(
