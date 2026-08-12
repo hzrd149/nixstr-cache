@@ -832,7 +832,7 @@ export class WriteRepository {
     where: string,
     parameters: readonly number[],
   ): DurableInventory {
-    const repository = this;
+    const database = this.#db;
     const length = Number(
       (this.#db.prepare(
         `SELECT COUNT(*) count FROM ${table} ${where}`,
@@ -842,7 +842,7 @@ export class WriteRepository {
       length,
       *[Symbol.iterator]() {
         for (
-          const row of repository.#db.prepare(
+          const row of database.prepare(
             `SELECT hash,size,path FROM ${table} ${where} ORDER BY hash`,
           ).iterate(...parameters) as unknown as Iterable<PendingInventoryEntry>
         ) {

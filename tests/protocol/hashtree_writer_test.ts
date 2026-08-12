@@ -151,7 +151,7 @@ Deno.test("durable directory runs keep link working set independent of route cou
       maxInventoryBytes: 1_000_000,
       maxEntries: 200,
     });
-    async function* routes() {
+    const routes = async function* () {
       for (let i = 0; i < 150; i++) {
         yield {
           route: `dir/${String(i).padStart(3, "0")}`,
@@ -159,7 +159,7 @@ Deno.test("durable directory runs keep link working set independent of route cou
           size: 1,
         };
       }
-    }
+    };
     const built = await writer.build(routes());
     assertEquals(built.maxBufferedLinks, 3);
     assertEquals(built.inventory.length > built.maxBufferedLinks, true);

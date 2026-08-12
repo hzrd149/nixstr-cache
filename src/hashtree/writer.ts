@@ -260,26 +260,7 @@ export class HashtreeWriter {
         }
         let nextCount = 0;
         let group: ManifestLink[] = [];
-        for (
-          const row of index.prepare(
-            "SELECT link FROM work WHERE scope=? AND level=? ORDER BY seq",
-          ).iterate(scope, level) as unknown as Iterable<{ link: string }>
-        ) {
-          signal?.throwIfAborted();
-          group.push(parseLink(row.link));
-          maxBufferedLinks = Math.max(maxBufferedLinks, group.length);
-          if (group.length < this.limits.maxLinks) continue;
-          await flushGroup(group);
-          group = [];
-        }
-        if (group.length) await flushGroup(group);
-        index.prepare("DELETE FROM work WHERE scope=? AND level=?").run(
-          scope,
-          level,
-        );
-        level++;
-        count = nextCount;
-        async function flushGroup(links: ManifestLink[]) {
+        const flushGroup = async (links: ManifestLink[]) => {
           const manifestKind = kind === "file"
             ? "file"
             : level === 0
@@ -308,7 +289,26 @@ export class HashtreeWriter {
             storedLink(link),
           );
           nextCount++;
+        };
+        for (
+          const row of index.prepare(
+            "SELECT link FROM work WHERE scope=? AND level=? ORDER BY seq",
+          ).iterate(scope, level) as unknown as Iterable<{ link: string }>
+        ) {
+          signal?.throwIfAborted();
+          group.push(parseLink(row.link));
+          maxBufferedLinks = Math.max(maxBufferedLinks, group.length);
+          if (group.length < this.limits.maxLinks) continue;
+          await flushGroup(group);
+          group = [];
         }
+        if (group.length) await flushGroup(group);
+        index.prepare("DELETE FROM work WHERE scope=? AND level=?").run(
+          scope,
+          level,
+        );
+        level++;
+        count = nextCount;
       }
     };
     for (
