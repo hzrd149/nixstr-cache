@@ -132,24 +132,31 @@ export function startPublicationSelection(
     refresh$: refresh,
   });
   let current: MergedSelectionSnapshot = Object.freeze([]);
-  const expirationHandles = new Set<TimerHandle>();
+  let expirationHandle: TimerHandle | undefined;
   let disposed = false;
 
   const clearExpiration = () => {
-    for (const handle of expirationHandles) cancelSchedule(handle);
-    expirationHandles.clear();
+    if (expirationHandle !== undefined) cancelSchedule(expirationHandle);
+    expirationHandle = undefined;
   };
   const modelSubscription = selected$.subscribe({
     next(value) {
       current = value;
       clearExpiration();
-      for (const publication of value) {
-        if (publication.expiresAt === undefined) continue;
-        const handle = schedule(() => {
-          expirationHandles.delete(handle);
+      const nearestExpiry = value.reduce<number | undefined>(
+        (nearest, publication) =>
+          publication.expiresAt === undefined
+            ? nearest
+            : nearest === undefined
+            ? publication.expiresAt
+            : Math.min(nearest, publication.expiresAt),
+        undefined,
+      );
+      if (nearestExpiry !== undefined) {
+        expirationHandle = schedule(() => {
+          expirationHandle = undefined;
           refresh.next();
-        }, Math.max(0, publication.expiresAt - now()) * 1000);
-        expirationHandles.add(handle);
+        }, Math.max(0, nearestExpiry - now()) * 1000);
       }
     },
     error: options.onError,
