@@ -35,10 +35,10 @@
 
 ### Signers and Write API
 
-- [ ] **WRIT-01**: Operator can configure exactly one writable kind `17091` or kind `37091` cache identity owned by the active signer.
-- [ ] **WRIT-02**: Operator can connect either an Applesauce NIP-46 remote signer or a protected local private-key signer through one capability interface.
-- [ ] **WRIT-03**: Daemon disables PUT readiness when no signer is connected, signer pubkey does not own the configured identity, or required publication destinations are unavailable.
-- [ ] **WRIT-04**: Nix client can stream standard binary-cache PUT paths into durable staging without whole-body buffering and receive idempotent success for identical content.
+- [x] **WRIT-01**: Operator can configure exactly one writable kind `17091` or kind `37091` cache identity owned by the active signer.
+- [x] **WRIT-02**: Operator can connect either an Applesauce NIP-46 remote signer or a protected local private-key signer through one capability interface.
+- [x] **WRIT-03**: Daemon disables PUT readiness when no signer is connected, signer pubkey does not own the configured identity, or required publication destinations are unavailable.
+- [x] **WRIT-04**: Nix client can stream standard binary-cache PUT paths into durable staging without whole-body buffering and receive idempotent success for identical content.
 - [ ] **WRIT-05**: Daemon makes a store object eligible for publication only when its `.narinfo`, referenced NAR, and declared store-path references are resolvable in the candidate tree.
 - [ ] **WRIT-06**: Complete staged objects are readable through the signer-first merged view while incomplete objects remain invisible.
 
@@ -112,10 +112,10 @@
 | READ-05 | Phase 2 | Complete |
 | READ-06 | Phase 2 | Complete |
 | READ-07 | Phase 1 | Gaps Found |
-| WRIT-01 | Phase 3 | Pending |
-| WRIT-02 | Phase 3 | Pending |
-| WRIT-03 | Phase 3 | Pending |
-| WRIT-04 | Phase 3 | Pending |
+| WRIT-01 | Phase 3 | Complete |
+| WRIT-02 | Phase 3 | Complete |
+| WRIT-03 | Phase 3 | Complete |
+| WRIT-04 | Phase 3 | Complete |
 | WRIT-05 | Phase 3 | Pending |
 | WRIT-06 | Phase 3 | Pending |
 | PUBL-01 | Phase 3 | Pending |

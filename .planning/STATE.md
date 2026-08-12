@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 3
 current_phase_name: Signer-Gated Writable Cache
-status: planned
-stopped_at: Phase 03 planned — ready for 03-01-PLAN.md
-last_updated: "2026-08-12T15:00:00.000Z"
+status: in_progress
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-08-12T14:37:58.264Z"
 last_activity: 2026-08-12
-last_activity_desc: Phase 02 complete, transitioned to Phase 3
+last_activity_desc: Completed Phase 03 Plan 01 signer-gated streamed PUT staging
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 2
-  total_plans: 14
-  completed_plans: 14
+  total_plans: 17
+  completed_plans: 15
 ---
 
 # Project State
@@ -28,17 +28,17 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 3 — Signer-Gated Writable Cache
-Plan: Not started
-Status: Planned
-Last activity: 2026-08-12 — Phase 03 planned in 3 dependency-ordered waves
+Plan: 1 of 3 complete
+Status: In Progress
+Last activity: 2026-08-12 — Completed signer-gated streamed PUT staging
 
-Progress: [██████████] 100%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 14
+- Total plans completed: 15
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -72,6 +72,7 @@ Progress: [██████████] 100%
 | Phase 02 P01 | 6 min | 2 tasks | 7 files |
 | Phase 02 P02 | 12 min | 2 tasks | 7 files |
 | Phase 02 P03 | 12 min | 3 tasks | 12 files |
+| Phase 03 P01 | 28min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -113,6 +114,10 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Treat local Blossom as a source role rather than content authority; local mismatches remain repairable and do not quarantine the origin.
 - [Phase ?]: Open population leases synchronously after remote verification and supervise them through daemon shutdown.
 - [Phase ?]: Reject streamed upload redirects rather than replaying a consumed body.
+- [Phase ?]: Expose only signer status and public-key ownership; cache-event signing remains unavailable until Phase 4.
+- [Phase ?]: Reserve the configured per-body ceiling transactionally before opening a temp file to prevent concurrent aggregate oversubscription.
+- [Phase ?]: Use same-filesystem hard-link creation for no-overwrite immutable promotion followed by transactional route metadata.
+- [Phase ?]: Capture signer ownership, repository health, publication relays, and a current configured/BUD-03 Blossom destination as one PUT readiness fact.
 
 ### Pending Todos
 
@@ -140,6 +145,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T14:07:11.221Z
-Stopped at: Phase 03 planned — ready for 03-01-PLAN.md
+Last session: 2026-08-12T14:37:58.251Z
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None
