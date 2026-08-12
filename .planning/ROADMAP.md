@@ -125,14 +125,14 @@ Plans:
   4. Automated protocol, hostile-input, streaming, relay/Blossom integration, and real-Nix tests demonstrate the v1 safety and interoperability guarantees.
   5. A real `nix` CLI can upload a store object, trigger publication, delete its local copy, and substitute it back from the newly published cache root.
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans executed
 
 Plans:
 
 - [x] 04-01-PLAN.md — Trace one candidate through complete-replica proof, exact signing, configured-relay acknowledgement, and normal admission
 - [x] 04-02-PLAN.md — Add durable repair, refresh, optional local relay cache, and production lifecycle wiring
 - [x] 04-03-PLAN.md — Add typed secret-safe diagnostics and pure process/read/write health
-- [ ] 04-04-PLAN.md — Prove hostile publication behavior and the real Nix upload-to-substitution round trip
+- [x] 04-04-PLAN.md — Prove hostile publication behavior and the real Nix upload-to-substitution round trip
 
 ## Progress
 
@@ -144,4 +144,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Verified Nix Substitution Walking Slice | 11/11 | Complete    | 2026-08-12 |
 | 2. Deterministic Merged Read Cache | 3/3 | Complete    | 2026-08-12 |
 | 3. Signer-Gated Writable Cache | 3/3 | Complete    | 2026-08-12 |
-| 4. Availability-Gated Publication Loop | 3/4 | In Progress|  |
+| 4. Availability-Gated Publication Loop | 4/4 | In Progress|  |

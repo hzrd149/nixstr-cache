@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 10
+open_count: 12
 waived_count: 0
 fixed_count: 0
-total_count: 10
-last_updated: 2026-08-12T15:35:02.273Z
+total_count: 12
+last_updated: 2026-08-12T16:03:51.936Z
 ---
 
 # Broken Windows Ledger
@@ -25,6 +25,8 @@ last_updated: 2026-08-12T15:35:02.273Z
 | 8 | 03 | deviation | src/nix/http_handler.ts |  | Removed stale signer overlay snapshot type import discovered by lint | open |  | 2026-08-12T14:46:13.081Z |  |
 | 9 | 03 | unrun-verify | tests/e2e/nix_substitution_test.ts |  | Full verify stock-Nix E2E hit an unrelated temporary SQLite disk I/O error | open |  | 2026-08-12T15:10:15.531Z |  |
 | 10 | 04 | deviation | src/persistence/write_repository.ts |  | Added repository-level signed-event verification as critical defense in depth | open |  | 2026-08-12T15:35:02.273Z |  |
+| 11 | 04 | deviation | src/nix/http_handler.ts |  | Empty write-ready cache now returns route absence for stock Nix upload probes | open |  | 2026-08-12T16:03:51.827Z |  |
+| 12 | 04 | deviation | src/nostr/selection.ts |  | Long publication expiration timers clamp to the runtime timer ceiling | open |  | 2026-08-12T16:03:51.936Z |  |
 
 ````json
 [
@@ -146,6 +148,30 @@ last_updated: 2026-08-12T15:35:02.273Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T15:35:02.273Z",
+    "resolved_at": null
+  },
+  {
+    "id": 11,
+    "kind": "deviation",
+    "phase": "04",
+    "file": "src/nix/http_handler.ts",
+    "line": null,
+    "description": "Empty write-ready cache now returns route absence for stock Nix upload probes",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T16:03:51.827Z",
+    "resolved_at": null
+  },
+  {
+    "id": 12,
+    "kind": "deviation",
+    "phase": "04",
+    "file": "src/nostr/selection.ts",
+    "line": null,
+    "description": "Long publication expiration timers clamp to the runtime timer ceiling",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T16:03:51.936Z",
     "resolved_at": null
   }
 ]

@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 4
 current_phase_name: Availability-Gated Publication Loop
 status: executing
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-08-12T15:52:41.950Z"
+stopped_at: Completed 04-04-PLAN.md
+last_updated: "2026-08-12T16:03:52.681Z"
 last_activity: 2026-08-12
 last_activity_desc: Completed 04-01 availability-gated publication tracer
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 21
-  completed_plans: 20
+  completed_plans: 21
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 4 — Availability-Gated Publication Loop
-Plan: 3 of 4 complete
+Plan: 4 of 4 complete
 Status: Ready to execute
 Last activity: 2026-08-12 — Completed 04-01 availability-gated publication tracer
 
-Progress: [██████████] 95%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -79,6 +79,7 @@ Progress: [██████████] 95%
 | Phase 04 P01 | 6min | 2 tasks | 6 files |
 | Phase 04 P02 | 9min | 2 tasks | 9 files |
 | Phase 04 P03 | 8min | 2 tasks | 6 files |
+| Phase 04 P04 | 11min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Use repository-driven nearest-due scheduling with stable target-derived retry jitter.
 - [Phase ?]: Health providers receive only synchronous state readers and expose no network, signer, timer, or mutation capability.
 - [Phase ?]: Operational JSON is constructed field-by-field from a closed union; unknown properties and recursive errors are never traversed.
+- [Phase ?]: An empty write-ready cache returns 404 for stock Nix destination probes while read-only empty caches remain unavailable.
+- [Phase ?]: Long publication-expiration timers clamp to the signed 32-bit timer ceiling and recompute on wake.
 
 ### Pending Todos
 
@@ -163,6 +166,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T15:52:41.936Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-08-12T16:03:52.668Z
+Stopped at: Completed 04-04-PLAN.md
 Resume file: None
