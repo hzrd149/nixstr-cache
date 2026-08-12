@@ -29,8 +29,8 @@
 - [x] **READ-02**: Nix client can GET and HEAD `.narinfo` and referenced NAR paths resolved across selected trees in configured priority order.
 - [x] **READ-03**: Each request uses one immutable merged-root snapshot so relay updates cannot change publisher roots midway through resolution.
 - [x] **READ-04**: Daemon preserves every syntactically valid `.narinfo` `Sig` field unchanged, records which signatures verify against key bytes declared in the selected event as publisher-endorsed, and leaves trust selection to the Nix client.
-- [ ] **READ-05**: Daemon unions `Sig` fields from duplicate `.narinfo` records only when all non-signature semantic fields agree.
-- [ ] **READ-06**: Daemon serves the highest-priority record and emits a structured warning when duplicate `.narinfo` records disagree semantically.
+- [x] **READ-05**: Daemon unions `Sig` fields from duplicate `.narinfo` records only when all non-signature semantic fields agree.
+- [x] **READ-06**: Daemon serves the highest-priority record and emits a structured warning when duplicate `.narinfo` records disagree semantically.
 - [x] **READ-07**: A real `nix` CLI can substitute an uncached store path through the daemon and verify the returned metadata and NAR successfully.
 
 ### Signers and Write API
@@ -109,8 +109,8 @@
 | READ-02 | Phase 1 | Gaps Found |
 | READ-03 | Phase 1 | Gaps Found |
 | READ-04 | Phase 1 | Gaps Found |
-| READ-05 | Phase 2 | Pending |
-| READ-06 | Phase 2 | Pending |
+| READ-05 | Phase 2 | Complete |
+| READ-06 | Phase 2 | Complete |
 | READ-07 | Phase 1 | Gaps Found |
 | WRIT-01 | Phase 3 | Pending |
 | WRIT-02 | Phase 3 | Pending |

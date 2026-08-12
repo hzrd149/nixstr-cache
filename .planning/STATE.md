@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 2
 current_phase_name: Deterministic Merged Read Cache
 status: planned
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-08-12T13:46:21.610Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-08-12T13:54:36.030Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 02 planned in 3 dependency waves
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 14
-  completed_plans: 12
+  completed_plans: 13
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 2 — Deterministic Merged Read Cache
-Plan: 1 of 3
+Plan: 2 of 3
 Status: Ready to execute
 Last activity: 2026-08-12 — Phase 02 planned in 3 dependency waves
 
-Progress: [█████████░] 86%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
@@ -69,6 +69,7 @@ Progress: [█████████░] 86%
 | Phase 01 P10 | 8 min | 3 tasks | 5 files |
 | Phase 01 P11 | 3min | 2 tasks | 3 files |
 | Phase 02 P01 | 6 min | 2 tasks | 7 files |
+| Phase 02 P02 | 12 min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Parse writable cache identities into exact kind, lowercase pubkey, and raw identifier fields at startup.
 - [Phase 02]: Keep NIXSTR_PUBLISHER_PUBKEYS as a default-cache compatibility input while NIXSTR_CACHE_IDENTITIES is the explicit ordered mixed-identity priority source. — Preserves Phase 1 deployments without weakening the new deterministic identity contract.
 - [Phase 02]: Schedule only the nearest selected publication expiry and recompute the immutable snapshot when it fires. — Bounds timer work while retaining independent per-layer expiration.
+- [Phase ?]: Compare every supported parsed Narinfo non-Sig field while preserving the winner's original scalar layout.
+- [Phase ?]: Retain immutable NAR winner provenance in a count-and-TTL-bounded normalized route registry.
 
 ### Pending Todos
 
@@ -132,6 +135,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T13:46:21.598Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-08-12T13:54:36.018Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
