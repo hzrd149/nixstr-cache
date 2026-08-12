@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 5
+open_count: 6
 waived_count: 0
 fixed_count: 0
-total_count: 5
-last_updated: 2026-08-12T11:13:30.387Z
+total_count: 6
+last_updated: 2026-08-12T13:46:21.923Z
 ---
 
 # Broken Windows Ledger
@@ -20,6 +20,7 @@ last_updated: 2026-08-12T11:13:30.387Z
 | 3 | 01 | deviation | tests/integration/hostile_blossom_test.ts |  | Literal Deno filter markers added so planned test commands execute intended groups | open |  | 2026-08-12T10:59:20.998Z |  |
 | 4 | 01 | deviation | src/blossom/blob_fetcher.ts |  | Repository verification required lockfile resolution and lint-safe cleanup | open |  | 2026-08-12T10:59:21.138Z |  |
 | 5 | 01 | deviation | tests/e2e/nix_substitution_test.ts |  | Canonical root manifest order corrected during stock Nix E2E | open |  | 2026-08-12T11:13:30.387Z |  |
+| 6 | 02 | deviation | tests/integration/blossom_discovery_test.ts |  | Adapted scalar BUD-03 regression assertions to the merged snapshot API | open |  | 2026-08-12T13:46:21.923Z |  |
 
 ````json
 [
@@ -81,6 +82,18 @@ last_updated: 2026-08-12T11:13:30.387Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T11:13:30.387Z",
+    "resolved_at": null
+  },
+  {
+    "id": 6,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "tests/integration/blossom_discovery_test.ts",
+    "line": null,
+    "description": "Adapted scalar BUD-03 regression assertions to the merged snapshot API",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T13:46:21.923Z",
     "resolved_at": null
   }
 ]

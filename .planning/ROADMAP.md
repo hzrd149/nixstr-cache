@@ -82,11 +82,11 @@ Plans:
   3. When duplicate records disagree, Nix receives the highest-priority record and the operator receives a structured conflict warning identifying the disagreement.
   4. Operator can enable a local Blossom read/write-through cache, and only hash-verified immutable blobs are placed in it or reused from it.
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
 
-- [ ] 02-01-PLAN.md — Establish ordered exact identities and independent immutable reactive selections.
+- [x] 02-01-PLAN.md — Establish ordered exact identities and independent immutable reactive selections.
 - [ ] 02-02-PLAN.md — Merge compatible Narinfo signatures, report conflicts, and pin NARs to winners.
 - [ ] 02-03-PLAN.md — Add verified local Blossom read-through/population and prove the full slice with stock Nix.
 
@@ -129,6 +129,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Verified Nix Substitution Walking Slice | 11/11 | Complete    | 2026-08-12 |
-| 2. Deterministic Merged Read Cache | 0/3 | Planned | - |
+| 2. Deterministic Merged Read Cache | 1/3 | In Progress|  |
 | 3. Signer-Gated Writable Cache | 0/TBD | Not started | - |
 | 4. Availability-Gated Publication Loop | 0/TBD | Not started | - |

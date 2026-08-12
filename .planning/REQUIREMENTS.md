@@ -7,7 +7,7 @@
 
 ### Protocol and Trust
 
-- [ ] **PROT-01**: Operator can configure an ordered whitelist of kind `17091` default-cache and kind `37091` named-cache identities using raw Nostr pubkeys and exact `d` values.
+- [x] **PROT-01**: Operator can configure an ordered whitelist of kind `17091` default-cache and kind `37091` named-cache identities using raw Nostr pubkeys and exact `d` values.
 - [x] **PROT-02**: Daemon accepts only publication events that pass every applicable validation and expiration rule in `NIP.md`, and reports rejected candidates without selecting them.
 - [x] **PROT-03**: Daemon selects the latest valid event per raw cache identity using NIP-01 replaceable/addressable ordering and atomically exposes updated selections through Applesauce reactive casts.
 - [x] **PROT-04**: Daemon persists the greatest accepted timestamp and tie-break state per identity so a restart or stale relay cannot silently roll a cache back.
@@ -93,7 +93,7 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PROT-01 | Phase 2 | Pending |
+| PROT-01 | Phase 2 | Complete |
 | PROT-02 | Phase 1 | Gaps Found |
 | PROT-03 | Phase 1 | Gaps Found |
 | PROT-04 | Phase 1 | Gaps Found |

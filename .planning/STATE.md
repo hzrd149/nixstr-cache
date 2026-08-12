@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 2
 current_phase_name: Deterministic Merged Read Cache
 status: planned
-stopped_at: Phase 02 planned; ready to execute 02-01-PLAN.md
-last_updated: "2026-08-12T13:24:23.118Z"
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-08-12T13:46:21.610Z"
 last_activity: 2026-08-12
-last_activity_desc: Phase 01 complete, transitioned to Phase 2
+last_activity_desc: Phase 02 planned in 3 dependency waves
 progress:
-  total_phases: 1
+  total_phases: 2
   completed_phases: 1
   total_plans: 14
-  completed_plans: 11
+  completed_plans: 12
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 2 — Deterministic Merged Read Cache
-Plan: 0 of 3
+Plan: 1 of 3
 Status: Ready to execute
 Last activity: 2026-08-12 — Phase 02 planned in 3 dependency waves
 
-Progress: [██████████] 100%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
@@ -68,6 +68,7 @@ Progress: [██████████] 100%
 | Phase 01 P07 | 18 min | 3 tasks | 11 files |
 | Phase 01 P10 | 8 min | 3 tasks | 5 files |
 | Phase 01 P11 | 3min | 2 tasks | 3 files |
+| Phase 02 P01 | 6 min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Project authenticated BUD-03 data inside CacheSelectionModel and preserve publisher trust in each request source plan.
 - [Phase ?]: Represent configured write capability as a discriminated writeIntent union; signer ownership and readiness remain Phase 3 responsibilities.
 - [Phase ?]: Parse writable cache identities into exact kind, lowercase pubkey, and raw identifier fields at startup.
+- [Phase 02]: Keep NIXSTR_PUBLISHER_PUBKEYS as a default-cache compatibility input while NIXSTR_CACHE_IDENTITIES is the explicit ordered mixed-identity priority source. — Preserves Phase 1 deployments without weakening the new deterministic identity contract.
+- [Phase 02]: Schedule only the nearest selected publication expiry and recompute the immutable snapshot when it fires. — Bounds timer work while retaining independent per-layer expiration.
 
 ### Pending Todos
 
@@ -129,6 +132,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T13:13:06.423Z
-Stopped at: Completed 01-11-PLAN.md
+Last session: 2026-08-12T13:46:21.598Z
+Stopped at: Completed 02-01-PLAN.md
 Resume file: None
