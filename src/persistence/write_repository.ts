@@ -102,6 +102,8 @@ export class WriteRepository {
   readonly #root: string;
   readonly #limits: WriteLimits;
   #healthy = true;
+  readonly #generationLeases = new Map<number, number>();
+  #admittedGeneration = 0;
 
   constructor(databasePath: string, root: string, limits: WriteLimits) {
     this.#root = root;
@@ -285,6 +287,21 @@ export class WriteRepository {
     return (this.#db.prepare(
       "SELECT current_generation generation FROM overlay_state WHERE singleton=1",
     ).get() as unknown as { generation: number }).generation;
+  }
+  acquireGeneration(generation = this.currentGeneration()): () => void {
+    this.#generationLeases.set(
+      generation,
+      (this.#generationLeases.get(generation) ?? 0) + 1,
+    );
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const next = (this.#generationLeases.get(generation) ?? 1) - 1;
+      if (next > 0) this.#generationLeases.set(generation, next);
+      else this.#generationLeases.delete(generation);
+      this.#pruneAdmitted();
+    };
   }
   commitOverlay(storePathHashes: readonly string[]): number {
     if (!storePathHashes.length) return this.currentGeneration();
@@ -976,6 +993,36 @@ export class WriteRepository {
     }
     this.#db.prepare("UPDATE publication_sagas SET admitted=1 WHERE batch_id=?")
       .run(batchId);
+    this.#admittedGeneration = Math.max(
+      this.#admittedGeneration,
+      saga.candidate.generation,
+    );
+    this.#pruneAdmitted();
+  }
+  #pruneAdmitted(): void {
+    if (!this.#admittedGeneration) return;
+    const retained = new Set([
+      this.currentGeneration(),
+      ...this.#generationLeases.keys(),
+    ]);
+    const generations = this.#db.prepare(
+      "SELECT DISTINCT generation FROM overlay_entries WHERE generation<?",
+    ).all(this.#admittedGeneration) as unknown as { generation: number }[];
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const { generation } of generations) {
+        if (retained.has(generation)) continue;
+        this.#db.prepare("DELETE FROM overlay_entries WHERE generation=?").run(
+          generation,
+        );
+        this.#db.prepare("DELETE FROM overlay_store_paths WHERE generation=?")
+          .run(generation);
+      }
+      this.#db.exec("COMMIT");
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
   }
   batches(): readonly {
     id: number;
