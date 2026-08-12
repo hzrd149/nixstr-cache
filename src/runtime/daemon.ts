@@ -34,7 +34,7 @@ export function createPublicationEventStream(
   const pool = new RelayPool();
   const events = pool.subscription(
     config.relayUrls.map(String),
-    [{ kinds: [17091], authors: [...config.publisherPubkeys] }],
+    [{ kinds: [17091, 10063], authors: [...config.publisherPubkeys] }],
   ) as Observable<RawPublication>;
   let disposed = false;
   return {
@@ -82,10 +82,13 @@ export function createProductionDependencies(
           console.error(`publication rejected: ${reason}`),
         onError: (error) => console.error("publication selection error", error),
       });
+      let disposed = false;
       return {
         current: () => selector.current(),
         repository,
         dispose() {
+          if (disposed) return;
+          disposed = true;
           try {
             selector.dispose();
           } finally {
@@ -128,6 +131,7 @@ export function createProductionDependencies(
           const sources = buildSourcePlan({
             configured: config.preferredBlossomUrl,
             event: snapshot.blossomServers,
+            bud03: snapshot.bud03Servers,
             isQuarantined: (origin) => repository.isQuarantined(origin),
           });
           return new PathResolver(blobs, sources, {
