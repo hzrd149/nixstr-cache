@@ -1,4 +1,4 @@
-import { assertEquals, assertGreater } from "@std/assert";
+import { assertEquals, assertGreater, assertRejects } from "@std/assert";
 import { FILE_CHUNK_BYTES, HashtreeWriter } from "../../src/hashtree/writer.ts";
 import { decodeManifest } from "../../src/protocol/hashtree.ts";
 
@@ -61,6 +61,43 @@ Deno.test("canonical writer is deterministic, reader-compatible, and reuses blob
       artifacts.some((name) => name.startsWith("inventory-")),
       false,
     );
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("close build race drains active operation and rejects after closing", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const source = `${root}/source`;
+    await Deno.writeTextFile(source, "x");
+    const writer = new HashtreeWriter(`${root}/trees`, {
+      maxLinks: 2,
+      maxInventoryBlobs: 32,
+      maxInventoryBytes: 4096,
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => release = resolve);
+    const active = writer.build({
+      async *[Symbol.asyncIterator]() {
+        await gate;
+        yield { route: "a", path: source, size: 1 };
+      },
+    });
+    let closed = false;
+    const closing = writer.close().then(() => closed = true);
+    await Promise.resolve();
+    assertEquals(closed, false);
+    await assertRejects(
+      () => writer.build([]),
+      Error,
+      "hashtree writer is closed",
+    );
+    release();
+    await active;
+    await closing;
+    assertEquals(closed, true);
+    await writer.close();
   } finally {
     await Deno.remove(root, { recursive: true });
   }

@@ -92,8 +92,10 @@ const hexBytes = (hex: string) => Uint8Array.fromHex(hex);
 
 export class HashtreeWriter {
   #owners?: DatabaseSync;
-  #closing = false;
-  #active = new Set<Promise<void>>();
+  #state: "open" | "closing" | "closed" = "open";
+  #active = new Set<Promise<unknown>>();
+  #handles = new Set<HashtreeBuild>();
+  #closePromise?: Promise<void>;
   constructor(
     readonly root: string,
     readonly limits: WriterLimits,
@@ -133,12 +135,28 @@ export class HashtreeWriter {
     }
     return owners;
   }
-  async build(
+  build(
     files: LogicalFileSource,
     _base?: HashtreeBuild,
     signal?: AbortSignal,
   ): Promise<HashtreeBuild> {
-    if (this.#closing) throw new Error("hashtree writer is closed");
+    if (this.#state !== "open") {
+      return Promise.reject(new Error("hashtree writer is closed"));
+    }
+    const operation = this.#build(files, _base, signal);
+    this.#active.add(operation);
+    operation.then(
+      () => this.#active.delete(operation),
+      () => this.#active.delete(operation),
+    );
+    return operation;
+  }
+
+  async #build(
+    files: LogicalFileSource,
+    _base?: HashtreeBuild,
+    signal?: AbortSignal,
+  ): Promise<HashtreeBuild> {
     const ownershipRepository = this.ownershipRepository;
     const owners = ownershipRepository ? undefined : this.#ownership();
     const sweepUnowned = () => this.#sweepUnowned();
@@ -503,7 +521,9 @@ export class HashtreeWriter {
       });
       let disposed = false;
       let durableOwner: string | undefined;
-      return Object.freeze({
+      const writer = this;
+      let result!: HashtreeBuild;
+      result = Object.freeze({
         runId: runOwner,
         rootHex: root.hash,
         rootNhash: encodePlaintextNhash(hexBytes(root.hash)),
@@ -515,6 +535,7 @@ export class HashtreeWriter {
         async dispose() {
           if (disposed) return;
           disposed = true;
+          writer.#handles.delete(result);
           if (ownershipRepository) {
             await ownershipRepository.releaseWriterRun(runOwner);
           } else {
@@ -535,6 +556,8 @@ export class HashtreeWriter {
           }
         },
       });
+      this.#handles.add(result);
+      return result;
     } catch (error) {
       index.close();
       if (ownershipRepository) {
@@ -558,15 +581,21 @@ export class HashtreeWriter {
   }
 
   async close(): Promise<void> {
-    if (this.#closing) return;
-    this.#closing = true;
-    await Promise.allSettled([...this.#active]);
-    if (this.#owners) {
-      await this.#sweepUnowned();
-      this.#owners.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-      this.#owners.close();
-      this.#owners = undefined;
-    }
+    if (this.#closePromise) return this.#closePromise;
+    this.#state = "closing";
+    return this.#closePromise = (async () => {
+      await Promise.allSettled([...this.#active]);
+      await Promise.allSettled(
+        [...this.#handles].map((handle) => handle.dispose()),
+      );
+      if (this.#owners) {
+        await this.#sweepUnowned();
+        this.#owners.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+        this.#owners.close();
+        this.#owners = undefined;
+      }
+      this.#state = "closed";
+    })();
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
