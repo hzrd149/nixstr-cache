@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 2
 current_phase_name: Deterministic Merged Read Cache
 status: planned
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-08-12T13:54:36.030Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-08-12T14:07:11.235Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 02 planned in 3 dependency waves
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 14
-  completed_plans: 13
+  completed_plans: 14
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 2 — Deterministic Merged Read Cache
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-08-12 — Phase 02 planned in 3 dependency waves
 
-Progress: [█████████░] 93%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -70,6 +70,7 @@ Progress: [█████████░] 93%
 | Phase 01 P11 | 3min | 2 tasks | 3 files |
 | Phase 02 P01 | 6 min | 2 tasks | 7 files |
 | Phase 02 P02 | 12 min | 2 tasks | 7 files |
+| Phase 02 P03 | 12 min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 02]: Schedule only the nearest selected publication expiry and recompute the immutable snapshot when it fires. — Bounds timer work while retaining independent per-layer expiration.
 - [Phase ?]: Compare every supported parsed Narinfo non-Sig field while preserving the winner's original scalar layout.
 - [Phase ?]: Retain immutable NAR winner provenance in a count-and-TTL-bounded normalized route registry.
+- [Phase ?]: Treat local Blossom as a source role rather than content authority; local mismatches remain repairable and do not quarantine the origin.
+- [Phase ?]: Open population leases synchronously after remote verification and supervise them through daemon shutdown.
+- [Phase ?]: Reject streamed upload redirects rather than replaying a consumed body.
 
 ### Pending Todos
 
@@ -135,6 +139,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T13:54:36.018Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-08-12T14:07:11.221Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None

@@ -21,7 +21,7 @@
 - [x] **TREE-03**: Daemon applies HTTP(S)-only URL policy, private-network restrictions, DNS/address checks, redirect revalidation, redirect limits, and source-attempt limits to publisher-controlled requests.
 - [x] **TREE-04**: Daemon resolves BUD-16/17/18 Hashtree paths lazily with visited-hash deduplication and configurable bounds on manifests, depth, links, nodes, declared sizes, and total decoded bytes.
 - [x] **TREE-05**: Daemon streams manifests, chunks, NARs, hashing, temporary storage, and responses with backpressure and without whole-file or whole-tree memory buffering.
-- [ ] **TREE-06**: Operator can configure a local Blossom URL as a read/write-through cache that receives only verified immutable blobs.
+- [x] **TREE-06**: Operator can configure a local Blossom URL as a read/write-through cache that receives only verified immutable blobs.
 
 ### Merged Nix Read API
 
@@ -104,7 +104,7 @@
 | TREE-03 | Phase 1 | Gaps Found |
 | TREE-04 | Phase 1 | Gaps Found |
 | TREE-05 | Phase 1 | Gaps Found |
-| TREE-06 | Phase 2 | Pending |
+| TREE-06 | Phase 2 | Complete |
 | READ-01 | Phase 1 | Gaps Found |
 | READ-02 | Phase 1 | Gaps Found |
 | READ-03 | Phase 1 | Gaps Found |
