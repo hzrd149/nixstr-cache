@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 04
-status: completed
+status: Awaiting next milestone
 stopped_at: Completed quick task 260812-osc
-last_updated: "2026-08-12T17:57:55.727Z"
+last_updated: "2026-08-12T18:03:31.697Z"
 last_activity: 2026-08-12
-last_activity_desc: Phase 04 complete
+last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 4
   completed_phases: 4
   total_plans: 21
   completed_plans: 21
+current_phase: 04
 current_phase_name: Availability-Gated Publication Loop
 ---
 
@@ -23,16 +23,14 @@ current_phase_name: Availability-Gated Publication Loop
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** An unmodified Nix client can reliably read and publish a decentralized binary cache while preserving NIP.md trust, integrity, freshness, and bounded-resource guarantees.
-**Current focus:** Phase 04 — availability-gated publication loop
+**Current focus:** v1.0 MVP shipped; awaiting the next milestone. Human-readable console logging remains in the backlog.
 
 ## Current Position
 
-Phase: 04
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-08-12 — Phase 04 complete
-
-Progress: [██████████] 100%
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-08-12 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
@@ -154,10 +152,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 1]: Pin current BUD-16/17/18 revisions and supported Nix version during planning; proposal and CLI details may have changed.
-- [Phase 1]: Confirm an address-bound outbound transport strategy that closes DNS rebinding gaps while preserving HTTP Host and TLS SNI.
-- [Phase 3]: Confirm daemon-safe NIP-46 authorization and protected local-key lifecycle before enabling PUT.
-- [Phase 4]: Planning resolved concrete same-server Blossom proof, exact configured-relay OK acknowledgement, durable repair, and refresh policies; implementation remains pending.
+None for the shipped v1.0 milestone.
 
 ### Quick Tasks Completed
 
@@ -181,3 +176,7 @@ None yet.
 Last session: 2026-08-12T17:57:55.713Z
 Stopped at: Completed quick task 260812-osc
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

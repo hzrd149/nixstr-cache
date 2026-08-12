@@ -1,0 +1,1 @@
+{"content":"Official NIP-01 requires OK for EVENT and ok=true means accepted, including duplicate acceptance; NIP-40 expiration is advisory deletion but clients ignore expired events, and this project validates expiration.","source":"web","provider":"websearch","confidence":"MEDIUM","fetched_at":"2026-08-12T15:16:56.299Z","ttl":86400000,"kind":"web"}

@@ -14,30 +14,30 @@ An unmodified Nix client can reliably read and publish a decentralized binary ca
 
 ### Validated
 
-(None yet — the repository currently contains a protocol draft and a Deno HTTP stub, not a working cache daemon.)
+- ✓ Reactive validated kind `17091`/`37091` selection for an ordered identity whitelist — v1.0.
+- ✓ Normative `NIP.md` validation, freshness, rollback, downgrade, discovery, and signature behavior — v1.0.
+- ✓ Applesauce EventStore, custom model, relay, and signer composition — v1.0.
+- ✓ Stock-Nix GET/HEAD cache metadata, Narinfo, and NAR interface — v1.0.
+- ✓ Deterministic merged publisher priority with signer-first writable overlay — v1.0.
+- ✓ Full-semantic Narinfo agreement, signature occurrence union, and typed conflict reporting — v1.0.
+- ✓ Backpressured bounded streaming across Hashtrees, NARs, HTTP, hashing, staging, and Blossom — v1.0.
+- ✓ Cryptographic Nostr-event and content-addressed Blossom verification before use — v1.0.
+- ✓ Bounded traversal, pinned-address SSRF controls, manual redirect validation, and deadlines — v1.0.
+- ✓ Optional verified local relay and Blossom read/write-through caches — v1.0.
+- ✓ Exact signer-owned write gate with read-only failure behavior — v1.0.
+- ✓ NIP-46 and protected local-key signers behind one capability — v1.0.
+- ✓ Durable bounded standard binary-cache PUT staging — v1.0.
+- ✓ Dependency-closed immutable overlay and pending Hashtree construction — v1.0.
+- ✓ Durable five-second quiet / sixty-second maximum batching — v1.0.
+- ✓ Complete same-server Blossom availability proof before signing — v1.0.
+- ✓ Durable asynchronous replica and relay repair after promotion — v1.0.
+- ✓ Exact event signing, configured-relay acknowledgement, and normal reactive admission — v1.0.
+- ✓ Validated configuration, secret-safe typed diagnostics, and independent health axes — v1.0.
+- ✓ Protocol, hostile-input, restart, lifecycle, NIP-46, and two-generation stock-Nix E2E coverage — v1.0.
 
 ### Active
 
-- [ ] Subscribe to and reactively maintain the latest valid kind `17091` and `37091` cache events for a configured, ordered whitelist of Nostr publishers.
-- [ ] Treat `NIP.md` as the normative application protocol specification, including event validation, replaceable/addressable identity, expiration, freshness and rollback behavior, downgrade handling, Blossom discovery, and Nix-signature rules.
-- [ ] Use Applesauce packages and their reactive/casting patterns for Nostr relay connections, event stores, queries, signer integration, and derived application state.
-- [ ] Expose a single standard Nix HTTP binary-cache endpoint supporting GET and HEAD for `nix-cache-info`, `.narinfo`, and referenced NAR paths.
-- [ ] Merge whitelisted caches in configured priority order, with the connected signer's writable cache first.
-- [ ] For duplicate `.narinfo` paths, merge compatible signature fields; when non-signature fields conflict, serve the highest-priority record and emit a structured warning and metric.
-- [ ] Stream Hashtree manifests, chunks, NARs, HTTP request bodies, HTTP responses, hashing, verification, and Blossom transfers with bounded memory use.
-- [ ] Verify every Nostr signature and every fetched Blossom blob against its expected hash before decoding, caching, or serving it.
-- [ ] Enforce the validation, traversal limits, redirect checks, outbound-network restrictions, signature filtering, and decompression bounds specified by `NIP.md`.
-- [ ] Optionally use an operator-configured local Nostr relay and local Blossom server as read/write-through caches for events and verified immutable blobs.
-- [ ] Keep write access disabled unless a supported signer is connected and the writable kind/cache identity is explicitly configured.
-- [ ] Support both a NIP-46 remote signer and a protected local secret-key signer behind one signer abstraction.
-- [ ] Accept streamed HTTP PUT uploads for the configured writable Nix cache and preserve the standard binary-cache path layout.
-- [ ] Build immutable Hashtree updates without making incomplete store objects visible; referenced NAR data must be available before its `.narinfo` entry enters a published root.
-- [ ] Debounce publication until five seconds of write inactivity, with a maximum delay of sixty seconds during sustained writes.
-- [ ] Resolve the signer's BUD-03 server list, upload all newly referenced blobs, and publish only after at least one advertised server holds a complete reachable tree.
-- [ ] Retry incomplete replication to the remaining BUD-03 Blossom servers asynchronously after publication.
-- [ ] Publish the updated kind `17091` or `37091` event through the configured Nostr relays only after its referenced tree is retrievable, then update the merged read view reactively.
-- [ ] Provide validated daemon configuration, structured logs, and a basic health endpoint sufficient to diagnose core relay, Blossom, validation, conflict, replication, and publication failures.
-- [ ] Provide automated protocol, streaming, integration, and end-to-end tests against local Nostr relay and Blossom test services.
+- Human-readable console rendering for MVP debugging is captured as backlog Phase 999.1; internal diagnostics remain typed and secret-safe.
 
 ### Out of Scope
 
@@ -54,7 +54,7 @@ An unmodified Nix client can reliably read and publish a decentralized binary ca
 
 ## Context
 
-The repository is effectively greenfield. `main.ts` is a minimal Deno `Deno.serve` hello-world handler, `deno.json` contains only a development task and standard assertion import, and no application architecture has been established. `NIP.md` is a detailed draft specification for publishing Nix cache Hashtree roots with kind `17091` replaceable events and kind `37091` addressable events.
+v1.0 is a working Deno/TypeScript daemon with roughly 15,000 lines across production code, fixtures, and tests. `main.ts` validates configuration before side effects and composes reactive Nostr selection, bounded verified Blossom/Hashtree reads, the stock-Nix HTTP API, signer-gated durable writes, and an availability-gated publication saga. `NIP.md` remains the normative specification for kind `17091` replaceable and kind `37091` addressable cache roots.
 
 The daemon bridges three ecosystems:
 
@@ -87,20 +87,20 @@ Local cache URLs are optional infrastructure rather than an embedded database re
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Treat the codebase as greenfield while retaining `NIP.md` as normative | Existing executable code is only a hello-world stub, while the protocol document contains the real domain design | — Pending |
-| Present one merged HTTP binary cache | Gives stock Nix one substituter URL while allowing multiple decentralized publishers | — Pending |
-| Resolve overlaps by configured whitelist order | Trust priority is an operator decision and is deterministic across requests | — Pending |
-| Overlay the connected signer's cache at highest priority | Newly uploaded objects should be immediately available through the same substituter | — Pending |
-| Merge only compatible `.narinfo` signatures | Repeatable signatures can be combined without inventing metadata; substantive conflicts cannot | — Pending |
-| Serve priority winner and warn on incompatible `.narinfo` records | Keeps the cache available while making unexpected nondeterminism or publisher faults observable | — Pending |
-| Write to one configured kind `17091` or `37091` identity | Keeps PUT authorization and publication behavior unambiguous in the single-user v1 | — Pending |
-| Support NIP-46 and protected local-key signers | Covers key-isolated operation and simple local deployments through one interface | — Pending |
-| Publish after 5 seconds quiet, no later than 60 seconds | Batches common Nix upload bursts without leaving sustained uploads unpublished indefinitely | — Pending |
-| Require one complete advertised Blossom replica before publishing | Prevents announcing an unavailable root while tolerating partial server outages | — Pending |
-| Use optional local relay and Blossom services as read/write-through caches | Reuses protocol-native services and avoids building a separate large-object cache into the daemon | — Pending |
-| Build around Applesauce reactive casting | Aligns Nostr ingestion, derived cache selection, signer state, and publication updates with the required reactive architecture | — Pending |
-| Defer BUD-15 self-encrypted Hashtrees | Ship the plaintext interoperability path first while BUD-15 remains a moving proposal with unresolved bounded-streaming details | — Pending |
-| Keep v1 operations minimal | Prioritize functional Nix/Nostr/Blossom read/write behavior; retain logs and health while deferring production hardening | — Pending |
+| Treat the codebase as greenfield while retaining `NIP.md` as normative | Existing executable code was only a hello-world stub, while the protocol document contained the domain design | ✓ Good — v1.0 shipped against the normative protocol |
+| Present one merged HTTP binary cache | Gives stock Nix one substituter URL while allowing multiple decentralized publishers | ✓ Good — stock-Nix E2E verified |
+| Resolve overlaps by configured whitelist order | Trust priority is an operator decision and is deterministic across requests | ✓ Good — provenance remains snapshot-pinned |
+| Overlay the connected signer's cache at highest priority | Newly uploaded objects should be immediately available through the same substituter | ✓ Good — generation leases protect concurrent reads |
+| Merge only compatible `.narinfo` signatures | Repeatable signatures can be combined without inventing metadata; substantive conflicts cannot | ✓ Good — full semantic matrix tested |
+| Serve priority winner and warn on incompatible `.narinfo` records | Keeps the cache available while making unexpected nondeterminism or publisher faults observable | ✓ Good — typed redacted conflicts tested |
+| Write to one configured kind `17091` or `37091` identity | Keeps PUT authorization and publication behavior unambiguous in the single-user v1 | ✓ Good — exact ownership enforced |
+| Support NIP-46 and protected local-key signers | Covers key-isolated operation and simple local deployments through one interface | ✓ Good — both signer paths tested |
+| Publish after 5 seconds quiet, no later than 60 seconds | Batches common Nix upload bursts without leaving sustained uploads unpublished indefinitely | ✓ Good — deadlines survive restart |
+| Require one complete advertised Blossom replica before publishing | Prevents announcing an unavailable root while tolerating partial server outages | ✓ Good — hostile split-replica tests pass |
+| Use optional local relay and Blossom services as read/write-through caches | Reuses protocol-native services and avoids building a separate large-object cache into the daemon | ✓ Good — auxiliary forwarding is outside the promotion barrier |
+| Build around Applesauce reactive casting | Aligns Nostr ingestion, derived cache selection, signer state, and publication updates with the required reactive architecture | ✓ Good — durable admission precedes EventStore visibility |
+| Defer BUD-15 self-encrypted Hashtrees | Ship the plaintext interoperability path first while BUD-15 remains a moving proposal with unresolved bounded-streaming details | ✓ Good — v1 rejects encrypted roots explicitly |
+| Keep v1 operations minimal | Prioritize functional read/write behavior; retain typed logs and health while deferring advanced operations | ✓ Good — MVP diagnostics and health shipped |
 
 ## Evolution
 
@@ -120,4 +120,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-12 after initialization*
+*Last updated: 2026-08-12 after v1.0 milestone*

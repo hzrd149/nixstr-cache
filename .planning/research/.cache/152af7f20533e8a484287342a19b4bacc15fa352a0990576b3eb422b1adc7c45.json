@@ -1,0 +1,1 @@
+{"content":"Official Nix docs confirm HTTP binary caches are writable through nix copy and use nix-cache-info, narinfo, and NAR paths. The local environment has Nix 2.35.1 and the existing E2E already proves isolated local stores and substitution.","source":"web","provider":"websearch","confidence":"MEDIUM","fetched_at":"2026-08-12T15:16:56.416Z","ttl":86400000,"kind":"web"}
