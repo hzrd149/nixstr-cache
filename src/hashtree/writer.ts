@@ -60,7 +60,10 @@ export function releaseContentOwner(owner: string, samplePath: string): void {
     }
     db.close();
   } catch (error) {
-    if (!(error instanceof Deno.errors.NotFound)) throw error;
+    if (
+      !(error instanceof Deno.errors.NotFound) &&
+      !(error instanceof Error && error.message.includes("no such table"))
+    ) throw error;
   }
 }
 type Built = CandidateBlob & {

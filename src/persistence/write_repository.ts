@@ -206,7 +206,9 @@ export class WriteRepository {
       this.#db.exec("COMMIT");
       this.changes$.next(storePathHash);
     } catch (error) {
-      this.#db.exec("ROLLBACK");
+      try {
+        this.#db.exec("ROLLBACK");
+      } catch { /* transaction already completed */ }
       throw error;
     }
   }
@@ -1018,6 +1020,11 @@ export class WriteRepository {
     const generations = this.#db.prepare(
       "SELECT DISTINCT generation FROM overlay_entries WHERE generation<?",
     ).all(this.#admittedGeneration) as unknown as { generation: number }[];
+    const releasable = this.#db.prepare(
+      `SELECT h.batch_id batchId,(SELECT path FROM publication_saga_blobs b WHERE b.batch_id=h.batch_id LIMIT 1) path
+       FROM publication_saga_history h
+       WHERE NOT EXISTS(SELECT 1 FROM publication_endpoint_work w WHERE w.batch_id=h.batch_id AND w.status NOT IN ('complete','exhausted'))`,
+    ).all() as unknown as { batchId: number; path: string | null }[];
     this.#db.exec("BEGIN IMMEDIATE");
     try {
       for (const { generation } of generations) {
@@ -1028,9 +1035,29 @@ export class WriteRepository {
         this.#db.prepare("DELETE FROM overlay_store_paths WHERE generation=?")
           .run(generation);
       }
+      for (const { batchId } of releasable) {
+        this.#db.prepare("DELETE FROM publication_blob_proofs WHERE batch_id=?")
+          .run(batchId);
+        this.#db.prepare(
+          "DELETE FROM publication_endpoint_work WHERE batch_id=?",
+        ).run(batchId);
+        this.#db.prepare("DELETE FROM publication_saga_blobs WHERE batch_id=?")
+          .run(batchId);
+        this.#db.prepare(
+          "DELETE FROM publication_batch_entries WHERE batch_id=?",
+        ).run(batchId);
+        this.#db.prepare("DELETE FROM publication_batches WHERE id=?").run(
+          batchId,
+        );
+      }
       this.#db.exec("COMMIT");
+      for (const item of releasable) {
+        if (item.path) releaseContentOwner(`batch:${item.batchId}`, item.path);
+      }
     } catch (error) {
-      this.#db.exec("ROLLBACK");
+      try {
+        this.#db.exec("ROLLBACK");
+      } catch { /* transaction already completed */ }
       throw error;
     }
   }
@@ -1114,7 +1141,10 @@ export class WriteRepository {
       this.#db.exec("BEGIN IMMEDIATE");
       try {
         const used = (this.#db.prepare(
-          "SELECT COALESCE(SUM(size),0) used FROM staged_blobs",
+          `SELECT COALESCE(SUM(s.size),0) used FROM staged_blobs s
+           WHERE NOT EXISTS(SELECT 1 FROM overlay_entries o
+             WHERE o.generation=(SELECT current_generation FROM overlay_state WHERE singleton=1)
+             AND o.route=s.route)`,
         ).get() as unknown as { used: number }).used;
         if (used + size > this.#limits.aggregateBytes) {
           throw new RangeError("aggregate staging ceiling exceeded");
@@ -1183,7 +1213,10 @@ export class WriteRepository {
     this.#db.exec("BEGIN IMMEDIATE");
     try {
       const row = this.#db.prepare(
-        "SELECT (SELECT COALESCE(SUM(size),0) FROM staged_blobs)+(SELECT COALESCE(SUM(bytes),0) FROM write_reservations) used",
+        `SELECT (SELECT COALESCE(SUM(s.size),0) FROM staged_blobs s
+          WHERE NOT EXISTS(SELECT 1 FROM overlay_entries o
+            WHERE o.generation=(SELECT current_generation FROM overlay_state WHERE singleton=1)
+            AND o.route=s.route))+(SELECT COALESCE(SUM(bytes),0) FROM write_reservations) used`,
       ).get() as unknown as { used: number };
       if (row.used + this.#limits.perBodyBytes > this.#limits.aggregateBytes) {
         throw new RangeError("aggregate staging reservation unavailable");
