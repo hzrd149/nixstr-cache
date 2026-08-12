@@ -115,3 +115,40 @@ Deno.test("signature append preserves winner layout and duplicate occurrences", 
     ),
   );
 });
+
+Deno.test("every supported non-signature field participates in agreement", () => {
+  const complete = [
+    ...base,
+    "Deriver: unknown",
+    "System: x86_64-linux",
+    "CA: fixed:r:sha256:abc",
+  ];
+  const alternatives: Readonly<Record<string, string>> = {
+    StorePath: "StorePath: /nix/store/1123456789abcdfghijklmnpqrsvwxyz-demo",
+    URL: "URL: nar/other.nar",
+    Compression: "Compression: xz",
+    FileHash:
+      "FileHash: sha256:1123456789abcdfghijklmnpqrsvwxyz0123456789abcdfghijk",
+    FileSize: "FileSize: 4",
+    NarHash:
+      "NarHash: sha256:1123456789abcdfghijklmnpqrsvwxyz0123456789abcdfghijk",
+    NarSize: "NarSize: 4",
+    References: "References: 1123456789abcdfghijklmnpqrsvwxyz-other",
+    Deriver: "Deriver: another",
+    System: "System: aarch64-linux",
+    CA: "CA: fixed:r:sha256:def",
+  };
+  const baseline = parseNarInfo([...complete, ""].join("\n"));
+  for (const [field, replacement] of Object.entries(alternatives)) {
+    const changed = complete.map((line) =>
+      line.startsWith(`${field}: `) ? replacement : line
+    );
+    assertEquals(
+      differingNarInfoFields(
+        baseline,
+        parseNarInfo([...changed, ""].join("\n")),
+      ),
+      [field],
+    );
+  }
+});
