@@ -8,11 +8,11 @@
 ### Protocol and Trust
 
 - [ ] **PROT-01**: Operator can configure an ordered whitelist of kind `17091` default-cache and kind `37091` named-cache identities using raw Nostr pubkeys and exact `d` values.
-- [ ] **PROT-02**: Daemon accepts only publication events that pass every applicable validation and expiration rule in `NIP.md`, and reports rejected candidates without selecting them.
-- [ ] **PROT-03**: Daemon selects the latest valid event per raw cache identity using NIP-01 replaceable/addressable ordering and atomically exposes updated selections through Applesauce reactive casts.
-- [ ] **PROT-04**: Daemon persists the greatest accepted timestamp and tie-break state per identity so a restart or stale relay cannot silently roll a cache back.
-- [ ] **PROT-05**: Daemon refuses a signed-to-unsigned cache downgrade unless the operator has recorded explicit consent for that identity.
-- [ ] **PROT-06**: Daemon rejects BUD-15 self-encrypted `nhash` roots as unsupported in v1 while accepting valid plaintext BUD-18 roots.
+- [x] **PROT-02**: Daemon accepts only publication events that pass every applicable validation and expiration rule in `NIP.md`, and reports rejected candidates without selecting them.
+- [x] **PROT-03**: Daemon selects the latest valid event per raw cache identity using NIP-01 replaceable/addressable ordering and atomically exposes updated selections through Applesauce reactive casts.
+- [x] **PROT-04**: Daemon persists the greatest accepted timestamp and tie-break state per identity so a restart or stale relay cannot silently roll a cache back.
+- [x] **PROT-05**: Daemon refuses a signed-to-unsigned cache downgrade unless the operator has recorded explicit consent for that identity.
+- [x] **PROT-06**: Daemon rejects BUD-15 self-encrypted `nhash` roots as unsupported in v1 while accepting valid plaintext BUD-18 roots.
 
 ### Blob and Hashtree Reads
 
@@ -94,11 +94,11 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | PROT-01 | Phase 2 | Pending |
-| PROT-02 | Phase 1 | Pending |
-| PROT-03 | Phase 1 | Pending |
-| PROT-04 | Phase 1 | Pending |
-| PROT-05 | Phase 1 | Pending |
-| PROT-06 | Phase 1 | Pending |
+| PROT-02 | Phase 1 | Complete |
+| PROT-03 | Phase 1 | Complete |
+| PROT-04 | Phase 1 | Complete |
+| PROT-05 | Phase 1 | Complete |
+| PROT-06 | Phase 1 | Complete |
 | TREE-01 | Phase 1 | Pending |
 | TREE-02 | Phase 1 | Pending |
 | TREE-03 | Phase 1 | Pending |
@@ -131,6 +131,7 @@
 | OPER-04 | Phase 4 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 36 total
 - Mapped to phases: 36
 - Unmapped: 0
