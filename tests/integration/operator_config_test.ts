@@ -1,5 +1,9 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertThrows } from "@std/assert";
 import { parseConfig, type RawConfig } from "../../src/config/config.ts";
+import { rawConfigFromEnvironment } from "../../main.ts";
+import { launchDaemon } from "../../src/runtime/daemon.ts";
+import { Subject } from "rxjs";
+import type { RawPublication } from "../../src/protocol/publication.ts";
 
 const PUBKEY = "a".repeat(64);
 
@@ -85,4 +89,79 @@ Deno.test("write-intent diagnostics aggregate without side effects", () => {
       diagnostic.field === "writableIdentity"
     ),
   );
+});
+
+Deno.test("environment mapper preserves signer write-intent fields", () => {
+  assertEquals(rawConfigFromEnvironment({}).signerMode, undefined);
+  assertEquals(rawConfigFromEnvironment({}).writableIdentity, undefined);
+  const mapped = rawConfigFromEnvironment({
+    NIXSTR_SIGNER_MODE: "nip46",
+    NIXSTR_WRITABLE_IDENTITY: `37091:${PUBKEY}:named`,
+  });
+  assertEquals(mapped.signerMode, "nip46");
+  assertEquals(mapped.writableIdentity, `37091:${PUBKEY}:named`);
+});
+
+Deno.test("partial environment write intent stops before startup side effects", () => {
+  const root = `/tmp/nixstr-partial-${crypto.randomUUID()}`;
+  const calls: string[] = [];
+  const result = launchDaemon({
+    ...validRaw({
+      databasePath: `${root}/state.sqlite`,
+      spoolDirectory: `${root}/spool`,
+    }),
+    ...rawConfigFromEnvironment({ NIXSTR_SIGNER_MODE: "local" }),
+  }, {
+    createEventStream: () => {
+      calls.push("relay");
+      return { events: new Subject<RawPublication>(), dispose() {} };
+    },
+    bind: () => {
+      calls.push("listener");
+      return { shutdown: () => Promise.resolve() };
+    },
+    signals: [],
+  });
+  assert(!result.ok);
+  assertEquals(calls, []);
+  assertThrows(() => Deno.statSync(root), Deno.errors.NotFound);
+});
+
+Deno.test("complete write intent does not enable Phase 1 PUT", async () => {
+  const root = await Deno.makeTempDir({ prefix: "nixstr-write-intent-" });
+  let handler: ((request: Request) => Response | Promise<Response>) | undefined;
+  try {
+    const result = launchDaemon(
+      validRaw({
+        databasePath: `${root}/state.sqlite`,
+        spoolDirectory: `${root}/spool`,
+        signerMode: "local",
+        writableIdentity: `17091:${PUBKEY}:`,
+      }),
+      {
+        createEventStream: () => ({
+          events: new Subject<RawPublication>(),
+          dispose() {},
+        }),
+        bind: (createdHandler) => {
+          handler = createdHandler;
+          return { shutdown: () => Promise.resolve() };
+        },
+        signals: [],
+      },
+    );
+    assert(result.ok);
+    assert(handler);
+    const response = await handler(
+      new Request("http://cache/nix-cache-info", {
+        method: "PUT",
+        body: "payload",
+      }),
+    );
+    assertEquals(response.status, 405);
+    assertEquals(response.headers.get("allow"), "GET, HEAD");
+    await result.shutdown();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
 });
