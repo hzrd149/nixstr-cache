@@ -117,7 +117,13 @@ Deno.test("operator config parses complete supported write intents", () => {
   ] as const;
   for (const [mode, writableIdentity, kind, identifier] of cases) {
     const parsed = parseConfig(
-      validRaw({ signerMode: mode, writableIdentity }),
+      validRaw({
+        signerMode: mode,
+        writableIdentity,
+        localKeyPath: mode === "local" ? "/tmp/key" : undefined,
+        nip46SessionPath: mode === "nip46" ? "/tmp/session" : undefined,
+        stagingDirectory: "/tmp/staging",
+      }),
     );
     assert(parsed.ok);
     assertEquals(parsed.value.writeIntent, {
@@ -188,12 +194,29 @@ Deno.test("environment mapper preserves signer write-intent fields", () => {
 });
 
 Deno.test("enabled signer requires exactly its protected source and staging limits", () => {
-  const local = parseConfig(validRaw({ signerMode: "local", writableIdentity: `17091:${PUBKEY}:`, localKeyPath: "/tmp/key", stagingDirectory: "/tmp/staging", stagingBodyBytes: "1024", stagingAggregateBytes: "4096" }));
+  const local = parseConfig(validRaw({
+    signerMode: "local",
+    writableIdentity: `17091:${PUBKEY}:`,
+    localKeyPath: "/tmp/key",
+    stagingDirectory: "/tmp/staging",
+    stagingBodyBytes: "1024",
+    stagingAggregateBytes: "4096",
+  }));
   assert(local.ok);
   assertEquals(local.value.localKeyPath, "/tmp/key");
-  const missing = parseConfig(validRaw({ signerMode: "local", writableIdentity: `17091:${PUBKEY}:` }));
+  const missing = parseConfig(
+    validRaw({ signerMode: "local", writableIdentity: `17091:${PUBKEY}:` }),
+  );
   assert(!missing.ok);
-  const contradictory = parseConfig(validRaw({ signerMode: "local", writableIdentity: `17091:${PUBKEY}:`, localKeyPath: "/tmp/key", nip46SessionPath: "/tmp/session", stagingDirectory: "/tmp/staging", stagingBodyBytes: "1024", stagingAggregateBytes: "4096" }));
+  const contradictory = parseConfig(validRaw({
+    signerMode: "local",
+    writableIdentity: `17091:${PUBKEY}:`,
+    localKeyPath: "/tmp/key",
+    nip46SessionPath: "/tmp/session",
+    stagingDirectory: "/tmp/staging",
+    stagingBodyBytes: "1024",
+    stagingAggregateBytes: "4096",
+  }));
   assert(!contradictory.ok);
 });
 
@@ -306,16 +329,21 @@ Deno.test("partial environment write intent stops before startup side effects", 
   assertThrows(() => Deno.statSync(root), Deno.errors.NotFound);
 });
 
-Deno.test("complete write intent does not enable Phase 1 PUT", async () => {
+Deno.test("configured write intent stays disabled until ownership is ready", async () => {
   const root = await Deno.makeTempDir({ prefix: "nixstr-write-intent-" });
   let handler: ((request: Request) => Response | Promise<Response>) | undefined;
   try {
+    await Deno.writeFile(`${root}/key`, new Uint8Array(32).fill(1), {
+      mode: 0o600,
+    });
     const result = launchDaemon(
       validRaw({
         databasePath: `${root}/state.sqlite`,
         spoolDirectory: `${root}/spool`,
         signerMode: "local",
         writableIdentity: `17091:${PUBKEY}:`,
+        localKeyPath: `${root}/key`,
+        stagingDirectory: `${root}/staging`,
       }),
       {
         createEventStream: () => ({

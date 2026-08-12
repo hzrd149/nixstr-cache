@@ -1,4 +1,5 @@
 import { RelayPool } from "applesauce-relay";
+import { NostrConnectSigner } from "applesauce-signers/signers/nostr-connect-signer";
 import { type Observable } from "rxjs";
 import {
   type AppDependencies,
@@ -23,6 +24,11 @@ import {
 import { WinnerRouteRegistry } from "../nix/merged_cache.ts";
 import { startPublicationSelection } from "../nostr/selection.ts";
 import { StateRepository } from "../persistence/state_repository.ts";
+import { WriteRepository } from "../persistence/write_repository.ts";
+import {
+  createSignerCapability,
+  type SignerCapability,
+} from "../signer/capability.ts";
 import type { RawPublication } from "../protocol/publication.ts";
 
 export interface PublicationEventStream {
@@ -88,26 +94,77 @@ export function createProductionDependencies(
           console.error(`publication rejected: ${reason}`),
         onError: (error) => console.error("publication selection error", error),
       });
+      const writeRepository = config.writeIntent.mode === "disabled"
+        ? undefined
+        : new WriteRepository(
+          `${config.databasePath}.writes`,
+          config.stagingDirectory!,
+          {
+            perBodyBytes: config.stagingBodyBytes,
+            aggregateBytes: config.stagingAggregateBytes,
+          },
+        );
+      let signer: SignerCapability | undefined;
+      if (config.writeIntent.mode !== "disabled") {
+        signer = createSignerCapability({
+          intent: config.writeIntent,
+          localKeyPath: config.localKeyPath,
+          nip46SessionPath: config.nip46SessionPath,
+          createNip46Signer: async (session, permissionKind) => {
+            const pool = new RelayPool();
+            const remote = await NostrConnectSigner.fromNbunksec(session, {
+              permissions: NostrConnectSigner.buildSigningPermissions([
+                permissionKind,
+              ]),
+              subscriptionMethod: (relays, filters) =>
+                pool.subscription(relays, filters),
+              publishMethod: (relays, event) => pool.publish(relays, event),
+              onAuth: () => {
+                console.warn("nip46 authorization required");
+                return Promise.resolve();
+              },
+            });
+            return {
+              getPublicKey: () => remote.getPublicKey(),
+              async close() {
+                try {
+                  await remote.close();
+                } finally {
+                  pool.close();
+                }
+              },
+            };
+          },
+        });
+        void signer.start();
+      }
       let disposed = false;
       const selectionHandle = {
         current: () => selector.current(),
         repository,
-        dispose() {
+        writeRepository,
+        signer,
+        async dispose() {
           if (disposed) return;
           disposed = true;
           const supervisor = supervisors.get(selectionHandle);
           supervisor?.abort.abort("daemon shutdown");
-          const finish = () => {
+          const finish = async () => {
             try {
               selector.dispose();
             } finally {
               stream.dispose();
+              try {
+                await signer?.close();
+              } finally {
+                writeRepository?.close();
+              }
             }
           };
           if (supervisor?.tasks.size) {
-            return Promise.allSettled(supervisor.tasks).then(finish);
+            await Promise.allSettled(supervisor.tasks);
           }
-          finish();
+          await finish();
         },
       };
       return selectionHandle;
@@ -124,6 +181,11 @@ export function createProductionDependencies(
       if (!repository) {
         throw new TypeError("production selection omitted repository");
       }
+      const writeRepository =
+        (selection as typeof selection & { writeRepository?: WriteRepository })
+          .writeRepository;
+      const signer =
+        (selection as typeof selection & { signer?: SignerCapability }).signer;
       const fetcher = new SafeFetcher(
         new AddressPolicy(
           undefined,
@@ -184,6 +246,24 @@ export function createProductionDependencies(
           emit: (diagnostic) =>
             console.warn("merged cache diagnostic", diagnostic),
         },
+        write: signer && writeRepository
+          ? {
+            current: () => {
+              const state = signer.current();
+              const selected = (selection as unknown as {
+                current(): readonly import("../nostr/selection.ts").SelectedPublication[];
+              }).current();
+              const hasDestination = config.localBlossomUrl !== undefined ||
+                config.preferredBlossomUrl !== undefined ||
+                selected.some((item) => item.bud03Servers.length > 0);
+              return {
+                ready: state.status === "ready" && writeRepository.health() &&
+                  config.relayUrls.length > 0 && hasDestination,
+                repository: writeRepository,
+              };
+            },
+          }
+          : undefined,
         resolverFor(snapshot) {
           const sources = buildSourcePlan({
             localCache: config.localBlossomUrl,

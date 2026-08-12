@@ -28,6 +28,11 @@ export interface RawConfig {
   readonly spoolDirectory?: string;
   readonly signerMode?: string;
   readonly writableIdentity?: string;
+  readonly localKeyPath?: string;
+  readonly nip46SessionPath?: string;
+  readonly stagingDirectory?: string;
+  readonly stagingBodyBytes?: string;
+  readonly stagingAggregateBytes?: string;
   readonly limits?: Partial<Record<keyof Limits, string>>;
 }
 
@@ -59,6 +64,11 @@ export interface ValidatedConfig {
   readonly spoolDirectory: string;
   readonly identities: readonly string[];
   readonly writeIntent: WriteIntent;
+  readonly localKeyPath?: string;
+  readonly nip46SessionPath?: string;
+  readonly stagingDirectory?: string;
+  readonly stagingBodyBytes: number;
+  readonly stagingAggregateBytes: number;
   readonly limits: Limits;
 }
 
@@ -277,6 +287,73 @@ export function parseConfig(
     "spoolDirectory",
     diagnostics,
   );
+  const localKeyPath = raw.localKeyPath === undefined
+    ? undefined
+    : parseOwnerPath(raw.localKeyPath, "localKeyPath", diagnostics);
+  const nip46SessionPath = raw.nip46SessionPath === undefined
+    ? undefined
+    : parseOwnerPath(raw.nip46SessionPath, "nip46SessionPath", diagnostics);
+  const stagingDirectory = raw.stagingDirectory === undefined
+    ? undefined
+    : parseOwnerPath(raw.stagingDirectory, "stagingDirectory", diagnostics);
+  const stagingBodyBytes = parsePositiveBytes(
+    raw.stagingBodyBytes,
+    "stagingBodyBytes",
+    1024 * 1024 * 1024,
+    diagnostics,
+  );
+  const stagingAggregateBytes = parsePositiveBytes(
+    raw.stagingAggregateBytes,
+    "stagingAggregateBytes",
+    8 * 1024 * 1024 * 1024,
+    diagnostics,
+  );
+  if (signerMode !== "disabled") {
+    if (!stagingDirectory) {
+      diagnostics.push({
+        field: "stagingDirectory",
+        code: "required",
+        message: "stagingDirectory is required when signerMode is enabled",
+      });
+    }
+    if (signerMode === "local" && !localKeyPath) {
+      diagnostics.push({
+        field: "localKeyPath",
+        code: "required",
+        message: "localKeyPath is required for local signer mode",
+      });
+    }
+    if (signerMode === "nip46" && !nip46SessionPath) {
+      diagnostics.push({
+        field: "nip46SessionPath",
+        code: "required",
+        message: "nip46SessionPath is required for nip46 signer mode",
+      });
+    }
+    if (
+      signerMode === "local" && nip46SessionPath ||
+      signerMode === "nip46" && localKeyPath
+    ) {
+      diagnostics.push({
+        field: "signerMode",
+        code: "invalid",
+        message: "exactly the protected source matching signerMode is allowed",
+      });
+    }
+  } else if (localKeyPath || nip46SessionPath || stagingDirectory) {
+    diagnostics.push({
+      field: "signerMode",
+      code: "invalid",
+      message: "write paths must be absent when signerMode is disabled",
+    });
+  }
+  if (stagingAggregateBytes < stagingBodyBytes) {
+    diagnostics.push({
+      field: "stagingAggregateBytes",
+      code: "out_of_range",
+      message: "stagingAggregateBytes must be at least stagingBodyBytes",
+    });
+  }
   const limits = {} as Record<keyof Limits, number>;
   for (const key of Object.keys(LIMIT_SPECS) as (keyof Limits)[]) {
     const spec = LIMIT_SPECS[key];
@@ -325,9 +402,32 @@ export function parseConfig(
       spoolDirectory: spoolDirectory!,
       identities: Object.freeze([...identityValues]),
       writeIntent,
+      localKeyPath,
+      nip46SessionPath,
+      stagingDirectory,
+      stagingBodyBytes,
+      stagingAggregateBytes,
       limits: Object.freeze(limits as unknown as Limits),
     }),
   };
+}
+
+function parsePositiveBytes(
+  value: string | undefined,
+  field: string,
+  fallback: number,
+  diagnostics: ConfigDiagnostic[],
+): number {
+  const parsed = value === undefined ? fallback : Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    diagnostics.push({
+      field,
+      code: "out_of_range",
+      message: `${field} must be a positive safe integer`,
+    });
+    return fallback;
+  }
+  return parsed;
 }
 
 function parseWritableIdentity(

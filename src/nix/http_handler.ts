@@ -6,7 +6,11 @@ import {
 } from "../hashtree/reader.ts";
 import type { SelectedPublication } from "../nostr/selection.ts";
 import type { MergedSelectionSnapshot } from "../nostr/selection.ts";
-import { classifyEndorsements } from "../protocol/narinfo.ts";
+import { classifyEndorsements, parseNarInfo } from "../protocol/narinfo.ts";
+import {
+  WriteConflict,
+  type WriteRepository,
+} from "../persistence/write_repository.ts";
 import {
   type DiagnosticSink,
   resolveMergedNarInfo,
@@ -31,6 +35,12 @@ export interface NixHandlerDependencies {
   ) => void;
   readonly diagnostics?: DiagnosticSink;
   readonly routes?: WinnerRouteRegistry;
+  readonly write?: {
+    current(): {
+      readonly ready: boolean;
+      readonly repository?: WriteRepository;
+    };
+  };
 }
 
 const CACHE_INFO = "StoreDir: /nix/store\nWantMassQuery: 1\nPriority: 40\n";
@@ -75,6 +85,65 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
     new WinnerRouteRegistry(1024, 5 * 60_000);
   return async (request: Request): Promise<Response> => {
     const snapshot = dependencies.selection.current();
+    if (request.method === "PUT") {
+      const readiness = dependencies.write?.current();
+      if (!readiness?.ready || !readiness.repository) {
+        return new Response("method not allowed\n", {
+          status: 405,
+          headers: { allow: "GET, HEAD" },
+        });
+      }
+      const url = new URL(request.url);
+      if (
+        url.search || url.hash || url.pathname.includes("%") ||
+        request.body === null
+      ) return new Response("not found\n", { status: 404 });
+      if (
+        (request.headers.get("content-encoding") ?? "identity")
+          .toLowerCase() !== "identity"
+      ) return new Response("unsupported content encoding\n", { status: 415 });
+      const narinfoMatch = /^\/([0-9a-z]{32})\.narinfo$/.exec(url.pathname);
+      const narMatch = /^\/(nar\/[A-Za-z0-9._+-]+)$/.exec(url.pathname);
+      if (!narinfoMatch && !narMatch) {
+        return new Response("not found\n", { status: 404 });
+      }
+      const route = narinfoMatch ? `${narinfoMatch[1]}.narinfo` : narMatch![1];
+      try {
+        const staged = await readiness.repository.stage(
+          route,
+          request.body,
+          request.signal,
+          narinfoMatch ? dependencies.decodedMetadataBytes : undefined,
+        );
+        if (narinfoMatch && !staged.idempotent) {
+          const raw = await Deno.readTextFile(staged.path);
+          try {
+            const parsed = parseNarInfo(raw);
+            if (
+              parsed.storePath.slice(
+                "/nix/store/".length,
+                "/nix/store/".length + 32,
+              ) !== narinfoMatch[1]
+            ) throw new TypeError("narinfo route mismatch");
+          } catch (error) {
+            readiness.repository.discard(route);
+            throw error;
+          }
+        }
+        return new Response(null, { status: 200 });
+      } catch (error) {
+        if (error instanceof WriteConflict) {
+          return new Response("immutable route conflict\n", { status: 409 });
+        }
+        if (error instanceof RangeError) {
+          return new Response("payload too large\n", { status: 413 });
+        }
+        if (error instanceof TypeError) {
+          return new Response("invalid narinfo\n", { status: 400 });
+        }
+        return new Response("staging unavailable\n", { status: 503 });
+      }
+    }
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response("method not allowed\n", {
         status: 405,
