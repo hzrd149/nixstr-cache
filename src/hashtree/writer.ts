@@ -521,9 +521,7 @@ export class HashtreeWriter {
       });
       let disposed = false;
       let durableOwner: string | undefined;
-      const writer = this;
-      let result!: HashtreeBuild;
-      result = Object.freeze({
+      const result: HashtreeBuild = Object.freeze({
         runId: runOwner,
         rootHex: root.hash,
         rootNhash: encodePlaintextNhash(hexBytes(root.hash)),
@@ -532,10 +530,10 @@ export class HashtreeWriter {
         totalBytes: total,
         createdBlobs: created,
         maxBufferedLinks,
-        async dispose() {
+        dispose: async () => {
           if (disposed) return;
           disposed = true;
-          writer.#handles.delete(result);
+          this.#handles.delete(result);
           if (ownershipRepository) {
             await ownershipRepository.releaseWriterRun(runOwner);
           } else {
@@ -580,7 +578,7 @@ export class HashtreeWriter {
     }
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
     if (this.#closePromise) return this.#closePromise;
     this.#state = "closing";
     return this.#closePromise = (async () => {
