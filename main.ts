@@ -1,4 +1,8 @@
-import type { RawConfig } from "./src/config/config.ts";
+import { parseArgs } from "@std/cli/parse-args";
+import { bech32 } from "@scure/base";
+import { NostrConnectSigner } from "applesauce-signers";
+import { nip19 } from "nostr-tools";
+import type { RawConfig, SignerOverride } from "./src/config/config.ts";
 import { launchDaemon } from "./src/runtime/daemon.ts";
 import { dirname, isAbsolute, resolve } from "node:path";
 
@@ -47,6 +51,12 @@ export type EnvironmentReader = (name: string) => string | undefined;
 export interface StartupConfigLoaderHooks {
   readonly readEnvironment?: EnvironmentReader;
   readonly readTextFile?: (path: string) => Promise<string>;
+  readonly warn?: (message: string) => void;
+}
+
+export interface StartupArguments {
+  readonly configPath?: string;
+  readonly signerOverride?: SignerOverride;
 }
 
 const OWNER_PATH_FIELDS = [
@@ -136,17 +146,95 @@ export async function loadStartupConfig(
 ): Promise<RawConfig> {
   const readEnvironment = hooks.readEnvironment ??
     ((name) => Deno.env.get(name));
-  if (args.length === 0) {
-    return collectRawConfigFromEnvironment(readEnvironment);
+  const invocation = parseStartupArguments(args);
+  let raw: RawConfig;
+  if (!invocation.configPath) {
+    raw = collectRawConfigFromEnvironment(readEnvironment);
+  } else {
+    raw = await loadConfigFile(invocation.configPath, readEnvironment, hooks);
   }
-  if (args[0] !== "--config" || args.length !== 2) {
-    if (args[0] === "--config" && args.length === 1) {
-      throw new Error("--config requires a path");
-    }
-    throw new Error("unsupported arguments; expected --config <path>");
-  }
+  if (!invocation.signerOverride) return raw;
+  (hooks.warn ?? console.warn)(
+    "warning: --signer values may be visible in shell history and process listings",
+  );
+  return { ...raw, signerOverride: invocation.signerOverride };
+}
 
-  const configPath = resolve(args[1]);
+export function parseStartupArguments(
+  args: readonly string[],
+): StartupArguments {
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs(args, {
+      string: ["config", "signer"],
+      collect: ["config", "signer"],
+      unknown: (argument) => {
+        throw new Error(
+          argument.startsWith("-")
+            ? `unsupported argument ${argument}`
+            : "positional arguments are not supported",
+        );
+      },
+    });
+  } catch (error) {
+    throw new Error(errorMessage(error));
+  }
+  const configValues = parsed.config as string[];
+  const signerValues = parsed.signer as string[];
+  if (configValues.length > 1) {
+    throw new Error("--config may be specified once");
+  }
+  if (signerValues.length > 1) {
+    throw new Error("--signer may be specified once");
+  }
+  if (configValues.length === 1 && configValues[0] === "") {
+    throw new Error("--config requires a path");
+  }
+  if (signerValues.length === 1 && signerValues[0] === "") {
+    throw new Error("--signer requires a value");
+  }
+  return Object.freeze({
+    ...(configValues[0] ? { configPath: resolve(configValues[0]) } : {}),
+    ...(signerValues[0]
+      ? { signerOverride: parseSignerOverride(signerValues[0]) }
+      : {}),
+  });
+}
+
+function parseSignerOverride(value: string): SignerOverride {
+  try {
+    if (value.startsWith("nsec1")) {
+      const decoded = nip19.decode(value);
+      if (decoded.type !== "nsec" || decoded.data.length !== 32) {
+        throw new TypeError();
+      }
+      return Object.freeze({ type: "nsec", nsec: value });
+    }
+    if (value.startsWith("ncryptsec1")) {
+      const decoded = bech32.decode(value, 5000);
+      const bytes = Uint8Array.from(bech32.fromWords(decoded.words));
+      if (
+        decoded.prefix !== "ncryptsec" || bytes.length !== 91 ||
+        bytes[0] !== 2 || bytes[1] < 16 || bytes[1] > 22 || bytes[42] > 2
+      ) throw new TypeError();
+      return Object.freeze({ type: "ncryptsec", ncryptsec: value });
+    }
+    if (value.startsWith("nbunksec1")) {
+      NostrConnectSigner.parseNbunksec(value);
+      return Object.freeze({ type: "nbunksec", nbunksec: value });
+    }
+  } catch { /* sanitized below */ }
+  throw new Error(
+    "--signer must be a valid lowercase nsec, ncryptsec, or nbunksec",
+  );
+}
+
+async function loadConfigFile(
+  selectedPath: string,
+  readEnvironment: EnvironmentReader,
+  hooks: StartupConfigLoaderHooks,
+): Promise<RawConfig> {
+  const configPath = resolve(selectedPath);
   let text: string;
   try {
     text = await (hooks.readTextFile ?? Deno.readTextFile)(configPath);
@@ -353,7 +441,12 @@ function validateWritableJson(value: unknown): void {
     }
   }
   const groups: Record<string, Record<string, string>> = {
-    signer: { type: "string", path: "string", ncryptsec: "string" },
+    signer: {
+      type: "string",
+      path: "string",
+      ncryptsec: "string",
+      nbunksec: "string",
+    },
     staging: {
       directory: "string",
       bodyBytes: "number",

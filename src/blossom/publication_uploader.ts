@@ -54,6 +54,7 @@ export class PublicationUploader {
     server: string,
     entry: PendingInventoryEntry,
     signal?: AbortSignal,
+    trust: SourceTrust = "publisher",
   ): Promise<boolean> {
     signal?.throwIfAborted();
     const headers = new Headers({
@@ -67,8 +68,8 @@ export class PublicationUploader {
     let response: PinnedResponse;
     try {
       response = await this.options.request(
-        new URL("/upload", server),
-        "configured",
+        new URL("upload", server.endsWith("/") ? server : `${server}/`),
+        trust,
         {
           method: "PUT",
           headers,
@@ -95,8 +96,8 @@ export class PublicationUploader {
     }
     try {
       const proof = await this.options.request(
-        new URL(`/${entry.hash}`, server),
-        "configured",
+        new URL(entry.hash, server.endsWith("/") ? server : `${server}/`),
+        trust,
         { method: "GET", signal },
       );
       if (proof.status !== 200) {

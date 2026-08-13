@@ -7,7 +7,9 @@ import {
 } from "../../main.ts";
 import { launchDaemon } from "../../src/runtime/daemon.ts";
 import { Subject } from "rxjs";
-import { nip19 } from "nostr-tools";
+import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
+import { encrypt } from "nostr-tools/nip49";
+import { NostrConnectSigner } from "applesauce-signers";
 import type { RawPublication } from "../../src/protocol/publication.ts";
 
 const PUBKEY = "a".repeat(64);
@@ -134,7 +136,7 @@ Deno.test("startup loader retains environment-only operation and absolute env pa
 Deno.test("startup loader rejects malformed CLI files and native JSON types", async () => {
   const cases: Array<[string[], string, string]> = [
     [["--config"], "{}", "requires a path"],
-    [["--other"], "{}", "unsupported arguments"],
+    [["--other"], "{}", "unsupported argument"],
     [["--config", "/tmp/config.json"], "{", "valid JSON"],
     [["--config", "/tmp/config.json"], "[]", "JSON object"],
   ];
@@ -220,7 +222,7 @@ Deno.test("invalid loaded config reaches no daemon startup side effects", async 
     readEnvironment: () => undefined,
   });
   const calls: string[] = [];
-  const result = launchDaemon(raw, {
+  const result = await launchDaemon(raw, {
     createEventStream: () => {
       calls.push("relay");
       return { events: new Subject<RawPublication>(), dispose() {} };
@@ -447,11 +449,13 @@ Deno.test("operator config parses complete supported write intents", () => {
 });
 
 Deno.test("operator config accepts only the ncryptsec signer source", () => {
+  const key = generateSecretKey();
+  const encrypted = encrypt(key, "password", 16);
   const parsed = parseConfig(validRaw({
     writable: {
       enabled: true,
       type: "root",
-      signer: { type: "ncryptsec", ncryptsec: "ncryptsec1encrypted" },
+      signer: { type: "ncryptsec", ncryptsec: encrypted },
       staging: { directory: "/tmp/staging" },
     },
   }));
@@ -459,13 +463,13 @@ Deno.test("operator config accepts only the ncryptsec signer source", () => {
   assertEquals(parsed.value.writeIntent, {
     mode: "ncryptsec",
     identity: { kind: 17091, identifier: "" },
-    ncryptsec: "ncryptsec1encrypted",
+    ncryptsec: encrypted,
   });
   for (
     const signer of [
       { type: "ncryptsec" },
       { type: "ncryptsec", ncryptsec: "", path: "/tmp/key" },
-      { type: "local", path: "/tmp/key", ncryptsec: "ncryptsec1encrypted" },
+      { type: "local", path: "/tmp/key", ncryptsec: encrypted },
     ]
   ) {
     const invalid = parseConfig(validRaw({
@@ -477,6 +481,61 @@ Deno.test("operator config accepts only the ncryptsec signer source", () => {
       },
     }));
     assert(!invalid.ok);
+  }
+  key.fill(0);
+});
+
+Deno.test("JSON config accepts only a valid inline nbunksec source", async () => {
+  const remote = generateSecretKey();
+  const client = generateSecretKey();
+  const toHex = (bytes: Uint8Array) =>
+    [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+  const nbunksec = NostrConnectSigner.createNbunksec({
+    remote: getPublicKey(remote),
+    clientKey: toHex(client),
+    relays: ["wss://relay.example"],
+    bunkerSecret: "secret",
+  });
+  try {
+    const writable = {
+      enabled: true,
+      type: "root",
+      signer: { type: "nbunksec", nbunksec },
+      staging: { directory: "/tmp/staging" },
+    } as const;
+    const raw = await loadStartupConfig(["--config", "/tmp/config.json"], {
+      readEnvironment: () => undefined,
+      readTextFile: () =>
+        Promise.resolve(JSON.stringify({ ...JSON_CONFIG, writable })),
+    });
+    const parsed = parseConfig(raw);
+    assert(parsed.ok);
+    assertEquals(parsed.value.writeIntent, {
+      mode: "nbunksec",
+      identity: { kind: 17091, identifier: "" },
+      nbunksec,
+    });
+    for (
+      const signer of [
+        { type: "nbunksec" },
+        { type: "nbunksec", nbunksec: "nbunksec1malformed" },
+        { type: "nbunksec", nbunksec, path: "/tmp/session" },
+        { type: "local", path: "/tmp/key", nbunksec },
+      ]
+    ) {
+      const invalid = parseConfig(validRaw({
+        writable: {
+          enabled: true,
+          type: "root",
+          signer,
+          staging: { directory: "/tmp/staging" },
+        },
+      }));
+      assert(!invalid.ok);
+    }
+  } finally {
+    remote.fill(0);
+    client.fill(0);
   }
 });
 
@@ -653,7 +712,7 @@ Deno.test("production environment collector maps every supported limit", () => {
   for (const name of Object.keys(environment)) assert(requested.includes(name));
 });
 
-Deno.test("invalid collected production limit stops before startup", () => {
+Deno.test("invalid collected production limit stops before startup", async () => {
   const root = `/tmp/nixstr-limit-invalid-${crypto.randomUUID()}`;
   const environment: Record<string, string> = {
     NIXSTR_CACHES: PUBKEY,
@@ -663,7 +722,7 @@ Deno.test("invalid collected production limit stops before startup", () => {
     NIXSTR_LIMIT_MAX_REDIRECTS: "not-an-integer",
   };
   const calls: string[] = [];
-  const result = launchDaemon(
+  const result = await launchDaemon(
     collectRawConfigFromEnvironment((name) => environment[name]),
     {
       createEventStream: () => {
@@ -688,10 +747,10 @@ Deno.test("invalid collected production limit stops before startup", () => {
   assertThrows(() => Deno.statSync(root), Deno.errors.NotFound);
 });
 
-Deno.test("partial environment write intent stops before startup side effects", () => {
+Deno.test("partial environment write intent stops before startup side effects", async () => {
   const root = `/tmp/nixstr-partial-${crypto.randomUUID()}`;
   const calls: string[] = [];
-  const result = launchDaemon({
+  const result = await launchDaemon({
     ...validRaw({
       databasePath: `${root}/state.sqlite`,
       spoolDirectory: `${root}/spool`,
@@ -723,7 +782,7 @@ Deno.test("configured write intent stays disabled until ownership is ready", asy
     await Deno.writeFile(`${root}/key`, new Uint8Array(32).fill(1), {
       mode: 0o600,
     });
-    const result = launchDaemon(
+    const result = await launchDaemon(
       validRaw({
         databasePath: `${root}/state.sqlite`,
         spoolDirectory: `${root}/spool`,

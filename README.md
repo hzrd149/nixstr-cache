@@ -55,7 +55,8 @@ Writes use one nested `writable` object. Missing configuration or
 `{"enabled":false}` is read-only and ignores every other writable member. An
 enabled cache selects `type: "root"`, or `type: "named"` with a valid `name`,
 plus `signer: {type: "local"|"nip46", path}` or
-`signer: {type: "ncryptsec", ncryptsec: "ncryptsec1..."}`,
+`signer: {type: "ncryptsec", ncryptsec: "ncryptsec1..."}` or
+`signer: {type: "nbunksec", nbunksec: "nbunksec1..."}`,
 `staging: {directory,
 bodyBytes?, aggregateBytes?}`, and publication policy. The
 publisher pubkey is always derived from the connected signer; it is never
@@ -66,17 +67,35 @@ against existing durable write state fails closed; use an explicitly fresh
 state/staging location rather than migrating pending publication data
 automatically.
 
-An enabled `ncryptsec` signer asks for one unlock password during daemon
-startup. On a terminal, input echo is disabled and terminal mode is restored
-even when reading or decryption fails. Non-terminal stdin accepts one bounded,
-newline-terminated password for supervised startup; supply it through a secure
-secret channel chosen by the operator. The password is not a configuration field
-and is never logged or persisted. Missing, malformed, or incorrect input leaves
-writes unavailable. An interactive password is therefore unsuitable for
+An enabled `ncryptsec` signer asks for its unlock password before the HTTP
+listener is opened. On a terminal, input echo is disabled, incorrect passwords
+prompt again, and terminal mode is restored after every attempt. Non-terminal
+stdin accepts one bounded, newline-terminated attempt for supervised startup;
+supply it through a secure secret channel chosen by the operator. The password
+is not a configuration field and is never logged or persisted. Missing,
+malformed, cancelled, or incorrect non-terminal input aborts startup without
+opening the server. An interactive password is therefore unsuitable for
 unattended systemd startup unless stdin is deliberately and securely provided.
 JSON is preferred for the encrypted `ncryptsec` value. The corresponding
 `NIXSTR_WRITABLE_SIGNER_NCRYPTSEC` environment leaf exists for completeness, but
 process environments may expose even encrypted material.
+
+For a one-run signer override, pass an `nsec`, `ncryptsec`, or `nbunksec` in
+either supported form:
+
+```sh
+deno task start -- --config /path/to/config.json --signer ncryptsec1...
+deno task start -- --signer=nbunksec1...
+```
+
+`--signer` replaces only the configured signer. The configuration must still
+contain an enabled writable cache with its root/named identity, staging, and
+publication policy. An `nsec` signs locally, an `ncryptsec` uses the same
+mandatory pre-listener password flow, and an `nbunksec` uses NIP-46 while the
+read server starts normally and PUT remains unavailable until authorization. CLI
+arguments may be visible in shell history and process listings, so the daemon
+prints a warning and operators should prefer protected configuration for
+long-lived deployments. Signer values are never repeated in logs or errors.
 
 For production, select a file explicitly:
 

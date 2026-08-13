@@ -28,13 +28,18 @@ export interface PublicationSelector {
   readonly selected$: Observable<MergedSelectionSnapshot>;
   current(): MergedSelectionSnapshot;
   accept(event: RawPublication): void;
+  authorizePublicationPublisher(pubkey: string, identity: string): void;
+  authorizeBlossomPublisher(pubkey: string): void;
+  blossomServersFor(pubkey: string): readonly string[];
+  watchBlossomServers(pubkey: string, callback: () => void): () => void;
   dispose(): void;
 }
 
 type TimerHandle = number | ReturnType<typeof setTimeout>;
 interface ModelOptions {
   publishers: ReadonlySet<string>;
-  identities: readonly string[];
+  identities: ReadonlySet<string>;
+  identityOrder: readonly string[];
   now: () => number;
   refresh$: Observable<void>;
 }
@@ -58,9 +63,9 @@ export function CacheSelectionModel(
           .map((result) => result.value)
           .filter((publication) =>
             options.publishers.has(publication.event.pubkey) &&
-            options.identities.includes(cacheIdentity(publication))
+            options.identities.has(cacheIdentity(publication))
           );
-        return Object.freeze(options.identities.flatMap((identity) => {
+        return Object.freeze(options.identityOrder.flatMap((identity) => {
           const publication = publications
             .filter((item) => cacheIdentity(item) === identity)
             .sort((a, b) =>
@@ -116,7 +121,10 @@ export function startPublicationSelection(
   const cancelSchedule = options.cancelSchedule ??
     ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
   const publishers = new Set(options.publisherPubkeys);
+  const blossomPublishers = new Set(options.publisherPubkeys);
   const identitySet = new Set(options.identities);
+  const identityOrder = [...options.identities];
+  const blossomEvents = new Map<string, RawPublication>();
   const store = options.eventStore ?? new EventStore({
     keepExpired: true,
     keepOldVersions: true,
@@ -128,13 +136,15 @@ export function startPublicationSelection(
   const refresh = new Subject<void>();
   const selected$ = store.model(CacheSelectionModel, {
     publishers,
-    identities: Object.freeze([...options.identities]),
+    identities: identitySet,
+    identityOrder,
     now,
     refresh$: refresh,
   });
   let current: MergedSelectionSnapshot = Object.freeze([]);
   let expirationHandle: TimerHandle | undefined;
   let disposed = false;
+  const blossomWatchers = new Map<string, Set<() => void>>();
 
   const clearExpiration = () => {
     if (expirationHandle !== undefined) cancelSchedule(expirationHandle);
@@ -172,11 +182,21 @@ export function startPublicationSelection(
 
   const accept = (event: RawPublication) => {
     if (event.kind === 10063) {
-      if (!publishers.has(event.pubkey) || !verifyEvent(event)) {
+      if (!blossomPublishers.has(event.pubkey) || !verifyEvent(event)) {
         options.onReject?.(event, "invalid-blossom-server-list");
         return;
       }
+      const previous = blossomEvents.get(event.pubkey);
+      if (
+        previous &&
+        (previous.created_at > event.created_at ||
+          (previous.created_at === event.created_at && previous.id <= event.id))
+      ) return;
+      blossomEvents.set(event.pubkey, event);
       add(event);
+      for (const callback of blossomWatchers.get(event.pubkey) ?? []) {
+        callback();
+      }
       return;
     }
     const result = validatePublication(event, now());
@@ -220,6 +240,32 @@ export function startPublicationSelection(
     selected$,
     current: () => current,
     accept,
+    authorizePublicationPublisher(pubkey, identity) {
+      publishers.add(pubkey);
+      if (!identitySet.has(identity)) {
+        identitySet.add(identity);
+        identityOrder.unshift(identity);
+      }
+    },
+    authorizeBlossomPublisher(pubkey) {
+      blossomPublishers.add(pubkey);
+    },
+    blossomServersFor(pubkey) {
+      if (!blossomPublishers.has(pubkey)) return Object.freeze([]);
+      const event = blossomEvents.get(pubkey);
+      return event
+        ? projectBlossomServers(event, blossomPublishers)
+        : Object.freeze([]);
+    },
+    watchBlossomServers(pubkey, callback) {
+      const callbacks = blossomWatchers.get(pubkey) ?? new Set<() => void>();
+      callbacks.add(callback);
+      blossomWatchers.set(pubkey, callbacks);
+      return () => {
+        callbacks.delete(callback);
+        if (callbacks.size === 0) blossomWatchers.delete(pubkey);
+      };
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -227,6 +273,7 @@ export function startPublicationSelection(
       sourceSubscription.unsubscribe();
       modelSubscription.unsubscribe();
       refresh.complete();
+      blossomWatchers.clear();
       store.dispose();
     },
   };

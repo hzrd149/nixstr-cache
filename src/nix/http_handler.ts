@@ -103,7 +103,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       dependencies.operationalDiagnostics?.emit(item);
     } catch { /* diagnostics are non-authoritative */ }
   };
-  const handler = async (request: Request): Promise<Response> => {
+  const handleRequest = async (request: Request): Promise<Response> => {
     if (closed) return new Response("service unavailable\n", { status: 503 });
     const pathname = new URL(request.url).pathname;
     if (
@@ -346,6 +346,34 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
     } catch (error) {
       releaseOverlay?.();
       return mapped(error);
+    }
+  };
+  const handler = async (request: Request): Promise<Response> => {
+    const started = Date.now();
+    let status = 500;
+    let reasons: readonly string[] | undefined;
+    try {
+      const response = await handleRequest(request);
+      status = response.status;
+      if (status === 503 && dependencies.health) {
+        const health = dependencies.health.current();
+        reasons = [
+          ...health.process.reasons,
+          ...health.read.reasons,
+          ...health.write.reasons,
+        ];
+      }
+      return response;
+    } finally {
+      emitOperational({
+        type: "http_request",
+        code: "request_completed",
+        method: request.method,
+        path: new URL(request.url).pathname,
+        status,
+        durationMs: Math.max(0, Date.now() - started),
+        reasons,
+      });
     }
   };
   return Object.assign(handler, {

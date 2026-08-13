@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Awaiting next milestone
-stopped_at: Completed quick task 260813-fhz
-last_updated: "2026-08-13T11:22:00.000Z"
+stopped_at: Completed quick task 260813-lgb
+last_updated: "2026-08-13T14:37:00.000Z"
 last_activity: 2026-08-13
-last_activity_desc: "Completed quick task 260813-fhz: Replace flat writable configuration with nested signer-derived configuration"
+last_activity_desc: "Completed quick task 260813-lgb: Add CLI signer overrides with pre-bind ncryptsec unlocking"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: Milestone v1.0 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-08-13 — Completed quick task 260813-fhz: Replace flat writable configuration with nested signer-derived configuration
+Last activity: 2026-08-13 — Completed quick task 260813-lgb: Add CLI signer overrides with pre-bind ncryptsec unlocking
 
 ## Performance Metrics
 
@@ -171,6 +171,7 @@ None for the shipped v1.0 milestone.
 | 260813-ftf | Remove legacy cache inputs and use `NIXSTR_CACHES` exclusively | 2026-08-13 | uncommitted | [260813-ftf-remove-legacy-cache-environment-variable](./quick/260813-ftf-remove-legacy-cache-environment-variable/) |
 | 260813-gte | Add ncryptsec PasswordSigner support with secure startup unlocking | 2026-08-13 | uncommitted | [260813-gte-add-support-for-an-ncryptsec-signer-type](./quick/260813-gte-add-support-for-an-ncryptsec-signer-type/) |
 | 260813-fhz | Replace flat writable configuration with nested groups and signer-derived durable ownership | 2026-08-13 | uncommitted | [260813-fhz-replace-flat-writable-configuration-with](./quick/260813-fhz-replace-flat-writable-configuration-with/) |
+| 260813-lgb | Add CLI signer overrides with pre-bind ncryptsec unlocking | 2026-08-13 | uncommitted | [260813-lgb-add-cli-signer-overrides-for-nsec-ncrypt](./quick/260813-lgb-add-cli-signer-overrides-for-nsec-ncrypt/) |
 
 ## Deferred Items
 

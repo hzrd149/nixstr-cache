@@ -7,6 +7,8 @@ export type WriteHealthReason =
   | "signer_connecting"
   | "signer_failed"
   | "signer_ownership_mismatch"
+  | "write_initializing"
+  | "write_activation_failed"
   | "no_blossom_destination"
   | "no_publication_relay"
   | "no_complete_replica"
@@ -27,6 +29,7 @@ export interface HealthInputs {
     readonly repositoryHealthy?: boolean;
     readonly signerStatus?: "disconnected" | "connecting" | "ready" | "failed";
     readonly signerOwned?: boolean;
+    readonly activationStatus?: "initializing" | "ready" | "failed";
     readonly destinations?: number;
     readonly relays?: number;
     readonly publication?: {
@@ -94,6 +97,12 @@ export function createHealthSnapshotProvider(
               ? "signer_ownership_mismatch"
               : "signer_failed",
           );
+        }
+        if (input.write.activationStatus === "initializing") {
+          writeReasons.push("write_initializing");
+        }
+        if (input.write.activationStatus === "failed") {
+          writeReasons.push("write_activation_failed");
         }
         if ((input.write.destinations ?? 0) === 0) {
           writeReasons.push("no_blossom_destination");

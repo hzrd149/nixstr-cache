@@ -1,4 +1,6 @@
 import { nip19 } from "nostr-tools";
+import { bech32 } from "@scure/base";
+import { NostrConnectSigner } from "applesauce-signers";
 
 export interface Limits {
   readonly manifestWireBytes: number;
@@ -28,8 +30,15 @@ export interface RawConfig {
   readonly databasePath?: string;
   readonly spoolDirectory?: string;
   readonly writable?: RawWritableConfig;
+  /** Process-local CLI input. Never accepted from JSON or environment. */
+  readonly signerOverride?: SignerOverride;
   readonly limits?: Partial<Record<keyof Limits, string | number>>;
 }
+
+export type SignerOverride =
+  | { readonly type: "nsec"; readonly nsec: string }
+  | { readonly type: "ncryptsec"; readonly ncryptsec: string }
+  | { readonly type: "nbunksec"; readonly nbunksec: string };
 
 export interface RawWritableConfig {
   readonly enabled?: boolean | string;
@@ -39,6 +48,7 @@ export interface RawWritableConfig {
     readonly type?: string;
     readonly path?: string;
     readonly ncryptsec?: string;
+    readonly nbunksec?: string;
   };
   readonly staging?: {
     readonly directory?: string;
@@ -85,6 +95,16 @@ export type WriteIntent =
     readonly mode: "ncryptsec";
     readonly identity: WritableIdentity;
     readonly ncryptsec: string;
+  }
+  | {
+    readonly mode: "nsec";
+    readonly identity: WritableIdentity;
+    readonly nsec: string;
+  }
+  | {
+    readonly mode: "nbunksec";
+    readonly identity: WritableIdentity;
+    readonly nbunksec: string;
   };
 
 export type ValidatedWritableConfig =
@@ -94,7 +114,9 @@ export type ValidatedWritableConfig =
     readonly identity: WritableIdentity;
     readonly signer:
       | { readonly type: "local" | "nip46"; readonly path: string }
-      | { readonly type: "ncryptsec"; readonly ncryptsec: string };
+      | { readonly type: "ncryptsec"; readonly ncryptsec: string }
+      | { readonly type: "nsec"; readonly nsec: string }
+      | { readonly type: "nbunksec"; readonly nbunksec: string };
     readonly staging: {
       readonly directory: string;
       readonly bodyBytes: number;
@@ -359,20 +381,31 @@ export function parseConfig(
         identifier: writableName,
       });}
   }
+  const signerOverride = raw.signerOverride;
+  if (signerOverride && !writableEnabled) {
+    diagnostics.push({
+      field: "--signer",
+      code: "invalid",
+      message: "--signer requires writable.enabled to be true",
+    });
+  }
   const signerMode = writableEnabled
-    ? writableRaw?.signer?.type?.trim()
+    ? signerOverride?.type ?? writableRaw?.signer?.type?.trim()
     : undefined;
   if (
-    writableEnabled && signerMode !== "local" && signerMode !== "nip46" &&
-    signerMode !== "ncryptsec"
+    writableEnabled && !signerOverride && signerMode !== "local" &&
+    signerMode !== "nip46" && signerMode !== "ncryptsec" &&
+    signerMode !== "nbunksec"
   ) {
     diagnostics.push({
       field: "writable.signer.type",
       code: "invalid",
-      message: "writable.signer.type must be local, nip46, or ncryptsec",
+      message:
+        "writable.signer.type must be local, nip46, ncryptsec, or nbunksec",
     });
   }
-  const signerPath = writableEnabled && signerMode !== "ncryptsec"
+  const signerPath = writableEnabled && !signerOverride &&
+      (signerMode === "local" || signerMode === "nip46")
     ? parseOwnerPath(
       writableRaw?.signer?.path,
       "writable.signer.path",
@@ -380,12 +413,21 @@ export function parseConfig(
     )
     : undefined;
   const ncryptsec = writableEnabled && signerMode === "ncryptsec"
-    ? writableRaw?.signer?.ncryptsec?.trim()
+    ? signerOverride?.type === "ncryptsec"
+      ? signerOverride.ncryptsec
+      : writableRaw?.signer?.ncryptsec?.trim()
     : undefined;
-  if (writableEnabled && signerMode === "ncryptsec") {
+  const nsec = signerOverride?.type === "nsec"
+    ? signerOverride.nsec
+    : undefined;
+  const nbunksec = writableEnabled && signerMode === "nbunksec"
+    ? signerOverride?.type === "nbunksec"
+      ? signerOverride.nbunksec
+      : writableRaw?.signer?.nbunksec?.trim()
+    : undefined;
+  if (writableEnabled && signerMode === "ncryptsec" && !signerOverride) {
     if (
-      !ncryptsec || !ncryptsec.startsWith("ncryptsec1") ||
-      ncryptsec.length > 4096
+      !ncryptsec || !validNcryptsec(ncryptsec)
     ) {
       diagnostics.push({
         field: "writable.signer.ncryptsec",
@@ -400,11 +442,39 @@ export function parseConfig(
         message: "writable.signer.path must be absent for ncryptsec",
       });
     }
-  } else if (writableEnabled && writableRaw?.signer?.ncryptsec !== undefined) {
+  } else if (
+    writableEnabled && !signerOverride &&
+    writableRaw?.signer?.ncryptsec !== undefined
+  ) {
     diagnostics.push({
       field: "writable.signer.ncryptsec",
       code: "invalid",
       message: "writable.signer.ncryptsec is only valid for ncryptsec",
+    });
+  }
+  if (writableEnabled && signerMode === "nbunksec" && !signerOverride) {
+    if (!nbunksec || !validNbunksec(nbunksec)) {
+      diagnostics.push({
+        field: "writable.signer.nbunksec",
+        code: "invalid",
+        message: "writable.signer.nbunksec must be a valid nbunksec value",
+      });
+    }
+    if (writableRaw?.signer?.path !== undefined) {
+      diagnostics.push({
+        field: "writable.signer.path",
+        code: "invalid",
+        message: "writable.signer.path must be absent for nbunksec",
+      });
+    }
+  } else if (
+    writableEnabled && !signerOverride &&
+    writableRaw?.signer?.nbunksec !== undefined
+  ) {
+    diagnostics.push({
+      field: "writable.signer.nbunksec",
+      code: "invalid",
+      message: "writable.signer.nbunksec is only valid for nbunksec",
     });
   }
   const stagingDirectory = writableEnabled
@@ -543,6 +613,18 @@ export function parseConfig(
   if (diagnostics.length > 0) return { ok: false, diagnostics };
   const writeIntent: WriteIntent = !writableEnabled
     ? Object.freeze({ mode: "disabled" })
+    : signerMode === "nsec"
+    ? Object.freeze({
+      mode: "nsec",
+      identity: writableIdentity!,
+      nsec: nsec!,
+    })
+    : signerMode === "nbunksec"
+    ? Object.freeze({
+      mode: "nbunksec",
+      identity: writableIdentity!,
+      nbunksec: nbunksec!,
+    })
     : signerMode === "ncryptsec"
     ? Object.freeze({
       mode: "ncryptsec",
@@ -559,7 +641,11 @@ export function parseConfig(
     : Object.freeze({
       enabled: true,
       identity: writableIdentity!,
-      signer: signerMode === "ncryptsec"
+      signer: signerMode === "nsec"
+        ? Object.freeze({ type: "nsec", nsec: nsec! })
+        : signerMode === "nbunksec"
+        ? Object.freeze({ type: "nbunksec", nbunksec: nbunksec! })
+        : signerMode === "ncryptsec"
         ? Object.freeze({ type: "ncryptsec", ncryptsec: ncryptsec! })
         : Object.freeze({
           type: signerMode as "local" | "nip46",
@@ -596,6 +682,28 @@ export function parseConfig(
       limits: Object.freeze(limits as unknown as Limits),
     }),
   };
+}
+
+function validNcryptsec(value: string): boolean {
+  if (value.length > 4096 || !value.startsWith("ncryptsec1")) return false;
+  try {
+    const decoded = bech32.decode(value, 5000);
+    const bytes = Uint8Array.from(bech32.fromWords(decoded.words));
+    return decoded.prefix === "ncryptsec" && bytes.length === 91 &&
+      bytes[0] === 2 && bytes[1] >= 16 && bytes[1] <= 22 && bytes[42] <= 2;
+  } catch {
+    return false;
+  }
+}
+
+function validNbunksec(value: string): boolean {
+  if (value.length > 8192 || !value.startsWith("nbunksec1")) return false;
+  try {
+    NostrConnectSigner.parseNbunksec(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function normalizeRawConfig(

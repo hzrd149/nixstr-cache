@@ -1,6 +1,6 @@
 import { RelayPool } from "applesauce-relay";
 import { NostrConnectSigner } from "applesauce-signers/signers/nostr-connect-signer";
-import { type Observable } from "rxjs";
+import { type Observable, Subject } from "rxjs";
 import {
   type AppDependencies,
   type Bind,
@@ -31,7 +31,10 @@ import { WinnerRouteRegistry } from "../nix/merged_cache.ts";
 import { startPublicationSelection } from "../nostr/selection.ts";
 import { LocalRelayCache } from "../nostr/local_relay_cache.ts";
 import { StateRepository } from "../persistence/state_repository.ts";
-import { WriteRepository } from "../persistence/write_repository.ts";
+import {
+  WriteIdentityMismatch,
+  WriteRepository,
+} from "../persistence/write_repository.ts";
 import { EligibilityModel } from "../write/eligibility.ts";
 import { SignerOverlay } from "../write/overlay.ts";
 import { PublicationBatchScheduler } from "../write/batch_scheduler.ts";
@@ -42,7 +45,7 @@ import {
 } from "../signer/capability.ts";
 import type { RawPublication } from "../protocol/publication.ts";
 import {
-  createJsonDiagnosticSink,
+  createConsoleDiagnosticSink,
   type OperationalDiagnosticSink,
 } from "../operations/diagnostics.ts";
 import { createHealthSnapshotProvider } from "../operations/health.ts";
@@ -51,8 +54,45 @@ import {
   type PasswordRequest,
 } from "./password_prompt.ts";
 
+interface WriteBlossomDestination {
+  readonly url: string;
+  readonly trust: "configured" | "publisher";
+}
+
+function writeBlossomDestinations(
+  config: ValidatedConfig,
+  bud03: readonly string[],
+): readonly WriteBlossomDestination[] {
+  const ordered: Array<[string | URL, WriteBlossomDestination["trust"]]> = [];
+  if (config.preferredBlossomUrl) {
+    ordered.push([config.preferredBlossomUrl, "configured"]);
+  }
+  if (config.localBlossomUrl) {
+    ordered.push([config.localBlossomUrl, "configured"]);
+  }
+  for (const server of bud03) ordered.push([server, "publisher"]);
+  const seen = new Set<string>();
+  return Object.freeze(ordered.flatMap(([value, trust]) => {
+    try {
+      const url = new URL(value);
+      if (
+        !["http:", "https:"].includes(url.protocol) || url.username ||
+        url.password || url.search || url.hash
+      ) return [];
+      url.pathname = url.pathname.replace(/\/+$/, "");
+      const normalized = url.href.replace(/\/$/, "");
+      if (seen.has(normalized)) return [];
+      seen.add(normalized);
+      return [Object.freeze({ url: normalized, trust })];
+    } catch {
+      return [];
+    }
+  }));
+}
+
 export interface PublicationEventStream {
   readonly events: Observable<RawPublication>;
+  followBlossomPublisher?(pubkey: string): void;
   dispose(): void;
 }
 
@@ -60,16 +100,34 @@ export function createPublicationEventStream(
   config: ValidatedConfig,
 ): PublicationEventStream {
   const pool = new RelayPool();
-  const events = pool.subscription(
+  const initial = pool.subscription(
     config.relayUrls.map(String),
-    [{ kinds: [17091, 37091, 10063], authors: [...config.publisherPubkeys] }],
+    [
+      { kinds: [17091, 37091], authors: [...config.publisherPubkeys] },
+      { kinds: [10063], authors: [...config.publisherPubkeys] },
+    ],
   ) as Observable<RawPublication>;
+  const events = new Subject<RawPublication>();
+  const subscriptions = [initial.subscribe(events)];
+  const followed = new Set(config.publisherPubkeys);
   let disposed = false;
   return {
     events,
+    followBlossomPublisher(pubkey) {
+      if (disposed || followed.has(pubkey)) return;
+      followed.add(pubkey);
+      subscriptions.push(
+        (pool.subscription(config.relayUrls.map(String), [{
+          kinds: [10063],
+          authors: [pubkey],
+        }]) as Observable<RawPublication>).subscribe(events),
+      );
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
+      for (const subscription of subscriptions) subscription.unsubscribe();
+      events.complete();
       pool.close();
     },
   };
@@ -88,7 +146,7 @@ export interface ProductionHooks {
 export function createProductionDependencies(
   hooks: ProductionHooks = {},
 ): AppDependencies {
-  const diagnostics = hooks.diagnostics ?? createJsonDiagnosticSink();
+  const diagnostics = hooks.diagnostics ?? createConsoleDiagnosticSink();
   const supervisors = new WeakMap<object, {
     readonly abort: AbortController;
     readonly tasks: Set<Promise<void>>;
@@ -201,7 +259,20 @@ export function createProductionDependencies(
             `${signerIdentity.kind}:${pubkey}:${signerIdentity.identifier}`,
           );
           return { ok: true, pubkey } as const;
-        }).catch(async () => {
+        }).catch(async (error) => {
+          if (error instanceof WriteIdentityMismatch) {
+            const state = signer!.current();
+            const durableIdentity = writeRepository!.boundIdentity();
+            if (state.status === "ready" && durableIdentity) {
+              diagnostics.emit({
+                type: "writable_identity_mismatch",
+                code: "durable_writable_identity_mismatch",
+                configuredIdentity:
+                  `${signerIdentity.kind}:${state.pubkey}:${signerIdentity.identifier}`,
+                durableIdentity,
+              });
+            }
+          }
           await signer!.close();
           return { ok: false } as const;
         });
@@ -227,11 +298,29 @@ export function createProductionDependencies(
       let disposed = false;
       const selectionHandle = {
         current: () => selector.current(),
+        selected$: selector.selected$,
+        accept: (event: RawPublication) => selector.accept(event),
+        authorizeBlossomPublisher: (pubkey: string) =>
+          selector.authorizeBlossomPublisher(pubkey),
+        authorizePublicationPublisher: (pubkey: string, identity: string) =>
+          selector.authorizePublicationPublisher(pubkey, identity),
+        blossomServersFor: (pubkey: string) =>
+          selector.blossomServersFor(pubkey),
+        watchBlossomServers: (pubkey: string, callback: () => void) =>
+          selector.watchBlossomServers(pubkey, callback),
         repository,
         writeRepository,
         signer,
         signerReady,
+        followBlossomPublisher: stream.followBlossomPublisher,
         localRelay,
+        async readyBeforeBind() {
+          if (config.writeIntent.mode !== "ncryptsec") return;
+          const result = await signerReady;
+          if (!result?.ok || !result.pubkey) {
+            throw new Error("ncryptsec signer could not be unlocked");
+          }
+        },
         async dispose() {
           if (disposed) return;
           disposed = true;
@@ -289,6 +378,9 @@ export function createProductionDependencies(
         >;
       })
         .signerReady;
+      const followBlossomPublisher = (selection as typeof selection & {
+        followBlossomPublisher?: (pubkey: string) => void;
+      }).followBlossomPublisher;
       const writable = config.writable.enabled ? config.writable : undefined;
       const fetcher = new SafeFetcher(
         new AddressPolicy(
@@ -378,6 +470,8 @@ export function createProductionDependencies(
       };
       let activatedOverlay: SignerOverlay | undefined;
       let writesActivated = false;
+      let writeActivationStatus: "initializing" | "ready" | "failed" =
+        "initializing";
       const overlay = writeRepository
         ? {
           current: () => activatedOverlay?.current(),
@@ -389,12 +483,44 @@ export function createProductionDependencies(
         }
         : undefined;
       let eligibility: EligibilityModel | undefined;
+      let writeDestinations = writeBlossomDestinations(config, []);
+      let previousWriteDestinations = "";
+      const refreshWriteBlossomServers = (pubkey: string) => {
+        const next =
+          (selection as unknown as import("../nostr/selection.ts").PublicationSelector)
+            .blossomServersFor(pubkey);
+        const destinations = writeBlossomDestinations(config, next);
+        const encoded = JSON.stringify(destinations);
+        if (encoded !== previousWriteDestinations) {
+          previousWriteDestinations = encoded;
+          writeDestinations = destinations;
+          diagnostics.emit({
+            type: "blossom_server_list",
+            code: "write_server_list_changed",
+            count: destinations.length,
+            endpoints: destinations.map((item) => item.url),
+          });
+        }
+      };
       const activateWrites = async (pubkey: string) => {
         if (
           !writeRepository || !writable ||
           config.writeIntent.mode === "disabled"
         ) return;
         await signer!.assertIdentity();
+        const publicationSelector =
+          selection as unknown as import("../nostr/selection.ts").PublicationSelector;
+        publicationSelector.authorizePublicationPublisher(
+          pubkey,
+          `${config.writeIntent.identity.kind}:${pubkey}:${config.writeIntent.identity.identifier}`,
+        );
+        publicationSelector.authorizeBlossomPublisher(pubkey);
+        followBlossomPublisher?.(pubkey);
+        refreshWriteBlossomServers(pubkey);
+        const stopWatchingServers = publicationSelector.watchBlossomServers(
+          pubkey,
+          () => refreshWriteBlossomServers(pubkey),
+        );
         const nextOverlay = new SignerOverlay(writeRepository);
         const nextEligibility = new EligibilityModel(
           writeRepository,
@@ -459,22 +585,7 @@ export function createProductionDependencies(
           authorize: () => signer!.assertIdentity().then(() => {}),
           blossomServers: () => {
             if (signer!.current().status !== "ready") return Object.freeze([]);
-            const owned = (selection as unknown as {
-              current(): readonly import("../nostr/selection.ts").SelectedPublication[];
-            }).current().find((item) =>
-              item.event.pubkey === writableIdentity.pubkey
-            );
-            return Object.freeze([
-              ...new Set([
-                ...(config.preferredBlossomUrl
-                  ? [config.preferredBlossomUrl.origin]
-                  : []),
-                ...(config.localBlossomUrl
-                  ? [config.localBlossomUrl.origin]
-                  : []),
-                ...(owned?.bud03Servers ?? []),
-              ]),
-            ]);
+            return Object.freeze(writeDestinations.map((item) => item.url));
           },
           nixSigKeys: writable!.publication.nixSigKeys,
           publicationRelays: config.relayUrls.map(String),
@@ -483,7 +594,15 @@ export function createProductionDependencies(
           replica: {
             prove: async (server, entry, signal) => {
               await signer!.assertIdentity();
-              return await uploader.prove(server, entry, signal);
+              const destination = writeDestinations.find((item) =>
+                item.url === server
+              );
+              return await uploader.prove(
+                server,
+                entry,
+                signal,
+                destination?.trust ?? "publisher",
+              );
             },
           },
           publishRelays: async (event, relays, signal) => {
@@ -550,6 +669,7 @@ export function createProductionDependencies(
           supervisor.drains.add(() => nextBatchScheduler.close());
           supervisor.drains.add(() => {
             subscription!.unsubscribe();
+            stopWatchingServers();
             return Promise.resolve();
           });
           supervisor.drains.add(async () => {
@@ -559,6 +679,7 @@ export function createProductionDependencies(
         } catch (error) {
           try {
             subscription?.unsubscribe();
+            stopWatchingServers();
           } catch { /* cleanup continues below */ }
           try {
             publishPool.close();
@@ -570,13 +691,39 @@ export function createProductionDependencies(
           throw error;
         }
       };
-      const activationTask =
-        (signerReady ?? Promise.resolve({ ok: false } as const))
+      const activationTask = signerReady
+        ? signerReady
           .then(async (result) => {
-            if (!result.ok || !result.pubkey) return;
+            if (!result.ok || !result.pubkey) {
+              writeActivationStatus = "failed";
+              diagnostics.emit({
+                type: "write_transition",
+                code: "write_activation_failed",
+                status: "failed",
+              });
+              return;
+            }
+            diagnostics.emit({
+              type: "write_transition",
+              code: "write_activation_started",
+              status: "initializing",
+            });
             await activateWrites(result.pubkey);
-          }).catch(() => {})
-          .finally(() => supervisor.tasks.delete(activationTask));
+            writeActivationStatus = "ready";
+            diagnostics.emit({
+              type: "write_transition",
+              code: "write_activation_ready",
+              status: "ready",
+            });
+          }).catch(() => {
+            writeActivationStatus = "failed";
+            diagnostics.emit({
+              type: "write_transition",
+              code: "write_activation_failed",
+              status: "failed",
+            });
+          }).finally(() => supervisor.tasks.delete(activationTask))
+        : Promise.resolve();
       supervisor.tasks.add(activationTask);
       const nixHandler = createNixHttpHandler({
         decodedMetadataBytes: config.limits.decodedMetadataBytes,
@@ -626,13 +773,7 @@ export function createProductionDependencies(
             : !saga.acknowledgedRelay
             ? { phase: "awaiting_relay" as const, completeReplica: true }
             : { phase: "idle" as const, completeReplica: true };
-          const destinations = new Set([
-            ...(config.preferredBlossomUrl
-              ? [config.preferredBlossomUrl.origin]
-              : []),
-            ...(config.localBlossomUrl ? [config.localBlossomUrl.origin] : []),
-            ...selected.flatMap((item) => item.bud03Servers),
-          ]).size;
+          const destinations = writeDestinations.length;
           return {
             process: { repositoryHealthy: writeRepository?.health() ?? true },
             read: {
@@ -648,6 +789,7 @@ export function createProductionDependencies(
                 signerOwned: signerState?.status === "ready" ||
                   (signerState?.status === "failed" &&
                     signerState.code !== "identity_changed"),
+                activationStatus: writeActivationStatus,
                 destinations,
                 relays: config.relayUrls.length,
                 publication,
@@ -658,12 +800,7 @@ export function createProductionDependencies(
           ? {
             current: () => {
               const state = signer.current();
-              const selected = (selection as unknown as {
-                current(): readonly import("../nostr/selection.ts").SelectedPublication[];
-              }).current();
-              const hasDestination = config.localBlossomUrl !== undefined ||
-                config.preferredBlossomUrl !== undefined ||
-                selected.some((item) => item.bud03Servers.length > 0);
+              const hasDestination = writeDestinations.length > 0;
               return {
                 ready: state.status === "ready" && writeRepository.health() &&
                   writesActivated &&
@@ -703,13 +840,25 @@ export type LaunchResult =
     readonly finished: Promise<void>;
   };
 
-export function launchDaemon(
+export async function launchDaemon(
   raw: RawConfig,
   hooks: ProductionHooks = {},
-): LaunchResult {
+): Promise<LaunchResult> {
   const app = createApp(raw, createProductionDependencies(hooks));
   if (!app.ok) return app;
-  const running = startApp(app.value, hooks.bind);
+  let running: ReturnType<typeof startApp>;
+  try {
+    await app.value.readyBeforeBind();
+    running = startApp(app.value, hooks.bind);
+  } catch (error) {
+    await app.value.closeResources();
+    return {
+      ok: false,
+      diagnostics: Object.freeze([
+        error instanceof Error ? error.message : "daemon startup failed",
+      ]),
+    };
+  }
   let resolveFinished!: () => void;
   const finished = new Promise<void>((resolve) => resolveFinished = resolve);
   let stopping: Promise<void> | undefined;

@@ -80,6 +80,10 @@ export function createSignerCapability(
           const signer = PrivateKeySigner.fromKey(owned.slice());
           retainedKey = signer.key;
           active = signer satisfies Pick<PrivateKeySigner, "getPublicKey">;
+        } else if (intent.mode === "nsec") {
+          const signer = PrivateKeySigner.fromKey(intent.nsec);
+          retainedKey = signer.key;
+          active = signer;
         } else if (intent.mode === "nip46") {
           if (!options.createNip46Signer) {
             throw new ProtectedSourceError();
@@ -89,37 +93,50 @@ export function createSignerCapability(
             new TextDecoder("utf-8", { fatal: true }).decode(owned).trim(),
             intent.identity.kind,
           );
+        } else if (intent.mode === "nbunksec") {
+          if (!options.createNip46Signer) {
+            throw new ProtectedSourceError();
+          }
+          active = await options.createNip46Signer(
+            intent.nbunksec,
+            intent.identity.kind,
+          );
         } else {
           if (intent.mode !== "ncryptsec") return;
           if (!options.requestPassword) throw new PasswordUnavailableError();
           const encryptedKey = intent.ncryptsec;
-          let password: string;
-          try {
-            password = await options.requestPassword();
-          } catch {
-            throw new PasswordUnavailableError();
-          }
-          try {
-            const signer = await PasswordSigner.fromNcryptsec(
-              encryptedKey,
-              password,
-            );
-            if (!signer.key || signer.key.length !== 32) {
-              throw new TypeError("invalid encrypted key");
+          while (!active) {
+            let password: string;
+            try {
+              password = await options.requestPassword();
+            } catch {
+              throw new PasswordUnavailableError();
             }
-            retainedKey = signer.key;
-            active = {
-              getPublicKey: () => signer.getPublicKey(),
-              signEvent: (template) => signer.signEvent(template),
-              close() {
-                signer.key?.fill(0);
-                signer.lock();
-              },
-            };
-          } catch {
-            throw new TypeError("invalid encrypted key");
-          } finally {
-            password = "";
+            try {
+              const signer = await PasswordSigner.fromNcryptsec(
+                encryptedKey,
+                password,
+              );
+              if (!signer.key || signer.key.length !== 32) {
+                throw new TypeError("invalid encrypted key");
+              }
+              retainedKey = signer.key;
+              active = {
+                getPublicKey: () => signer.getPublicKey(),
+                signEvent: (template) => signer.signEvent(template),
+                close() {
+                  signer.key?.fill(0);
+                  signer.lock();
+                },
+              };
+            } catch {
+              if (!options.requestPassword.interactive) {
+                throw new TypeError("invalid encrypted key");
+              }
+              await options.requestPassword.rejected?.();
+            } finally {
+              password = "";
+            }
           }
         }
         const pubkey = await active.getPublicKey();

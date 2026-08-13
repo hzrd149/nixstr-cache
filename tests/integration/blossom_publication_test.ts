@@ -71,3 +71,45 @@ Deno.test("publication uploads retain backpressure and bounded concurrent reader
     await Deno.remove(root, { recursive: true });
   }
 });
+
+Deno.test("publication upload preserves server base path and publisher trust", async () => {
+  const root = await Deno.makeTempDir({ prefix: "publication-target-" });
+  const path = `${root}/blob`;
+  const bytes = new TextEncoder().encode("blob");
+  const hash = sha256(bytes).toHex();
+  await Deno.writeFile(path, bytes);
+  const calls: Array<[string, string]> = [];
+  const uploader = new PublicationUploader({
+    request: (url, trust) => {
+      calls.push([String(url), trust]);
+      return Promise.resolve({
+        status: calls.length === 1 ? 201 : 200,
+        headers: new Headers(),
+        body: new Response(
+          calls.length === 1
+            ? JSON.stringify({ sha256: hash, size: bytes.length })
+            : bytes,
+        ).body!,
+        peerAddress: "203.0.113.1",
+        text: () => Promise.resolve(""),
+        cancel: () => Promise.resolve(),
+      });
+    },
+  });
+  try {
+    assertEquals(
+      await uploader.prove("https://blossom.example/base", {
+        hash,
+        size: bytes.length,
+        path,
+      }),
+      true,
+    );
+    assertEquals(calls, [
+      ["https://blossom.example/base/upload", "publisher"],
+      [`https://blossom.example/base/${hash}`, "publisher"],
+    ]);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});

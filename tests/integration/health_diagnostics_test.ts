@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import {
-  createJsonDiagnosticSink,
+  createConsoleDiagnosticSink,
   type OperationalDiagnostic,
 } from "../../src/operations/diagnostics.ts";
 import {
@@ -41,7 +41,7 @@ function healthInputs(overrides: Partial<HealthInputs> = {}): HealthInputs {
 
 Deno.test("blocked publication is observable without side effects or secrets", async () => {
   const lines: string[] = [];
-  const sink = createJsonDiagnosticSink({
+  const sink = createConsoleDiagnosticSink({
     write: (line) => lines.push(line),
     now: () => 1_786_550_400_000,
   });
@@ -74,8 +74,8 @@ Deno.test("blocked publication is observable without side effects or secrets", a
   );
   assertEquals(lines.length, 1);
   const encoded = lines[0];
-  assertStringIncludes(encoded, '"type":"replica_attempt"');
-  assertStringIncludes(encoded, '"endpoint":"https://example.test/upload"');
+  assertStringIncludes(encoded, "WARN  Blossom replica failed");
+  assertStringIncludes(encoded, "endpoint=https://example.test/upload");
   for (const secret of secretCorpus) {
     assertEquals(encoded.includes(secret), false);
   }
@@ -114,7 +114,7 @@ Deno.test("blocked publication is observable without side effects or secrets", a
 
 Deno.test("staging failure diagnostic is typed secret-safe and non-authoritative", async () => {
   const lines: string[] = [];
-  const sink = createJsonDiagnosticSink({
+  const sink = createConsoleDiagnosticSink({
     write: (line) => lines.push(line),
     now: () => 0,
   });
@@ -135,10 +135,10 @@ Deno.test("staging failure diagnostic is typed secret-safe and non-authoritative
     }),
   );
   assertEquals(response.status, 503);
-  assertEquals(lines.length, 1);
-  assertStringIncludes(lines[0], '"type":"staging_failure"');
-  assertStringIncludes(lines[0], '"code":"staging_unavailable"');
-  assertEquals(lines[0].includes("secret"), false);
+  assertEquals(lines.length, 2);
+  assertStringIncludes(lines[0], "upload staging failed: staging_unavailable");
+  assertStringIncludes(lines[1], "PUT /nar/fail.nar -> 503");
+  assertEquals(lines.some((line) => line.includes("secret")), false);
 
   const throwing = createNixHttpHandler({
     decodedMetadataBytes: 1024,
@@ -159,6 +159,48 @@ Deno.test("staging failure diagnostic is typed secret-safe and non-authoritative
       }),
     )).status,
     503,
+  );
+});
+
+Deno.test("empty cache preflight logs actionable write readiness reasons", async () => {
+  const lines: string[] = [];
+  const sink = createConsoleDiagnosticSink({
+    write: (line) => lines.push(line),
+    now: () => 0,
+  });
+  const health = createHealthSnapshotProvider(() =>
+    healthInputs({
+      read: { selectedPublications: 0, overlayEntries: 0 },
+      write: {
+        enabled: true,
+        repositoryHealthy: true,
+        signerStatus: "ready",
+        signerOwned: true,
+        activationStatus: "failed",
+        destinations: 1,
+        relays: 1,
+      },
+    }), () => 0);
+  const handler = createNixHttpHandler({
+    decodedMetadataBytes: 1024,
+    health,
+    operationalDiagnostics: sink,
+    selection: { current: () => Object.freeze([]) },
+    resolverFor: () => ({ resolve: () => Promise.reject(new Error("unused")) }),
+    write: { current: () => ({ ready: false }) },
+  });
+  const response = await handler(
+    new Request("http://cache.test/0123456789abcdfghijklmnpqrsvwxyz.narinfo"),
+  );
+  assertEquals(response.status, 503);
+  assertEquals(lines.length, 1);
+  assertStringIncludes(
+    lines[0],
+    "GET /0123456789abcdfghijklmnpqrsvwxyz.narinfo -> 503",
+  );
+  assertStringIncludes(
+    lines[0],
+    "reason=no_read_sources,write_activation_failed",
   );
 });
 
@@ -237,7 +279,7 @@ Deno.test("health state matrix is deterministic and independent", () => {
 
 Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are contained", () => {
   const lines: string[] = [];
-  const sink = createJsonDiagnosticSink({
+  const sink = createConsoleDiagnosticSink({
     write: (line) => lines.push(line),
     now: () => 0,
   });
@@ -293,13 +335,43 @@ Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are co
       eventId: "e",
       rootHash: "h",
     },
+    {
+      type: "blossom_server_list",
+      code: "write_server_list_changed",
+      count: 1,
+      endpoints: ["https://user:secret@example.test/base?token=hidden#part"],
+    },
+    {
+      type: "writable_identity_mismatch",
+      code: "durable_writable_identity_mismatch",
+      configuredIdentity: `17091:${"a".repeat(64)}:`,
+      durableIdentity: `17091:${"b".repeat(64)}:`,
+    },
   ];
   for (const event of events) sink.emit(event);
-  assertEquals(
-    lines.map((line) => JSON.parse(line).type),
-    events.map((event) => event.type),
+  assertEquals(lines.length, events.length);
+  assertStringIncludes(lines[0], "Nostr event rejected: invalid_event");
+  assertStringIncludes(lines[1], "narinfo publisher conflict");
+  assertStringIncludes(lines[2], "upstream request failed: upstream_timeout");
+  assertStringIncludes(lines[3], "signer ready: signer_ready");
+  assertStringIncludes(lines[4], "publication batch: batch_pending");
+  assertStringIncludes(lines[5], "Blossom replica succeeded: replica_complete");
+  assertStringIncludes(lines[6], "relay publication acknowledged");
+  assertStringIncludes(lines[7], "cache publication promoted");
+  assertStringIncludes(lines[8], "write Blossom server list changed");
+  assertStringIncludes(lines[8], "endpoints=https://example.test/base");
+  assertEquals(lines[8].includes("secret"), false);
+  assertEquals(lines[8].includes("hidden"), false);
+  assertStringIncludes(
+    lines[9],
+    "WRITABLE CACHE OWNER MISMATCH — WRITES HAVE BEEN DISABLED",
   );
-  const failing = createJsonDiagnosticSink({
+  assertStringIncludes(lines[9], `Configured signer: 17091:${"a".repeat(64)}:`);
+  assertStringIncludes(lines[9], `Durable owner:     17091:${"b".repeat(64)}:`);
+  assertStringIncludes(lines[9], "writable.enabled was honored");
+  assertStringIncludes(lines[9], "PUT is disabled");
+  assertStringIncludes(lines[9], "Do not delete state casually");
+  const failing = createConsoleDiagnosticSink({
     write: () => {
       throw new Error("sink failed");
     },
@@ -397,7 +469,10 @@ Deno.test("serializer does not inspect unknown properties or recursive errors", 
       },
     },
   }) as OperationalDiagnostic;
-  createJsonDiagnosticSink({ write: (line) => lines.push(line), now: () => 0 })
+  createConsoleDiagnosticSink({
+    write: (line) => lines.push(line),
+    now: () => 0,
+  })
     .emit(hostile);
   assertEquals(touched, 0);
   assertEquals(lines.length, 1);

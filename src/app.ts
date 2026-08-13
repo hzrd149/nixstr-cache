@@ -9,6 +9,7 @@ interface CloseableRepository {
 }
 interface DisposableSelection {
   dispose(): unknown | Promise<unknown>;
+  readyBeforeBind?(): Promise<void>;
 }
 
 export interface AppDependencies {
@@ -26,6 +27,7 @@ export interface AppDependencies {
 export interface DaemonApp {
   readonly config: ValidatedConfig;
   readonly handler: (request: Request) => Response | Promise<Response>;
+  readyBeforeBind(): Promise<void>;
   closeResources(): Promise<void>;
 }
 
@@ -57,6 +59,8 @@ export function createApp(
       value: Object.freeze({
         config: parsed.value,
         handler,
+        readyBeforeBind: () =>
+          selection?.readyBeforeBind?.() ?? Promise.resolve(),
         async closeResources() {
           try {
             await selection?.dispose();

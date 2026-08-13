@@ -11,6 +11,7 @@ import { parseConfig } from "../../src/config/config.ts";
 import { StateRepository } from "../../src/persistence/state_repository.ts";
 import type { RawPublication } from "../../src/protocol/publication.ts";
 import { createProductionDependencies } from "../../src/runtime/daemon.ts";
+import { createPublicationEventStream } from "../../src/runtime/daemon.ts";
 
 const secret = generateSecretKey();
 const publisher = getPublicKey(secret);
@@ -166,4 +167,70 @@ Deno.test("production BUD-03 wiring feeds configured, event, then server list so
   } finally {
     await Deno.remove(root, { recursive: true });
   }
+});
+
+Deno.test("signer BUD-03 list is authorized independently of read publications", async () => {
+  const path = await Deno.makeTempFile({ suffix: ".sqlite" });
+  const signerSecret = generateSecretKey();
+  const signerPubkey = getPublicKey(signerSecret);
+  try {
+    const events = new Subject<RawPublication>();
+    const repository = new StateRepository(path);
+    const selector = startPublicationSelection({
+      events,
+      repository,
+      publisherPubkeys: [publisher],
+      identities: [`17091:${publisher}:`],
+      now: () => 100,
+    });
+    selector.authorizeBlossomPublisher(signerPubkey);
+    selector.authorizePublicationPublisher(
+      signerPubkey,
+      `17091:${signerPubkey}:`,
+    );
+    let changes = 0;
+    const stopWatching = selector.watchBlossomServers(
+      signerPubkey,
+      () => changes++,
+    );
+    events.next(
+      servers(91, [["server", "https://write.example/base"]], signerSecret),
+    );
+    assertEquals(selector.current(), []);
+    assertEquals(selector.blossomServersFor(signerPubkey), [
+      "https://write.example/base",
+    ]);
+    assertEquals(selector.blossomServersFor(publisher), []);
+    assertEquals(changes, 1);
+    events.next(finalizeEvent({
+      kind: 17091,
+      created_at: 94,
+      content: "",
+      tags: [["htree", `htree://${nhash}`]],
+    }, signerSecret));
+    assertEquals(selector.current()[0]?.event.pubkey, signerPubkey);
+    assertEquals(selector.current()[0]?.bud03Servers, [
+      "https://write.example/base",
+    ]);
+    stopWatching();
+    selector.dispose();
+    repository.close();
+  } finally {
+    await Deno.remove(path);
+  }
+});
+
+Deno.test("production event stream exposes dynamic signer BUD-03 follow", () => {
+  const parsed = parseConfig({
+    caches: publisher,
+    relayUrls: "ws://127.0.0.1:9000",
+    databasePath: "/tmp/nixstr-unused.sqlite",
+    spoolDirectory: "/tmp/nixstr-unused-spool",
+  });
+  if (!parsed.ok) throw new Error("fixture config invalid");
+  const stream = createPublicationEventStream(parsed.value);
+  stream.followBlossomPublisher?.(publisher);
+  stream.followBlossomPublisher?.(getPublicKey(generateSecretKey()));
+  stream.dispose();
+  stream.dispose();
 });

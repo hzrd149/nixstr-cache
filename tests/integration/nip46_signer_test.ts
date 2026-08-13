@@ -1,10 +1,11 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { Subject } from "rxjs";
 import type { RawConfig } from "../../src/config/config.ts";
 import type { RawPublication } from "../../src/protocol/publication.ts";
 import { launchDaemon } from "../../src/runtime/daemon.ts";
 import { createSignerCapability } from "../../src/signer/capability.ts";
+import { WriteRepository } from "../../src/persistence/write_repository.ts";
 import {
   createNostrConnectFixture,
   type NostrConnectOutcome,
@@ -64,7 +65,7 @@ async function scenario(
       },
       preferredBlossomUrl: "http://127.0.0.1:9",
     };
-    const daemon = launchDaemon(raw, {
+    const daemon = await launchDaemon(raw, {
       createEventStream: () => ({
         events: new Subject<RawPublication>(),
         dispose() {},
@@ -152,7 +153,7 @@ Deno.test("production NIP-46 fails closed for denial and connection failure", as
   await scenario(17091, "failed");
 });
 
-Deno.test("remote publication delegates sign_event through the owned NIP-46 capability", async () => {
+Deno.test("inline nbunksec delegates publication through the owned NIP-46 capability", async () => {
   const root = await Deno.makeTempDir({ prefix: "nixstr-nip46-sign-" });
   const fixture = await createNostrConnectFixture({
     outcome: "success",
@@ -160,13 +161,11 @@ Deno.test("remote publication delegates sign_event through the owned NIP-46 capa
   });
   const owner = fixture.remoteOwner;
   try {
-    const sessionPath = `${root}/session`;
-    await Deno.writeTextFile(sessionPath, fixture.nbunksec, { mode: 0o600 });
     const capability = createSignerCapability({
       intent: {
-        mode: "nip46",
+        mode: "nbunksec",
         identity: { kind: 17091, identifier: "" },
-        signerPath: sessionPath,
+        nbunksec: fixture.nbunksec,
       },
       createNip46Signer: async (session, permissionKind) => {
         const { RelayPool } = await import("applesauce-relay");
@@ -207,6 +206,70 @@ Deno.test("remote publication delegates sign_event through the owned NIP-46 capa
     assert(fixture.facts.methods.includes("sign_event"));
     await capability.close();
   } finally {
+    await fixture.close();
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("durable owner mismatch prints a prominent warning before closing nbunksec", async () => {
+  const root = await Deno.makeTempDir({
+    prefix: "nixstr-nip46-owner-mismatch-",
+  });
+  const fixture = await createNostrConnectFixture({
+    outcome: "success",
+    returnedOwner: getPublicKey(generateSecretKey()),
+  });
+  const databasePath = `${root}/state.sqlite`;
+  const stagingDirectory = `${root}/staging`;
+  const durablePubkey = getPublicKey(generateSecretKey());
+  const repository = new WriteRepository(
+    `${databasePath}.writes`,
+    stagingDirectory,
+    { perBodyBytes: 1024, aggregateBytes: 4096 },
+  );
+  repository.bindIdentity(`17091:${durablePubkey}:`);
+  repository.close();
+  const lines: string[] = [];
+  const log = console.log;
+  console.log = (...values) => lines.push(values.join(" "));
+  try {
+    const daemon = await launchDaemon({
+      caches: fixture.remoteOwner,
+      relayUrls: fixture.relayUrl,
+      databasePath,
+      spoolDirectory: `${root}/spool`,
+      preferredBlossomUrl: "http://127.0.0.1:9",
+      writable: {
+        enabled: true,
+        type: "root",
+        signer: { type: "nbunksec", nbunksec: fixture.nbunksec },
+        staging: { directory: stagingDirectory },
+      },
+    }, {
+      createEventStream: () => ({
+        events: new Subject<RawPublication>(),
+        dispose() {},
+      }),
+      bind: () => ({ shutdown: () => Promise.resolve() }),
+      signals: [],
+    });
+    assert(daemon.ok);
+    await fixture.waitForRequests(1, deadline);
+    await fixture.completeAuthorization();
+    await fixture.waitForSocketClose(deadline);
+    const warning = lines.find((line) =>
+      line.includes("WRITABLE CACHE OWNER MISMATCH")
+    );
+    assert(warning);
+    assertStringIncludes(
+      warning,
+      `Configured signer: 17091:${fixture.remoteOwner}:`,
+    );
+    assertStringIncludes(warning, `Durable owner:     17091:${durablePubkey}:`);
+    assertStringIncludes(warning, "WRITES HAVE BEEN DISABLED");
+    await daemon.shutdown();
+  } finally {
+    console.log = log;
     await fixture.close();
     await Deno.remove(root, { recursive: true });
   }

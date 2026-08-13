@@ -5,7 +5,10 @@ export interface PasswordPromptIO {
   readonly write: (data: Uint8Array) => Promise<number>;
 }
 
-export type PasswordRequest = () => Promise<string>;
+export type PasswordRequest = (() => Promise<string>) & {
+  readonly interactive?: boolean;
+  readonly rejected?: () => Promise<void>;
+};
 
 export function createPasswordRequest(
   io: PasswordPromptIO = {
@@ -16,11 +19,15 @@ export function createPasswordRequest(
   },
   maxBytes = 1024,
 ): PasswordRequest {
-  return async () => {
-    const terminal = io.isTerminal();
+  const terminal = io.isTerminal();
+  const request = async () => {
     const bytes: number[] = [];
     if (terminal) {
-      await io.write(new TextEncoder().encode("Unlock ncryptsec signer: "));
+      await io.write(
+        new TextEncoder().encode(
+          "The ncryptsec signer is locked. Enter its unlock password.\nPassword: ",
+        ),
+      );
       io.setRaw(true);
     }
     try {
@@ -66,4 +73,13 @@ export function createPasswordRequest(
       }
     }
   };
+  return Object.assign(request, {
+    interactive: terminal,
+    rejected: () =>
+      io.write(
+        new TextEncoder().encode(
+          "Unable to unlock the ncryptsec signer; try again.\n",
+        ),
+      ).then(() => {}),
+  });
 }
