@@ -1,8 +1,9 @@
-import type { PrivateKeySigner } from "applesauce-signers/signers/private-key-signer";
-import process from "node:process";
+import { PrivateKeySigner } from "applesauce-signers/signers/private-key-signer";
+import { PasswordSigner } from "applesauce-signers";
 import { BehaviorSubject, type Observable } from "rxjs";
 import type { WriteIntent } from "../config/config.ts";
 import type { EventTemplate, VerifiedEvent } from "nostr-tools";
+import type { PasswordRequest } from "../runtime/password_prompt.ts";
 
 export type SignerState =
   | { readonly status: "disconnected" }
@@ -14,7 +15,8 @@ export type SignerState =
       | "protected_source"
       | "invalid_source"
       | "connection"
-      | "ownership_mismatch";
+      | "password_unavailable"
+      | "identity_changed";
   };
 
 export interface PublicKeySigner {
@@ -26,6 +28,7 @@ export interface SignerCapability {
   readonly state: Observable<SignerState>;
   current(): SignerState;
   start(): Promise<void>;
+  assertIdentity(): Promise<string>;
   close(): Promise<void>;
   signEvent(
     template: EventTemplate,
@@ -35,12 +38,11 @@ export interface SignerCapability {
 
 export interface SignerCapabilityOptions {
   readonly intent: WriteIntent;
-  readonly localKeyPath?: string;
-  readonly nip46SessionPath?: string;
   readonly createNip46Signer?: (
     session: string,
     permissionKind: 17091 | 37091,
   ) => Promise<PublicKeySigner>;
+  readonly requestPassword?: PasswordRequest;
 }
 
 async function readProtected(path: string): Promise<Uint8Array> {
@@ -53,26 +55,10 @@ async function readProtected(path: string): Promise<Uint8Array> {
 
 class ProtectedSourceError extends Error {}
 
-async function privateKeySignerFromKey(
-  key: Uint8Array,
-): Promise<PrivateKeySigner> {
-  // debug's Node entrypoint enumerates process.env at module initialization.
-  // It is irrelevant to signing and would otherwise widen the daemon permission set.
-  const environment = process.env;
-  try {
-    process.env = {};
-    const { PrivateKeySigner } = await import(
-      "applesauce-signers/signers/private-key-signer"
-    );
-    return PrivateKeySigner.fromKey(key);
-  } finally {
-    process.env = environment;
-  }
-}
-
 export function createSignerCapability(
   options: SignerCapabilityOptions,
 ): SignerCapability {
+  const intent = options.intent;
   const subject = new BehaviorSubject<SignerState>(
     Object.freeze({ status: "disconnected" }),
   );
@@ -83,37 +69,60 @@ export function createSignerCapability(
     state: subject.asObservable(),
     current: () => subject.value,
     async start() {
-      if (closed || options.intent.mode === "disabled") return;
+      if (closed || intent.mode === "disabled") return;
       subject.next(Object.freeze({ status: "connecting" }));
       let owned: Uint8Array | undefined;
       try {
-        if (options.intent.mode === "local") {
-          if (!options.localKeyPath) throw new ProtectedSourceError();
-          owned = await readProtected(options.localKeyPath);
+        if (intent.mode === "local") {
+          owned = await readProtected(intent.signerPath);
           if (owned.length !== 32) throw new TypeError("invalid local key");
           // Keep the phase-3 boundary status-only; publication APIs are omitted.
-          const signer = await privateKeySignerFromKey(owned.slice());
+          const signer = PrivateKeySigner.fromKey(owned.slice());
           retainedKey = signer.key;
           active = signer satisfies Pick<PrivateKeySigner, "getPublicKey">;
-        } else {
-          if (!options.nip46SessionPath || !options.createNip46Signer) {
+        } else if (intent.mode === "nip46") {
+          if (!options.createNip46Signer) {
             throw new ProtectedSourceError();
           }
-          owned = await readProtected(options.nip46SessionPath);
+          owned = await readProtected(intent.signerPath);
           active = await options.createNip46Signer(
             new TextDecoder("utf-8", { fatal: true }).decode(owned).trim(),
-            options.intent.identity.kind,
+            intent.identity.kind,
           );
+        } else {
+          if (intent.mode !== "ncryptsec") return;
+          if (!options.requestPassword) throw new PasswordUnavailableError();
+          const encryptedKey = intent.ncryptsec;
+          let password: string;
+          try {
+            password = await options.requestPassword();
+          } catch {
+            throw new PasswordUnavailableError();
+          }
+          try {
+            const signer = await PasswordSigner.fromNcryptsec(
+              encryptedKey,
+              password,
+            );
+            if (!signer.key || signer.key.length !== 32) {
+              throw new TypeError("invalid encrypted key");
+            }
+            retainedKey = signer.key;
+            active = {
+              getPublicKey: () => signer.getPublicKey(),
+              signEvent: (template) => signer.signEvent(template),
+              close() {
+                signer.key?.fill(0);
+                signer.lock();
+              },
+            };
+          } catch {
+            throw new TypeError("invalid encrypted key");
+          } finally {
+            password = "";
+          }
         }
         const pubkey = await active.getPublicKey();
-        if (pubkey !== options.intent.identity.pubkey) {
-          await active.close?.();
-          active = undefined;
-          subject.next(
-            Object.freeze({ status: "failed", code: "ownership_mismatch" }),
-          );
-          return;
-        }
         subject.next(Object.freeze({ status: "ready", pubkey }));
       } catch (error) {
         try {
@@ -122,7 +131,9 @@ export function createSignerCapability(
         active = undefined;
         retainedKey?.fill(0);
         retainedKey = undefined;
-        const code = error instanceof ProtectedSourceError
+        const code = error instanceof PasswordUnavailableError
+          ? "password_unavailable"
+          : error instanceof ProtectedSourceError
           ? "protected_source"
           : error instanceof TypeError
           ? "invalid_source"
@@ -145,21 +156,30 @@ export function createSignerCapability(
         subject.complete();
       }
     },
+    async assertIdentity() {
+      const state = subject.value;
+      if (closed || state.status !== "ready" || !active) {
+        throw new Error("signer is not ready");
+      }
+      const pubkey = await active.getPublicKey();
+      if (pubkey !== state.pubkey) {
+        subject.next(
+          Object.freeze({ status: "failed", code: "identity_changed" }),
+        );
+        throw new Error("signer ownership changed");
+      }
+      return pubkey;
+    },
     async signEvent(template, signal) {
       signal?.throwIfAborted();
       const state = subject.value;
       if (
         closed || state.status !== "ready" || !active?.signEvent ||
-        options.intent.mode === "disabled"
+        intent.mode === "disabled"
       ) {
         throw new Error("signer is not ready");
       }
-      const pubkey = await active.getPublicKey();
-      if (
-        pubkey !== state.pubkey || pubkey !== options.intent.identity.pubkey
-      ) {
-        throw new Error("signer ownership changed");
-      }
+      const pubkey = await this.assertIdentity();
       const operation = active.signEvent(template);
       const event = signal
         ? await Promise.race([
@@ -172,6 +192,7 @@ export function createSignerCapability(
         ])
         : await operation;
       signal?.throwIfAborted();
+      await this.assertIdentity();
       if (event.pubkey !== pubkey) {
         throw new Error("signer returned foreign event");
       }
@@ -179,3 +200,5 @@ export function createSignerCapability(
     },
   };
 }
+
+class PasswordUnavailableError extends Error {}

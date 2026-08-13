@@ -1,3 +1,5 @@
+import { nip19 } from "nostr-tools";
+
 export interface Limits {
   readonly manifestWireBytes: number;
   readonly decodedMetadataBytes: number;
@@ -18,26 +20,44 @@ export interface Limits {
 
 export interface RawConfig {
   readonly bindHost?: string;
-  readonly bindPort?: string;
-  readonly publisherPubkeys?: string;
-  readonly cacheIdentities?: string;
-  readonly relayUrls?: string;
+  readonly bindPort?: string | number;
+  readonly caches?: string | readonly string[];
+  readonly relayUrls?: string | readonly string[];
   readonly preferredBlossomUrl?: string;
   readonly localBlossomUrl?: string;
   readonly databasePath?: string;
   readonly spoolDirectory?: string;
-  readonly signerMode?: string;
-  readonly writableIdentity?: string;
-  readonly localKeyPath?: string;
-  readonly nip46SessionPath?: string;
-  readonly stagingDirectory?: string;
-  readonly stagingBodyBytes?: string;
-  readonly stagingAggregateBytes?: string;
-  readonly nixSigKeys?: string;
-  readonly publicationLifetimeSeconds?: string;
-  readonly localRelayUrl?: string;
-  readonly publicationConcurrency?: string;
-  readonly publicationMaxAttempts?: string;
+  readonly writable?: RawWritableConfig;
+  readonly limits?: Partial<Record<keyof Limits, string | number>>;
+}
+
+export interface RawWritableConfig {
+  readonly enabled?: boolean | string;
+  readonly type?: string;
+  readonly name?: string;
+  readonly signer?: {
+    readonly type?: string;
+    readonly path?: string;
+    readonly ncryptsec?: string;
+  };
+  readonly staging?: {
+    readonly directory?: string;
+    readonly bodyBytes?: string | number;
+    readonly aggregateBytes?: string | number;
+  };
+  readonly publication?: {
+    readonly nixSigKeys?: string | readonly string[];
+    readonly lifetimeSeconds?: string | number;
+    readonly localRelayUrl?: string;
+    readonly concurrency?: string | number;
+    readonly maxAttempts?: string | number;
+  };
+}
+
+interface NormalizedRawConfig extends Omit<RawConfig, "bindPort" | "limits"> {
+  readonly bindPort?: string;
+  readonly caches?: string | readonly string[];
+  readonly relayUrls?: string | readonly string[];
   readonly limits?: Partial<Record<keyof Limits, string>>;
 }
 
@@ -47,7 +67,10 @@ export interface CacheIdentity {
   readonly identifier: string;
 }
 
-export type WritableIdentity = CacheIdentity;
+export interface WritableIdentity {
+  readonly kind: 17091 | 37091;
+  readonly identifier: string;
+}
 
 export const MAX_CACHE_IDENTITIES = 32;
 
@@ -56,6 +79,34 @@ export type WriteIntent =
   | {
     readonly mode: "nip46" | "local";
     readonly identity: WritableIdentity;
+    readonly signerPath: string;
+  }
+  | {
+    readonly mode: "ncryptsec";
+    readonly identity: WritableIdentity;
+    readonly ncryptsec: string;
+  };
+
+export type ValidatedWritableConfig =
+  | { readonly enabled: false }
+  | {
+    readonly enabled: true;
+    readonly identity: WritableIdentity;
+    readonly signer:
+      | { readonly type: "local" | "nip46"; readonly path: string }
+      | { readonly type: "ncryptsec"; readonly ncryptsec: string };
+    readonly staging: {
+      readonly directory: string;
+      readonly bodyBytes: number;
+      readonly aggregateBytes: number;
+    };
+    readonly publication: {
+      readonly nixSigKeys: readonly string[];
+      readonly lifetimeSeconds: number;
+      readonly localRelayUrl?: URL;
+      readonly concurrency: number;
+      readonly maxAttempts: number;
+    };
   };
 
 export interface ValidatedConfig {
@@ -69,16 +120,7 @@ export interface ValidatedConfig {
   readonly spoolDirectory: string;
   readonly identities: readonly string[];
   readonly writeIntent: WriteIntent;
-  readonly localKeyPath?: string;
-  readonly nip46SessionPath?: string;
-  readonly stagingDirectory?: string;
-  readonly stagingBodyBytes: number;
-  readonly stagingAggregateBytes: number;
-  readonly nixSigKeys: readonly string[];
-  readonly publicationLifetimeSeconds: number;
-  readonly localRelayUrl?: URL;
-  readonly publicationConcurrency: number;
-  readonly publicationMaxAttempts: number;
+  readonly writable: ValidatedWritableConfig;
   readonly limits: Limits;
 }
 
@@ -164,40 +206,11 @@ function parseUrl(
 }
 
 export function parseConfig(
-  raw: RawConfig,
+  input: RawConfig,
   _hooks: ParseConfigHooks = {},
 ): ConfigResult {
   const diagnostics: ConfigDiagnostic[] = [];
-  const signerMode = raw.signerMode?.trim() || "disabled";
-  if (
-    signerMode !== "disabled" && signerMode !== "nip46" &&
-    signerMode !== "local"
-  ) {
-    diagnostics.push({
-      field: "signerMode",
-      code: "invalid",
-      message: "signerMode must be disabled, nip46, or local",
-    });
-  }
-  const writableIdentity = raw.writableIdentity === undefined
-    ? undefined
-    : parseWritableIdentity(raw.writableIdentity, diagnostics);
-  if (signerMode === "disabled" && raw.writableIdentity !== undefined) {
-    diagnostics.push({
-      field: "writableIdentity",
-      code: "invalid",
-      message: "writableIdentity must be absent when signerMode is disabled",
-    });
-  } else if (
-    (signerMode === "nip46" || signerMode === "local") &&
-    raw.writableIdentity === undefined
-  ) {
-    diagnostics.push({
-      field: "writableIdentity",
-      code: "required",
-      message: "writableIdentity is required when signerMode is enabled",
-    });
-  }
+  const raw = normalizeRawConfig(input, diagnostics);
   const bindHost = raw.bindHost?.trim() || "127.0.0.1";
   const portText = raw.bindPort?.trim() || "8787";
   const bindPort = Number(portText);
@@ -209,53 +222,48 @@ export function parseConfig(
     });
   }
 
-  const legacyPublisherValues = (raw.publisherPubkeys ?? "").split(",").map(
-    (value) => value.trim(),
-  ).filter(Boolean);
-  const identityValues = raw.cacheIdentities === undefined
-    ? legacyPublisherValues.map((pubkey) => `17091:${pubkey}:`)
-    : raw.cacheIdentities.split(",").map((value) => value.trim()).filter(
-      Boolean,
-    );
+  const identityValues = listValues(raw.caches);
   if (identityValues.length === 0) {
     diagnostics.push({
-      field: "cacheIdentities",
+      field: "caches",
       code: "required",
       message: "at least one cache identity is required",
     });
   }
   if (identityValues.length > MAX_CACHE_IDENTITIES) {
     diagnostics.push({
-      field: "cacheIdentities",
+      field: "caches",
       code: "out_of_range",
       message: `cache identities must not exceed ${MAX_CACHE_IDENTITIES}`,
     });
   }
   const parsedIdentities: CacheIdentity[] = [];
+  const normalizedIdentities: string[] = [];
   const seenIdentities = new Set<string>();
   for (const [index, value] of identityValues.entries()) {
-    const parsed = parseCacheIdentity(
+    const parsed = parseReadCacheIdentity(
       value,
-      `cacheIdentities[${index}]`,
+      `caches[${index}]`,
       diagnostics,
     );
-    if (seenIdentities.has(value)) {
+    if (!parsed) continue;
+    const canonical = formatCacheIdentity(parsed);
+    if (seenIdentities.has(canonical)) {
       diagnostics.push({
-        field: `cacheIdentities[${index}]`,
+        field: `caches[${index}]`,
         code: "invalid",
         message: "cache identities must be unique",
       });
     }
-    seenIdentities.add(value);
-    if (parsed) parsedIdentities.push(parsed);
+    seenIdentities.add(canonical);
+    parsedIdentities.push(parsed);
+    normalizedIdentities.push(canonical);
   }
   const publisherValues = [
     ...new Set(parsedIdentities.map((item) => item.pubkey)),
   ];
 
-  const relayValues = (raw.relayUrls ?? "").split(",").map((value) =>
-    value.trim()
-  ).filter(Boolean);
+  const relayValues = listValues(raw.relayUrls);
   if (relayValues.length === 0) {
     diagnostics.push({
       field: "relayUrls",
@@ -307,34 +315,126 @@ export function parseConfig(
     "spoolDirectory",
     diagnostics,
   );
-  const localKeyPath = raw.localKeyPath === undefined
-    ? undefined
-    : parseOwnerPath(raw.localKeyPath, "localKeyPath", diagnostics);
-  const nip46SessionPath = raw.nip46SessionPath === undefined
-    ? undefined
-    : parseOwnerPath(raw.nip46SessionPath, "nip46SessionPath", diagnostics);
-  const stagingDirectory = raw.stagingDirectory === undefined
-    ? undefined
-    : parseOwnerPath(raw.stagingDirectory, "stagingDirectory", diagnostics);
+  const writableRaw = raw.writable;
+  const writableEnabled = writableRaw?.enabled === true ||
+    writableRaw?.enabled === "true";
+  if (
+    writableRaw?.enabled !== undefined &&
+    ![true, false, "true", "false"].includes(writableRaw.enabled)
+  ) {
+    diagnostics.push({
+      field: "writable.enabled",
+      code: "invalid",
+      message: "writable.enabled must be a boolean",
+    });
+  }
+  const writableType = writableEnabled ? writableRaw?.type?.trim() : undefined;
+  if (writableEnabled && writableType !== "root" && writableType !== "named") {
+    diagnostics.push({
+      field: "writable.type",
+      code: "invalid",
+      message: "writable.type must be root or named",
+    });
+  }
+  const writableName = writableRaw?.name?.trim();
+  let writableIdentity: WritableIdentity | undefined;
+  if (writableEnabled && writableType === "root") {
+    if (writableRaw?.name !== undefined) {
+      diagnostics.push({
+        field: "writable.name",
+        code: "invalid",
+        message: "writable.name must be absent for root",
+      });
+    }
+    writableIdentity = Object.freeze({ kind: 17091, identifier: "" });
+  } else if (writableEnabled && writableType === "named") {
+    if (!writableName || !validCacheIdentifier(writableName)) {
+      diagnostics.push({
+        field: "writable.name",
+        code: "invalid",
+        message: "writable.name must be a valid non-empty cache name",
+      });
+    } else {writableIdentity = Object.freeze({
+        kind: 37091,
+        identifier: writableName,
+      });}
+  }
+  const signerMode = writableEnabled
+    ? writableRaw?.signer?.type?.trim()
+    : undefined;
+  if (
+    writableEnabled && signerMode !== "local" && signerMode !== "nip46" &&
+    signerMode !== "ncryptsec"
+  ) {
+    diagnostics.push({
+      field: "writable.signer.type",
+      code: "invalid",
+      message: "writable.signer.type must be local, nip46, or ncryptsec",
+    });
+  }
+  const signerPath = writableEnabled && signerMode !== "ncryptsec"
+    ? parseOwnerPath(
+      writableRaw?.signer?.path,
+      "writable.signer.path",
+      diagnostics,
+    )
+    : undefined;
+  const ncryptsec = writableEnabled && signerMode === "ncryptsec"
+    ? writableRaw?.signer?.ncryptsec?.trim()
+    : undefined;
+  if (writableEnabled && signerMode === "ncryptsec") {
+    if (
+      !ncryptsec || !ncryptsec.startsWith("ncryptsec1") ||
+      ncryptsec.length > 4096
+    ) {
+      diagnostics.push({
+        field: "writable.signer.ncryptsec",
+        code: "invalid",
+        message: "writable.signer.ncryptsec must be a bounded ncryptsec value",
+      });
+    }
+    if (writableRaw?.signer?.path !== undefined) {
+      diagnostics.push({
+        field: "writable.signer.path",
+        code: "invalid",
+        message: "writable.signer.path must be absent for ncryptsec",
+      });
+    }
+  } else if (writableEnabled && writableRaw?.signer?.ncryptsec !== undefined) {
+    diagnostics.push({
+      field: "writable.signer.ncryptsec",
+      code: "invalid",
+      message: "writable.signer.ncryptsec is only valid for ncryptsec",
+    });
+  }
+  const stagingDirectory = writableEnabled
+    ? parseOwnerPath(
+      writableRaw?.staging?.directory,
+      "writable.staging.directory",
+      diagnostics,
+    )
+    : undefined;
   const stagingBodyBytes = parsePositiveBytes(
-    raw.stagingBodyBytes,
-    "stagingBodyBytes",
+    writableEnabled ? stringNumber(writableRaw?.staging?.bodyBytes) : undefined,
+    "writable.staging.bodyBytes",
     1024 * 1024 * 1024,
     diagnostics,
   );
   const stagingAggregateBytes = parsePositiveBytes(
-    raw.stagingAggregateBytes,
-    "stagingAggregateBytes",
+    writableEnabled
+      ? stringNumber(writableRaw?.staging?.aggregateBytes)
+      : undefined,
+    "writable.staging.aggregateBytes",
     8 * 1024 * 1024 * 1024,
     diagnostics,
   );
-  const nixSigKeys = (raw.nixSigKeys ?? "").split(",").map((value) =>
-    value.trim()
-  ).filter(Boolean);
+  const nixSigKeys = listValues(
+    writableEnabled ? writableRaw?.publication?.nixSigKeys : undefined,
+  );
   const seenNixKeys = new Set<string>();
   if (nixSigKeys.length > 32) {
     diagnostics.push({
-      field: "nixSigKeys",
+      field: "writable.publication.nixSigKeys",
       code: "out_of_range",
       message: "Nix signature keys must not exceed 32",
     });
@@ -354,7 +454,7 @@ export function parseConfig(
     } catch { /* diagnostic below */ }
     if (!canonical || seenNixKeys.has(key)) {
       diagnostics.push({
-        field: `nixSigKeys[${index}]`,
+        field: `writable.publication.nixSigKeys[${index}]`,
         code: "invalid",
         message:
           "Nix signature keys must be unique canonical name:base64 public keys",
@@ -363,30 +463,36 @@ export function parseConfig(
     seenNixKeys.add(key);
   }
   const publicationLifetimeSeconds = parseBoundedPositive(
-    raw.publicationLifetimeSeconds,
-    "publicationLifetimeSeconds",
+    writableEnabled
+      ? stringNumber(writableRaw?.publication?.lifetimeSeconds)
+      : undefined,
+    "writable.publication.lifetimeSeconds",
     2_592_000,
     31_536_000,
     diagnostics,
   );
   const publicationConcurrency = parseBoundedPositive(
-    raw.publicationConcurrency,
-    "publicationConcurrency",
+    writableEnabled
+      ? stringNumber(writableRaw?.publication?.concurrency)
+      : undefined,
+    "writable.publication.concurrency",
     2,
     64,
     diagnostics,
   );
   const publicationMaxAttempts = parseBoundedPositive(
-    raw.publicationMaxAttempts,
-    "publicationMaxAttempts",
+    writableEnabled
+      ? stringNumber(writableRaw?.publication?.maxAttempts)
+      : undefined,
+    "writable.publication.maxAttempts",
     8,
     32,
     diagnostics,
   );
   let localRelayUrl: URL | undefined;
-  if (raw.localRelayUrl) {
+  if (writableEnabled && writableRaw?.publication?.localRelayUrl) {
     try {
-      const parsed = new URL(raw.localRelayUrl);
+      const parsed = new URL(writableRaw.publication.localRelayUrl);
       if (
         !(parsed.protocol === "ws:" || parsed.protocol === "wss:") ||
         parsed.username || parsed.password
@@ -394,54 +500,15 @@ export function parseConfig(
       localRelayUrl = parsed;
     } catch {
       diagnostics.push({
-        field: "localRelayUrl",
+        field: "writable.publication.localRelayUrl",
         code: "invalid",
         message: "local relay must be an absolute credential-free WS(S) URL",
       });
     }
   }
-  if (signerMode !== "disabled") {
-    if (!stagingDirectory) {
-      diagnostics.push({
-        field: "stagingDirectory",
-        code: "required",
-        message: "stagingDirectory is required when signerMode is enabled",
-      });
-    }
-    if (signerMode === "local" && !localKeyPath) {
-      diagnostics.push({
-        field: "localKeyPath",
-        code: "required",
-        message: "localKeyPath is required for local signer mode",
-      });
-    }
-    if (signerMode === "nip46" && !nip46SessionPath) {
-      diagnostics.push({
-        field: "nip46SessionPath",
-        code: "required",
-        message: "nip46SessionPath is required for nip46 signer mode",
-      });
-    }
-    if (
-      signerMode === "local" && nip46SessionPath ||
-      signerMode === "nip46" && localKeyPath
-    ) {
-      diagnostics.push({
-        field: "signerMode",
-        code: "invalid",
-        message: "exactly the protected source matching signerMode is allowed",
-      });
-    }
-  } else if (localKeyPath || nip46SessionPath || stagingDirectory) {
-    diagnostics.push({
-      field: "signerMode",
-      code: "invalid",
-      message: "write paths must be absent when signerMode is disabled",
-    });
-  }
   if (stagingAggregateBytes < stagingBodyBytes) {
     diagnostics.push({
-      field: "stagingAggregateBytes",
+      field: "writable.staging.aggregateBytes",
       code: "out_of_range",
       message: "stagingAggregateBytes must be at least stagingBodyBytes",
     });
@@ -474,11 +541,42 @@ export function parseConfig(
   }
 
   if (diagnostics.length > 0) return { ok: false, diagnostics };
-  const writeIntent: WriteIntent = signerMode === "disabled"
+  const writeIntent: WriteIntent = !writableEnabled
     ? Object.freeze({ mode: "disabled" })
+    : signerMode === "ncryptsec"
+    ? Object.freeze({
+      mode: "ncryptsec",
+      identity: writableIdentity!,
+      ncryptsec: ncryptsec!,
+    })
     : Object.freeze({
       mode: signerMode as "nip46" | "local",
       identity: writableIdentity!,
+      signerPath: signerPath!,
+    });
+  const writable: ValidatedWritableConfig = !writableEnabled
+    ? Object.freeze({ enabled: false })
+    : Object.freeze({
+      enabled: true,
+      identity: writableIdentity!,
+      signer: signerMode === "ncryptsec"
+        ? Object.freeze({ type: "ncryptsec", ncryptsec: ncryptsec! })
+        : Object.freeze({
+          type: signerMode as "local" | "nip46",
+          path: signerPath!,
+        }),
+      staging: Object.freeze({
+        directory: stagingDirectory!,
+        bodyBytes: stagingBodyBytes,
+        aggregateBytes: stagingAggregateBytes,
+      }),
+      publication: Object.freeze({
+        nixSigKeys: Object.freeze([...nixSigKeys]),
+        lifetimeSeconds: publicationLifetimeSeconds,
+        ...(localRelayUrl ? { localRelayUrl } : {}),
+        concurrency: publicationConcurrency,
+        maxAttempts: publicationMaxAttempts,
+      }),
     });
   return {
     ok: true,
@@ -492,21 +590,116 @@ export function parseConfig(
       localBlossomUrl,
       databasePath: databasePath!,
       spoolDirectory: spoolDirectory!,
-      identities: Object.freeze([...identityValues]),
+      identities: Object.freeze(normalizedIdentities),
       writeIntent,
-      localKeyPath,
-      nip46SessionPath,
-      stagingDirectory,
-      stagingBodyBytes,
-      stagingAggregateBytes,
-      nixSigKeys: Object.freeze([...nixSigKeys]),
-      publicationLifetimeSeconds,
-      localRelayUrl,
-      publicationConcurrency,
-      publicationMaxAttempts,
+      writable,
       limits: Object.freeze(limits as unknown as Limits),
     }),
   };
+}
+
+function normalizeRawConfig(
+  input: RawConfig,
+  diagnostics: ConfigDiagnostic[],
+): NormalizedRawConfig {
+  const normalized = { ...input } as Record<string, unknown>;
+  for (
+    const field of [
+      "bindHost",
+      "preferredBlossomUrl",
+      "localBlossomUrl",
+      "databasePath",
+      "spoolDirectory",
+    ]
+  ) {
+    const value = normalized[field];
+    if (value !== undefined && typeof value !== "string") {
+      invalidNativeType(field, "a string", diagnostics);
+      normalized[field] = undefined;
+    }
+  }
+  for (
+    const field of [
+      "bindPort",
+    ]
+  ) {
+    const value = normalized[field];
+    if (
+      value !== undefined && typeof value !== "string" &&
+      typeof value !== "number"
+    ) {
+      invalidNativeType(field, "a number", diagnostics);
+      normalized[field] = undefined;
+    } else if (typeof value === "number") normalized[field] = String(value);
+  }
+  for (
+    const field of [
+      "caches",
+      "relayUrls",
+    ]
+  ) {
+    const value = normalized[field];
+    if (value === undefined || typeof value === "string") continue;
+    if (
+      Array.isArray(value) && value.every((item) => typeof item === "string")
+    ) {
+      normalized[field] = Object.freeze([...value]);
+    } else {
+      invalidNativeType(field, "an array of strings", diagnostics);
+      normalized[field] = undefined;
+    }
+  }
+  const suppliedLimits = normalized.limits;
+  const limits: Partial<Record<keyof Limits, string>> = {};
+  if (suppliedLimits !== undefined) {
+    if (!isPlainObject(suppliedLimits)) {
+      invalidNativeType("limits", "an object", diagnostics);
+    } else {
+      for (const key of Object.keys(LIMIT_SPECS) as (keyof Limits)[]) {
+        const value = suppliedLimits[key];
+        if (value === undefined) continue;
+        if (typeof value !== "string" && typeof value !== "number") {
+          invalidNativeType(`limits.${key}`, "a number", diagnostics);
+        } else limits[key] = String(value);
+      }
+    }
+  }
+  normalized.limits = limits;
+  if (
+    normalized.writable !== undefined && !isPlainObject(normalized.writable)
+  ) {
+    invalidNativeType("writable", "an object", diagnostics);
+    normalized.writable = undefined;
+  }
+  return normalized as unknown as NormalizedRawConfig;
+}
+
+function stringNumber(value: string | number | undefined): string | undefined {
+  return value === undefined ? undefined : String(value);
+}
+
+function listValues(
+  value: string | readonly string[] | undefined,
+): string[] {
+  return (typeof value === "string" ? value.split(",") : value ?? []).map(
+    (item) => item.trim(),
+  ).filter(Boolean);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function invalidNativeType(
+  field: string,
+  expected: string,
+  diagnostics: ConfigDiagnostic[],
+): void {
+  diagnostics.push({
+    field,
+    code: "invalid",
+    message: `${field} must be ${expected}`,
+  });
 }
 
 function parseBoundedPositive(
@@ -546,11 +739,54 @@ function parsePositiveBytes(
   return parsed;
 }
 
-function parseWritableIdentity(
+function parseReadCacheIdentity(
   value: string,
+  field: string,
   diagnostics: ConfigDiagnostic[],
-): WritableIdentity | undefined {
-  return parseCacheIdentity(value, "writableIdentity", diagnostics);
+): CacheIdentity | undefined {
+  if (/^[0-9a-f]{64}$/.test(value)) {
+    return Object.freeze({ kind: 17091, pubkey: value, identifier: "" });
+  }
+
+  if (value.startsWith("npub1") || value.startsWith("naddr1")) {
+    let decoded: ReturnType<typeof nip19.decode>;
+    try {
+      decoded = nip19.decode(value);
+    } catch {
+      diagnostics.push({
+        field,
+        code: "invalid",
+        message: "cache identity contains malformed NIP-19 data",
+      });
+      return;
+    }
+    if (decoded.type === "npub") {
+      return Object.freeze({
+        kind: 17091,
+        pubkey: decoded.data,
+        identifier: "",
+      });
+    }
+    if (decoded.type === "naddr" && decoded.data.kind === 37091) {
+      return parseCacheIdentity(
+        `37091:${decoded.data.pubkey}:${decoded.data.identifier}`,
+        field,
+        diagnostics,
+      );
+    }
+    diagnostics.push({
+      field,
+      code: "invalid",
+      message: "cache identity must be an npub or a kind-37091 naddr",
+    });
+    return;
+  }
+
+  return parseCacheIdentity(value, field, diagnostics);
+}
+
+function formatCacheIdentity(identity: CacheIdentity): string {
+  return `${identity.kind}:${identity.pubkey}:${identity.identifier}`;
 }
 
 export function parseCacheIdentity(
@@ -570,14 +806,7 @@ export function parseCacheIdentity(
   }
   const kind = Number(match[1]) as 17091 | 37091;
   const identifier = match[3];
-  const identifierBytes = new TextEncoder().encode(identifier);
-  const validNamedIdentifier = identifierBytes.length > 0 &&
-    identifierBytes.length <= 64 &&
-    !identifier.includes(":") &&
-    !Array.from(identifier).some((character) =>
-      /\s/u.test(character) || character.charCodeAt(0) < 32 ||
-      character.charCodeAt(0) === 127
-    );
+  const validNamedIdentifier = validCacheIdentifier(identifier);
   if (
     (kind === 17091 && identifier !== "") ||
     (kind === 37091 && !validNamedIdentifier)
@@ -592,6 +821,15 @@ export function parseCacheIdentity(
     return;
   }
   return Object.freeze({ kind, pubkey: match[2], identifier });
+}
+
+function validCacheIdentifier(identifier: string): boolean {
+  const bytes = new TextEncoder().encode(identifier);
+  return bytes.length > 0 && bytes.length <= 64 && !identifier.includes(":") &&
+    !Array.from(identifier).some((character) =>
+      /\s/u.test(character) || character.charCodeAt(0) < 32 ||
+      character.charCodeAt(0) === 127
+    );
 }
 
 function parseOwnerPath(

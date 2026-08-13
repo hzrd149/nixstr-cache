@@ -17,9 +17,9 @@ temporary read/write access, and (for the E2E only) execution of `nix`,
 `nix-store`, and the pinned Deno runtime.
 
 For a daemon assembled with the runtime dependencies from `src/app.ts`, set
-`NIXSTR_BIND_HOST`, `NIXSTR_BIND_PORT`, `NIXSTR_PUBLISHER_PUBKEYS`,
-`NIXSTR_RELAY_URLS`, and optionally `NIXSTR_PREFERRED_BLOSSOM_URL`. Configure
-stock Nix with only that endpoint and the publication's exact key:
+`NIXSTR_BIND_HOST`, `NIXSTR_BIND_PORT`, `NIXSTR_CACHES`, `NIXSTR_RELAY_URLS`,
+and optionally `NIXSTR_PREFERRED_BLOSSOM_URL`. Configure stock Nix with only
+that endpoint and the publication's exact key:
 
 ```sh
 nix-store --realise /nix/store/<hash>-<name> \
@@ -28,10 +28,75 @@ nix-store --realise /nix/store/<hash>-<name> \
   --option fallback false --option require-sigs true
 ```
 
+## Configuration
+
+The daemon can load an explicitly selected JSON configuration file. For local
+development, copy the example and start the watched task:
+
+```sh
+cp config.example.json config.json
+deno task dev
+```
+
+`config.json` is ignored. JSON list fields use arrays and numeric fields use
+numbers; see [`config.example.json`](./config.example.json) for the complete
+read-only shape. Relative `databasePath`, `spoolDirectory`,
+`writable.signer.path`, and `writable.staging.directory` values resolve from the
+directory containing the selected configuration file.
+
+Each `caches` entry may be a bare lowercase 64-character pubkey or an `npub` for
+a default cache, or a kind-37091 `naddr` for a named cache. Canonical
+`17091:<hex>:` and `37091:<hex>:<name>` strings remain compatible. Entries are
+normalized internally and retain their array order as cache priority; aliases of
+the same identity are rejected as duplicates. Relay hints embedded in an `naddr`
+are ignored because `relayUrls` is authoritative.
+
+Writes use one nested `writable` object. Missing configuration or
+`{"enabled":false}` is read-only and ignores every other writable member. An
+enabled cache selects `type: "root"`, or `type: "named"` with a valid `name`,
+plus `signer: {type: "local"|"nip46", path}` or
+`signer: {type: "ncryptsec", ncryptsec: "ncryptsec1..."}`,
+`staging: {directory,
+bodyBytes?, aggregateBytes?}`, and publication policy. The
+publisher pubkey is always derived from the connected signer; it is never
+configured. Environment leaves use `NIXSTR_WRITABLE_*` and recursively override
+only their matching JSON leaves. There are no aliases for the removed flat
+settings: migrate all values atomically. Changing signer or root/named identity
+against existing durable write state fails closed; use an explicitly fresh
+state/staging location rather than migrating pending publication data
+automatically.
+
+An enabled `ncryptsec` signer asks for one unlock password during daemon
+startup. On a terminal, input echo is disabled and terminal mode is restored
+even when reading or decryption fails. Non-terminal stdin accepts one bounded,
+newline-terminated password for supervised startup; supply it through a secure
+secret channel chosen by the operator. The password is not a configuration field
+and is never logged or persisted. Missing, malformed, or incorrect input leaves
+writes unavailable. An interactive password is therefore unsuitable for
+unattended systemd startup unless stdin is deliberately and securely provided.
+JSON is preferred for the encrypted `ncryptsec` value. The corresponding
+`NIXSTR_WRITABLE_SIGNER_NCRYPTSEC` environment leaf exists for completeness, but
+process environments may expose even encrypted material.
+
+For production, select a file explicitly:
+
+```sh
+deno task start -- --config /path/to/config.json
+```
+
+Supported `NIXSTR_*` environment values override JSON field-by-field. Limit
+overrides merge member-by-member, so setting `NIXSTR_LIMIT_MAX_REDIRECTS` does
+not discard other values under JSON `limits`. Environment-provided owner paths
+must remain absolute; they are not resolved relative to the JSON file.
+
+Omitting `--config` retains environment-only startup. This remains the intended
+mode for the NixOS module described below; no `config.json` is auto-discovered.
+
 ## Nix packaging
 
-The flake packages the daemon with [deno2nix](https://github.com/hzrd149/deno2nix)
-and ships a NixOS module and a disposable demonstration VM:
+The flake packages the daemon with
+[deno2nix](https://github.com/hzrd149/deno2nix) and ships a NixOS module and a
+disposable demonstration VM:
 
 ```sh
 nix build .#nixstr-cache   # wrapped `deno run` with vendored dependencies
@@ -48,7 +113,7 @@ environment variables, with `NIXSTR_BIND_HOST`, `NIXSTR_BIND_PORT`,
 services.nixstr-cache = {
   enable = true;
   settings = {
-    NIXSTR_CACHE_IDENTITIES = "17091:<64-hex-pubkey>:";
+    NIXSTR_CACHES = "<64-lowercase-hex-pubkey-or-npub>";
     NIXSTR_RELAY_URLS = "wss://relay.example.com";
   };
 };

@@ -18,7 +18,7 @@
       # Placeholder default-cache identity (kind 17091, empty identifier).
       # Replace the all-zero pubkey with a publisher you actually trust; until
       # then the daemon serves a valid but permanently empty merged cache.
-      NIXSTR_CACHE_IDENTITIES = "17091:0000000000000000000000000000000000000000000000000000000000000000:";
+      NIXSTR_CACHES = "0000000000000000000000000000000000000000000000000000000000000000";
 
       NIXSTR_RELAY_URLS = "wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net";
     };

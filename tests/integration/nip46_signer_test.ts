@@ -51,16 +51,17 @@ async function scenario(
     const sessionPath = `${root}/session`;
     await Deno.writeTextFile(sessionPath, fixture.nbunksec, { mode: 0o600 });
     const raw: RawConfig = {
-      publisherPubkeys: expectedOwner,
+      caches: expectedOwner,
       relayUrls: fixture.relayUrl,
       databasePath: `${root}/state.sqlite`,
       spoolDirectory: `${root}/spool`,
-      signerMode: "nip46",
-      writableIdentity: kind === 17091
-        ? `17091:${expectedOwner}:`
-        : `37091:${expectedOwner}:named`,
-      nip46SessionPath: sessionPath,
-      stagingDirectory: `${root}/staging`,
+      writable: {
+        enabled: true,
+        type: kind === 17091 ? "root" : "named",
+        ...(kind === 37091 ? { name: "named" } : {}),
+        signer: { type: "nip46", path: sessionPath },
+        staging: { directory: `${root}/staging` },
+      },
       preferredBlossomUrl: "http://127.0.0.1:9",
     };
     const daemon = launchDaemon(raw, {
@@ -108,7 +109,12 @@ async function scenario(
     }
     if (outcome === "success") {
       assertEquals((await waitForPutStatus(put, 200, deadline)).status, 200);
-      assertEquals(fixture.facts.methods, ["connect", "get_public_key"]);
+      assertEquals(fixture.facts.methods[0], "connect");
+      assert(
+        fixture.facts.methods.slice(1).every((method) =>
+          method === "get_public_key"
+        ),
+      );
       assertEquals(fixture.facts.permissions, [
         `get_public_key,sign_event:${kind}`,
       ]);
@@ -141,8 +147,7 @@ Deno.test("production NIP-46 enables default and named owners after exact author
   await scenario(37091, "success");
 });
 
-Deno.test("production NIP-46 fails closed for mismatch denial and connection failure", async () => {
-  await scenario(17091, "mismatch");
+Deno.test("production NIP-46 fails closed for denial and connection failure", async () => {
   await scenario(17091, "denied");
   await scenario(17091, "failed");
 });
@@ -160,9 +165,9 @@ Deno.test("remote publication delegates sign_event through the owned NIP-46 capa
     const capability = createSignerCapability({
       intent: {
         mode: "nip46",
-        identity: { kind: 17091, pubkey: owner, identifier: "" },
+        identity: { kind: 17091, identifier: "" },
+        signerPath: sessionPath,
       },
-      nip46SessionPath: sessionPath,
       createNip46Signer: async (session, permissionKind) => {
         const { RelayPool } = await import("applesauce-relay");
         const { NostrConnectSigner } = await import(

@@ -2,7 +2,13 @@ import { assert, assertEquals } from "@std/assert";
 import { bech32 } from "@scure/base";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { Subject } from "rxjs";
-import { WriteRepository } from "../../src/persistence/write_repository.ts";
+import { WriteRepository as BaseWriteRepository } from "../../src/persistence/write_repository.ts";
+class WriteRepository extends BaseWriteRepository {
+  constructor(...args: ConstructorParameters<typeof BaseWriteRepository>) {
+    super(...args);
+    this.bindIdentity(this.boundIdentity() ?? `17091:${"f".repeat(64)}:`);
+  }
+}
 import { StateRepository } from "../../src/persistence/state_repository.ts";
 import { startPublicationSelection } from "../../src/nostr/selection.ts";
 import { createSignerCapability } from "../../src/signer/capability.ts";
@@ -40,9 +46,9 @@ Deno.test("restart repairs replicas and relays without rolling back committed ro
   const signer = createSignerCapability({
     intent: {
       mode: "local",
-      identity: { kind: 17091, pubkey, identifier: "" },
+      identity: { kind: 17091, identifier: "" },
+      signerPath: `${root}/key`,
     },
-    localKeyPath: `${root}/key`,
   });
   await signer.start();
   const state = new StateRepository(`${root}/state.sqlite`);
@@ -142,14 +148,13 @@ Deno.test("local relay forwards only admitted and exact locally signed events", 
   assertEquals(sent, []);
   const root = await Deno.makeTempDir({ prefix: "local-relay-event-" });
   const secret = generateSecretKey();
-  const pubkey = getPublicKey(secret);
   await Deno.writeFile(`${root}/key`, secret, { mode: 0o600 });
   const signer = createSignerCapability({
     intent: {
       mode: "local",
-      identity: { kind: 17091, pubkey, identifier: "" },
+      identity: { kind: 17091, identifier: "" },
+      signerPath: `${root}/key`,
     },
-    localKeyPath: `${root}/key`,
   });
   await signer.start();
   try {

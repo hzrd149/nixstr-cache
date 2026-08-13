@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Awaiting next milestone
-stopped_at: Completed quick task 260813-el3
-last_updated: "2026-08-13T09:31:30.000Z"
+stopped_at: Completed quick task 260813-fhz
+last_updated: "2026-08-13T11:22:00.000Z"
 last_activity: 2026-08-13
-last_activity_desc: "Completed quick task 260813-el3: Update the local Blossom default port to 24242"
+last_activity_desc: "Completed quick task 260813-fhz: Replace flat writable configuration with nested signer-derived configuration"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: Milestone v1.0 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-08-13 — Completed quick task 260813-el3: Update the local Blossom default port to `24242`
+Last activity: 2026-08-13 — Completed quick task 260813-fhz: Replace flat writable configuration with nested signer-derived configuration
 
 ## Performance Metrics
 
@@ -165,6 +165,12 @@ None for the shipped v1.0 milestone.
 | 260812-nes | Close all actionable milestone review findings | 2026-08-12 | 8b06d81 | [260812-nes-close-all-actionable-milestone-review-fi](./quick/260812-nes-close-all-actionable-milestone-review-fi/) |
 | 260813-eh3 | Remove obsolete `@db/sqlite` dependency and update active stack documentation | 2026-08-13 | ea932eb | [260813-eh3-remove-obsolete-db-sqlite-dependency-and](./quick/260813-eh3-remove-obsolete-db-sqlite-dependency-and/) |
 | 260813-el3 | Update the local Blossom default port to `24242` | 2026-08-13 | ecf8ac6 | [260813-el3-update-the-default-port-for-the-local-bl](./quick/260813-el3-update-the-default-port-for-the-local-bl/) |
+| 260813-ecz | Add JSON config file support with `--config`, environment overrides, and local development defaults | 2026-08-13 | uncommitted | [260813-ecz-add-json-config-file-support-with-config](./quick/260813-ecz-add-json-config-file-support-with-config/) |
+| 260813-fd1 | Simplify read-side cache identity configuration with npub and naddr normalization | 2026-08-13 | uncommitted | [260813-fd1-simplify-cacheidentities-configuration-w](./quick/260813-fd1-simplify-cacheidentities-configuration-w/) |
+| 260813-frn | Rename the read-cache configuration field from `cacheIdentities` to `caches` | 2026-08-13 | uncommitted | [260813-frn-rename-cacheidentities-configuration-fie](./quick/260813-frn-rename-cacheidentities-configuration-fie/) |
+| 260813-ftf | Remove legacy cache inputs and use `NIXSTR_CACHES` exclusively | 2026-08-13 | uncommitted | [260813-ftf-remove-legacy-cache-environment-variable](./quick/260813-ftf-remove-legacy-cache-environment-variable/) |
+| 260813-gte | Add ncryptsec PasswordSigner support with secure startup unlocking | 2026-08-13 | uncommitted | [260813-gte-add-support-for-an-ncryptsec-signer-type](./quick/260813-gte-add-support-for-an-ncryptsec-signer-type/) |
+| 260813-fhz | Replace flat writable configuration with nested groups and signer-derived durable ownership | 2026-08-13 | uncommitted | [260813-fhz-replace-flat-writable-configuration-with](./quick/260813-fhz-replace-flat-writable-configuration-with/) |
 
 ## Deferred Items
 
@@ -175,8 +181,8 @@ None for the shipped v1.0 milestone.
 
 ## Session Continuity
 
-Last session: 2026-08-12T17:57:55.713Z
-Stopped at: Completed quick task 260812-osc
+Last session: 2026-08-13T11:22:00.000Z
+Stopped at: Completed quick task 260813-fhz
 Resume file: None
 
 ## Operator Next Steps

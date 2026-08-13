@@ -100,16 +100,17 @@ Deno.test("stock Nix uploads through production and substitutes from the newly p
       env: {
         NIXSTR_BIND_HOST: "127.0.0.1",
         NIXSTR_BIND_PORT: String(daemonPort),
-        NIXSTR_CACHE_IDENTITIES: `17091:${nostrPubkey}:`,
+        NIXSTR_CACHES: `17091:${nostrPubkey}:`,
         NIXSTR_RELAY_URLS: fixture.relayUrl,
         NIXSTR_PREFERRED_BLOSSOM_URL: fixture.blossomUrl,
         NIXSTR_DATABASE_PATH: `${root}/state.sqlite`,
         NIXSTR_SPOOL_DIRECTORY: `${root}/spool`,
-        NIXSTR_SIGNER_MODE: "local",
-        NIXSTR_WRITABLE_IDENTITY: `17091:${nostrPubkey}:`,
-        NIXSTR_LOCAL_KEY_PATH: `${root}/nostr-key`,
-        NIXSTR_STAGING_DIRECTORY: `${root}/staging`,
-        NIXSTR_NIX_SIG_KEYS: nixPublicText,
+        NIXSTR_WRITABLE_ENABLED: "true",
+        NIXSTR_WRITABLE_TYPE: "root",
+        NIXSTR_WRITABLE_SIGNER_TYPE: "local",
+        NIXSTR_WRITABLE_SIGNER_PATH: `${root}/nostr-key`,
+        NIXSTR_WRITABLE_STAGING_DIRECTORY: `${root}/staging`,
+        NIXSTR_WRITABLE_PUBLICATION_NIX_SIG_KEYS: nixPublicText,
       },
     }).spawn();
     await waitUntil(

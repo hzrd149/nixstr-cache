@@ -1,7 +1,13 @@
 import { assertEquals, assertGreater, assertRejects } from "@std/assert";
 import { FILE_CHUNK_BYTES, HashtreeWriter } from "../../src/hashtree/writer.ts";
 import { decodeManifest } from "../../src/protocol/hashtree.ts";
-import { WriteRepository } from "../../src/persistence/write_repository.ts";
+import { WriteRepository as BaseWriteRepository } from "../../src/persistence/write_repository.ts";
+class WriteRepository extends BaseWriteRepository {
+  constructor(...args: ConstructorParameters<typeof BaseWriteRepository>) {
+    super(...args);
+    this.bindIdentity(this.boundIdentity() ?? `17091:${"f".repeat(64)}:`);
+  }
+}
 import { DatabaseSync } from "node:sqlite";
 
 Deno.test("canonical writer is deterministic, reader-compatible, and reuses blobs", async () => {

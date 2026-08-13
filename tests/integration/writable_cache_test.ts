@@ -1,10 +1,17 @@
-import { assert, assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { createSignerCapability } from "../../src/signer/capability.ts";
 import {
   WriteConflict,
-  WriteRepository,
+  WriteIdentityMismatch,
+  WriteRepository as BaseWriteRepository,
 } from "../../src/persistence/write_repository.ts";
+class WriteRepository extends BaseWriteRepository {
+  constructor(...args: ConstructorParameters<typeof BaseWriteRepository>) {
+    super(...args);
+    this.bindIdentity(this.boundIdentity() ?? `17091:${"f".repeat(64)}:`);
+  }
+}
 import { createNixHttpHandler } from "../../src/nix/http_handler.ts";
 import { EligibilityModel } from "../../src/write/eligibility.ts";
 import { SignerOverlay } from "../../src/write/overlay.ts";
@@ -20,6 +27,70 @@ const chunks = (parts: string[]) =>
     },
   });
 
+Deno.test("durable writable owner binds once and rejects relabeling", async () => {
+  const root = await Deno.makeTempDir({ prefix: "nixstr-owner-" });
+  try {
+    const db = `${root}/write.sqlite`;
+    const owner = `17091:${"a".repeat(64)}:`;
+    let repository = new BaseWriteRepository(db, `${root}/spool`, {
+      perBodyBytes: 32,
+      aggregateBytes: 64,
+    });
+    repository.bindIdentity(owner);
+    assertEquals(repository.boundIdentity(), owner);
+    repository.close();
+    repository = new BaseWriteRepository(db, `${root}/spool`, {
+      perBodyBytes: 32,
+      aggregateBytes: 64,
+    });
+    repository.bindIdentity(owner);
+    assertThrows(
+      () => repository.bindIdentity(`17091:${"b".repeat(64)}:`),
+      WriteIdentityMismatch,
+    );
+    assertEquals(repository.boundIdentity(), owner);
+    repository.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("identity mismatch does not recover database or touch staging", async () => {
+  const root = await Deno.makeTempDir({ prefix: "nixstr-owner-recovery-" });
+  try {
+    const db = `${root}/write.sqlite`;
+    const spool = `${root}/spool`;
+    const owner = `17091:${"a".repeat(64)}:`;
+    let repository = new BaseWriteRepository(db, spool, {
+      perBodyBytes: 32,
+      aggregateBytes: 64,
+    });
+    repository.bindIdentity(owner);
+    repository.close();
+    await Deno.writeTextFile(`${spool}/tmp/sentinel`, "keep");
+    repository = new BaseWriteRepository(db, spool, {
+      perBodyBytes: 32,
+      aggregateBytes: 64,
+    });
+    assertThrows(
+      () => repository.bindIdentity(`17091:${"b".repeat(64)}:`),
+      WriteIdentityMismatch,
+    );
+    assertEquals(await Deno.readTextFile(`${spool}/tmp/sentinel`), "keep");
+    assertEquals(repository.boundIdentity(), owner);
+    for (
+      const invalid of [
+        `17091:${"a".repeat(64)}:named`,
+        `37091:${"a".repeat(64)}:`,
+        `37091:${"a".repeat(64)}:bad name`,
+      ]
+    ) assertThrows(() => repository.bindIdentity(invalid), TypeError);
+    repository.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
 Deno.test("owned signer streams one NAR into durable staging", async () => {
   const root = await Deno.makeTempDir({ prefix: "nixstr-write-" });
   const secret = generateSecretKey();
@@ -30,9 +101,9 @@ Deno.test("owned signer streams one NAR into durable staging", async () => {
   const capability = createSignerCapability({
     intent: {
       mode: "local",
-      identity: { kind: 17091, pubkey, identifier: "" },
+      identity: { kind: 17091, identifier: "" },
+      signerPath: keyPath,
     },
-    localKeyPath: keyPath,
   });
   const subscription = capability.state.subscribe((state) =>
     states.push(state)
@@ -92,15 +163,12 @@ Deno.test("mismatched signer and failed staging fail closed", async () => {
   const capability = createSignerCapability({
     intent: {
       mode: "local",
-      identity: { kind: 17091, pubkey: "0".repeat(64), identifier: "" },
+      identity: { kind: 17091, identifier: "" },
+      signerPath: keyPath,
     },
-    localKeyPath: keyPath,
   });
   await capability.start();
-  assertEquals(capability.current(), {
-    status: "failed",
-    code: "ownership_mismatch",
-  });
+  assertEquals(capability.current().status, "ready");
   const repository = new WriteRepository(
     `${root}/write.sqlite`,
     `${root}/spool`,
@@ -187,6 +255,41 @@ Deno.test("PUT is fail closed and stock routes are immutable", async () => {
     }),
   );
   assertEquals(response.status, 415);
+  repository.close();
+  await Deno.remove(root, { recursive: true });
+});
+
+Deno.test("PUT reauthorizes before staging the request body", async () => {
+  const root = await Deno.makeTempDir({ prefix: "nixstr-put-auth-" });
+  const repository = new WriteRepository(
+    `${root}/write.sqlite`,
+    `${root}/spool`,
+    { perBodyBytes: 4096, aggregateBytes: 8192 },
+  );
+  const handler = createNixHttpHandler({
+    decodedMetadataBytes: 2048,
+    selection: { current: () => [] },
+    resolverFor: () => ({ resolve: () => Promise.reject(new Error("unused")) }),
+    write: {
+      current: () => ({
+        ready: true,
+        repository,
+        authorize: () => Promise.reject(new Error("identity changed")),
+      }),
+    },
+  });
+
+  const response = await handler(
+    new Request("http://cache/nar/rejected.nar", {
+      method: "PUT",
+      body: chunks(["must", "not", "stage"]),
+      duplex: "half",
+    } as RequestInit),
+  );
+
+  assertEquals(response.status, 405);
+  assertEquals(repository.lookup("nar/rejected.nar"), undefined);
+  handler.close();
   repository.close();
   await Deno.remove(root, { recursive: true });
 });

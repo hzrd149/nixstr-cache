@@ -27,6 +27,7 @@ export interface PublicationCoordinatorOptions {
   readonly signer: SignerCapability;
   readonly selector: PublicationSelector;
   readonly identity: CacheIdentity;
+  readonly authorize?: () => Promise<void>;
   readonly blossomServers: readonly string[] | (() => readonly string[]);
   readonly nixSigKeys: readonly string[];
   readonly publicationRelays: readonly string[];
@@ -126,6 +127,8 @@ export class PublicationCoordinator {
   async #run(): Promise<void> {
     this.#abort.signal.throwIfAborted();
     const o = this.options;
+    await o.authorize?.();
+    this.#abort.signal.throwIfAborted();
     o.repository.beginPublicationRefresh(
       o.now(),
       o.refreshLeadSeconds ??
@@ -357,6 +360,8 @@ export class PublicationCoordinator {
   }
   async #repair(): Promise<void> {
     const o = this.options;
+    await o.authorize?.();
+    this.#abort.signal.throwIfAborted();
     const retry = this.#retryOptions();
     const due = o.repository.claimDueWork(o.now(), retry.concurrency);
     await Promise.all(due.map(async (work) => {

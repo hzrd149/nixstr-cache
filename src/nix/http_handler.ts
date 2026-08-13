@@ -7,7 +7,7 @@ import {
 import type { SelectedPublication } from "../nostr/selection.ts";
 import type { MergedSelectionSnapshot } from "../nostr/selection.ts";
 import { classifyEndorsements, parseNarInfo } from "../protocol/narinfo.ts";
-import type { SignerOverlay } from "../write/overlay.ts";
+import type { SignerOverlay, SignerOverlaySnapshot } from "../write/overlay.ts";
 import type { HealthSnapshotProvider } from "../operations/health.ts";
 import type { OperationalDiagnosticSink } from "../operations/diagnostics.ts";
 import {
@@ -40,12 +40,15 @@ export interface NixHandlerDependencies {
   readonly diagnostics?: DiagnosticSink;
   readonly operationalDiagnostics?: OperationalDiagnosticSink;
   readonly routes?: WinnerRouteRegistry;
-  readonly overlay?: SignerOverlay;
+  readonly overlay?: Pick<SignerOverlay, "acquire" | "resolver"> & {
+    current(): SignerOverlaySnapshot | undefined;
+  };
   readonly health?: HealthSnapshotProvider;
   readonly write?: {
     current(): {
       readonly ready: boolean;
       readonly repository?: WriteRepository;
+      readonly authorize?: () => Promise<void>;
       readonly onStaged?: (route: string) => Promise<unknown>;
     };
   };
@@ -126,6 +129,14 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
     if (request.method === "PUT") {
       const readiness = dependencies.write?.current();
       if (!readiness?.ready || !readiness.repository) {
+        return new Response("method not allowed\n", {
+          status: 405,
+          headers: { allow: "GET, HEAD" },
+        });
+      }
+      try {
+        await readiness.authorize?.();
+      } catch {
         return new Response("method not allowed\n", {
           status: 405,
           headers: { allow: "GET, HEAD" },

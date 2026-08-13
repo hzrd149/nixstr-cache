@@ -41,10 +41,10 @@ The example ships an all-zero placeholder pubkey, so it serves a valid but
 permanently empty merged cache. Substituting anything real requires two matched
 changes:
 
-1. Set `services.nixstr-cache.settings.NIXSTR_CACHE_IDENTITIES` to a publisher
-   you trust — `17091:<64-hex-pubkey>:` for a default cache, or
-   `37091:<64-hex-pubkey>:<name>` for a named one. Multiple comma-separated
-   identities merge in the order given.
+1. Set `services.nixstr-cache.settings.NIXSTR_CACHES` to a publisher you trust —
+   a bare lowercase hex pubkey or `npub` for a default cache, or a kind-37091
+   `naddr` for a named one. Multiple comma-separated identities merge in the
+   order given.
 2. Append that publication's exact `<cache-name>:<base64-public-key>` to
    `nix.settings.trusted-public-keys`. Nix verifies signatures itself, so the
    daemon cannot make an untrusted path substitutable.
@@ -73,7 +73,7 @@ other machines need to substitute from it. A minimal consumer looks like this:
           services.nixstr-cache = {
             enable = true;
             settings = {
-              NIXSTR_CACHE_IDENTITIES = "17091:<64-hex-pubkey>:";
+              NIXSTR_CACHES = "<64-lowercase-hex-pubkey-or-npub>";
               NIXSTR_RELAY_URLS = "wss://relay.example.com";
               NIXSTR_PREFERRED_BLOSSOM_URL = "https://blossom.example.com";
             };
@@ -100,15 +100,18 @@ store. Provision the signing material out of band and reference it by path:
 services.nixstr-cache = {
   environmentFile = "/run/secrets/nixstr-cache.env";
   settings = {
-    NIXSTR_SIGNER_MODE = "local"; # or "nip46"
-    NIXSTR_WRITABLE_IDENTITY = "37091:<64-hex-pubkey>:<name>";
-    NIXSTR_STAGING_DIRECTORY = "/var/lib/nixstr-cache/staging";
-    NIXSTR_LOCAL_KEY_PATH = "/var/lib/nixstr-cache/signer.key";
+    NIXSTR_WRITABLE_ENABLED = "true";
+    NIXSTR_WRITABLE_TYPE = "named";
+    NIXSTR_WRITABLE_NAME = "<name>";
+    NIXSTR_WRITABLE_SIGNER_TYPE = "local"; # or "nip46"
+    NIXSTR_WRITABLE_SIGNER_PATH = "/var/lib/nixstr-cache/signer.key";
+    NIXSTR_WRITABLE_STAGING_DIRECTORY = "/var/lib/nixstr-cache/staging";
   };
 };
 ```
 
 The daemon accepts exactly the protected source matching the mode:
-`NIXSTR_LOCAL_KEY_PATH` for `local`, `NIXSTR_NIP46_SESSION_PATH` for `nip46`.
-Supplying both, or either one while `NIXSTR_SIGNER_MODE` is `disabled`, is
-rejected at startup with a printed diagnostic.
+`NIXSTR_WRITABLE_SIGNER_PATH` contains the protected source for either signer
+type. Missing or false `NIXSTR_WRITABLE_ENABLED` disables writes and ignores
+other writable leaves. Old flat variable names are not aliases and rejected at
+startup with a printed diagnostic.

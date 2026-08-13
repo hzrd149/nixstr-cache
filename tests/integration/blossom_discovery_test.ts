@@ -100,7 +100,7 @@ Deno.test("production BUD-03 wiring feeds configured, event, then server list so
   let streamDisposed = 0;
   try {
     const parsed = parseConfig({
-      publisherPubkeys: publisher,
+      caches: publisher,
       relayUrls: "ws://127.0.0.1:9000",
       preferredBlossomUrl: "http://127.0.0.1:8000",
       databasePath: `${root}/state.sqlite`,

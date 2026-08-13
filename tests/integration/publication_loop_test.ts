@@ -2,7 +2,13 @@ import { assert, assertEquals, assertThrows } from "@std/assert";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { Subject } from "rxjs";
 import { bech32 } from "@scure/base";
-import { WriteRepository } from "../../src/persistence/write_repository.ts";
+import { WriteRepository as BaseWriteRepository } from "../../src/persistence/write_repository.ts";
+class WriteRepository extends BaseWriteRepository {
+  constructor(...args: ConstructorParameters<typeof BaseWriteRepository>) {
+    super(...args);
+    this.bindIdentity(this.boundIdentity() ?? `17091:${"f".repeat(64)}:`);
+  }
+}
 import { createSignerCapability } from "../../src/signer/capability.ts";
 import {
   PublicationCoordinator,
@@ -48,9 +54,9 @@ async function fixture() {
   const signer = createSignerCapability({
     intent: {
       mode: "local",
-      identity: { kind: 17091, pubkey, identifier: "" },
+      identity: { kind: 17091, identifier: "" },
+      signerPath: keyPath,
     },
-    localKeyPath: keyPath,
   });
   await signer.start();
   const state = new StateRepository(`${root}/state.sqlite`);

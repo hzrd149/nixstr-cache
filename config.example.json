@@ -1,0 +1,37 @@
+{
+  "bindHost": "127.0.0.1",
+  "bindPort": 8787,
+  "caches": [
+    "0000000000000000000000000000000000000000000000000000000000000000"
+  ],
+  "relayUrls": [
+    "wss://relay.example.com"
+  ],
+  "preferredBlossomUrl": "https://blossom.example.com",
+  "databasePath": "data/state.sqlite",
+  "spoolDirectory": "data/spool",
+  "writable": {
+    "enabled": false,
+    "signer": {
+      "type": "ncryptsec",
+      "ncryptsec": "ncryptsec1REPLACE_WITH_YOUR_ENCRYPTED_SECRET"
+    }
+  },
+  "limits": {
+    "manifestWireBytes": 4194304,
+    "decodedMetadataBytes": 1048576,
+    "blobTransferBytes": 268435456,
+    "requestTransferBytes": 1073741824,
+    "requestOutputBytes": 1073741824,
+    "traversalDepth": 32,
+    "linksPerNode": 174,
+    "uniqueManifestNodes": 2048,
+    "totalDecodedManifestBytes": 67108864,
+    "sourceAttempts": 10,
+    "maxRedirects": 3,
+    "connectTimeoutMs": 5000,
+    "idleTimeoutMs": 30000,
+    "totalTimeoutMs": 300000,
+    "concurrentFetches": 8
+  }
+}

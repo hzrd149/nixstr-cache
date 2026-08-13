@@ -12,6 +12,12 @@ export class WriteConflict extends Error {
     this.name = "WriteConflict";
   }
 }
+export class WriteIdentityMismatch extends Error {
+  constructor() {
+    super("durable writable identity mismatch");
+    this.name = "WriteIdentityMismatch";
+  }
+}
 export interface StagedBlob {
   readonly route: string;
   readonly digest: string;
@@ -97,6 +103,41 @@ export interface EndpointWork {
   readonly code: EndpointWorkCode;
 }
 
+const IDENTITY_BEARING_TABLES = [
+  "staged_blobs",
+  "write_reservations",
+  "staged_narinfos",
+  "staged_references",
+  "overlay_entries",
+  "overlay_store_paths",
+  "content_blobs",
+  "blob_owners",
+  "writer_runs",
+  "writer_run_cleanup",
+  "publication_batches",
+  "publication_batch_entries",
+  "pending_candidate",
+  "pending_candidate_blobs",
+  "publication_sagas",
+  "publication_saga_blobs",
+  "publication_blob_proofs",
+  "publication_saga_history",
+  "publication_endpoint_work",
+] as const;
+
+function canonicalWritableIdentity(identity: string): boolean {
+  const match = /^(17091|37091):([0-9a-f]{64}):(.*)$/.exec(identity);
+  if (!match) return false;
+  const identifier = match[3];
+  if (match[1] === "17091") return identifier === "";
+  const bytes = new TextEncoder().encode(identifier);
+  return bytes.length > 0 && bytes.length <= 64 && !identifier.includes(":") &&
+    !Array.from(identifier).some((character) =>
+      /\s/u.test(character) || character.charCodeAt(0) < 32 ||
+      character.charCodeAt(0) === 127
+    );
+}
+
 export class WriteRepository {
   readonly changes$ = new Subject<string>();
   readonly #db: DatabaseSync;
@@ -107,6 +148,7 @@ export class WriteRepository {
   readonly #generationLeases = new Map<number, number>();
   #admittedGeneration = 0;
   readonly #writerSession = crypto.randomUUID();
+  #active = false;
 
   constructor(
     databasePath: string,
@@ -117,12 +159,7 @@ export class WriteRepository {
     this.#root = root;
     this.#limits = limits;
     this.#removeWriterFile = removeWriterFile;
-    Deno.mkdirSync(root, { recursive: true, mode: 0o700 });
-    Deno.chmodSync(root, 0o700);
-    Deno.mkdirSync(`${root}/tmp`, { recursive: true, mode: 0o700 });
-    Deno.mkdirSync(`${root}/blobs`, { recursive: true, mode: 0o700 });
     this.#db = new DatabaseSync(databasePath);
-    Deno.chmodSync(databasePath, 0o600);
     this.#db.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON");
     this.#db.exec(
       `CREATE TABLE IF NOT EXISTS staged_blobs(route TEXT PRIMARY KEY, digest TEXT NOT NULL, size INTEGER NOT NULL, path TEXT NOT NULL);
@@ -131,9 +168,11 @@ export class WriteRepository {
        CREATE TABLE IF NOT EXISTS staged_references(store_path_hash TEXT NOT NULL, reference_hash TEXT NOT NULL, PRIMARY KEY(store_path_hash,reference_hash));
        CREATE INDEX IF NOT EXISTS staged_references_reverse ON staged_references(reference_hash,store_path_hash);
        CREATE TABLE IF NOT EXISTS overlay_state(singleton INTEGER PRIMARY KEY CHECK(singleton=1), current_generation INTEGER NOT NULL);
-       INSERT OR IGNORE INTO overlay_state(singleton,current_generation) VALUES(1,0);
        CREATE TABLE IF NOT EXISTS overlay_entries(generation INTEGER NOT NULL, route TEXT NOT NULL, digest TEXT NOT NULL, size INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY(generation,route));
        CREATE TABLE IF NOT EXISTS overlay_store_paths(generation INTEGER NOT NULL, store_path_hash TEXT NOT NULL, PRIMARY KEY(generation,store_path_hash));`,
+    );
+    this.#db.exec(
+      "CREATE TABLE IF NOT EXISTS writable_owner(singleton INTEGER PRIMARY KEY CHECK(singleton=1), identity TEXT NOT NULL)",
     );
     this.#db.exec(
       `CREATE TABLE IF NOT EXISTS content_blobs(hash TEXT PRIMARY KEY,size INTEGER NOT NULL,path TEXT NOT NULL);
@@ -143,7 +182,6 @@ export class WriteRepository {
     );
     this.#db.exec(
       `CREATE TABLE IF NOT EXISTS publication_clock(singleton INTEGER PRIMARY KEY CHECK(singleton=1), next_token INTEGER NOT NULL, active_token INTEGER, generation INTEGER, opened_at INTEGER, last_dirty_at INTEGER, base_root TEXT);
-       INSERT OR IGNORE INTO publication_clock(singleton,next_token) VALUES(1,1);
        CREATE TABLE IF NOT EXISTS publication_batches(id INTEGER PRIMARY KEY AUTOINCREMENT, token INTEGER NOT NULL UNIQUE, generation INTEGER NOT NULL, base_root TEXT, status TEXT NOT NULL CHECK(status IN ('building','failed','pending')));
        CREATE TABLE IF NOT EXISTS publication_batch_entries(batch_id INTEGER NOT NULL, generation INTEGER NOT NULL, route TEXT NOT NULL, digest TEXT NOT NULL, size INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY(batch_id,route));
        CREATE TABLE IF NOT EXISTS pending_candidate(singleton INTEGER PRIMARY KEY CHECK(singleton=1), batch_id INTEGER NOT NULL, generation INTEGER NOT NULL, root_hex TEXT NOT NULL, nhash TEXT NOT NULL, blob_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL);
@@ -173,16 +211,117 @@ export class WriteRepository {
         PRIMARY KEY(batch_id,kind,target)
       );
       CREATE INDEX IF NOT EXISTS publication_endpoint_work_due
-        ON publication_endpoint_work(status,next_attempt_at,batch_id,kind,target);
-      UPDATE publication_endpoint_work SET status='retry' WHERE status='claimed';`,
+        ON publication_endpoint_work(status,next_attempt_at,batch_id,kind,target);`,
     );
-    this.#db.prepare(
-      "UPDATE publication_batches SET status='failed' WHERE status='building'",
-    ).run();
-    this.#db.exec("DELETE FROM write_reservations");
-    for (const entry of Deno.readDirSync(`${root}/tmp`)) {
-      if (entry.isFile) Deno.removeSync(`${root}/tmp/${entry.name}`);
+  }
+
+  bindIdentity(identity: string): void {
+    if (!canonicalWritableIdentity(identity)) {
+      throw new TypeError("invalid writable identity");
     }
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      const owner = this.#db.prepare(
+        "SELECT identity FROM writable_owner WHERE singleton=1",
+      ).get() as { identity: string } | undefined;
+      if (owner && owner.identity !== identity) {
+        throw new WriteIdentityMismatch();
+      }
+      if (!owner) {
+        const tables = IDENTITY_BEARING_TABLES;
+        const nonempty = tables.some((table) =>
+          Number(
+            (this.#db.prepare(`SELECT COUNT(*) count FROM ${table}`).get() as {
+              count: number;
+            }).count,
+          ) > 0
+        );
+        const overlayState = this.#db.prepare(
+          "SELECT current_generation generation FROM overlay_state WHERE singleton=1",
+        ).get() as { generation: number } | undefined;
+        const publicationClock = this.#db.prepare(
+          `SELECT next_token nextToken,active_token activeToken,generation,
+             opened_at openedAt,last_dirty_at lastDirtyAt,base_root baseRoot
+           FROM publication_clock WHERE singleton=1`,
+        ).get() as {
+          nextToken: number;
+          activeToken: number | null;
+          generation: number | null;
+          openedAt: number | null;
+          lastDirtyAt: number | null;
+          baseRoot: string | null;
+        } | undefined;
+        const nondefaultState = Boolean(
+          overlayState && overlayState.generation !== 0 ||
+            publicationClock &&
+              (publicationClock.nextToken !== 1 ||
+                publicationClock.activeToken !== null ||
+                publicationClock.generation !== null ||
+                publicationClock.openedAt !== null ||
+                publicationClock.lastDirtyAt !== null ||
+                publicationClock.baseRoot !== null),
+        );
+        if (nonempty || nondefaultState || this.#stagingHasContent()) {
+          throw new WriteIdentityMismatch();
+        }
+        this.#db.prepare(
+          "INSERT INTO writable_owner(singleton,identity) VALUES(1,?)",
+        ).run(identity);
+      }
+      this.#db.exec("COMMIT");
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+    this.#activate();
+  }
+  boundIdentity(): string | undefined {
+    return (this.#db.prepare(
+      "SELECT identity FROM writable_owner WHERE singleton=1",
+    ).get() as { identity?: string } | undefined)?.identity;
+  }
+
+  #stagingHasContent(): boolean {
+    const containsFile = (directory: string): boolean => {
+      for (const entry of Deno.readDirSync(directory)) {
+        if (entry.isFile || entry.isSymlink) return true;
+        if (entry.isDirectory && containsFile(`${directory}/${entry.name}`)) {
+          return true;
+        }
+      }
+      return false;
+    };
+    try {
+      return containsFile(this.#root);
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) return false;
+      throw error;
+    }
+  }
+  #activate(): void {
+    if (this.#active) return;
+    Deno.mkdirSync(this.#root, { recursive: true, mode: 0o700 });
+    Deno.chmodSync(this.#root, 0o700);
+    Deno.mkdirSync(`${this.#root}/tmp`, { recursive: true, mode: 0o700 });
+    Deno.mkdirSync(`${this.#root}/blobs`, { recursive: true, mode: 0o700 });
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      this.#db.exec(
+        `INSERT OR IGNORE INTO overlay_state(singleton,current_generation) VALUES(1,0);
+         INSERT OR IGNORE INTO publication_clock(singleton,next_token) VALUES(1,1);
+         UPDATE publication_endpoint_work SET status='retry' WHERE status='claimed';
+         UPDATE publication_batches SET status='failed' WHERE status='building';
+         DELETE FROM write_reservations;`,
+      );
+      this.#db.exec("COMMIT");
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+    for (const entry of Deno.readDirSync(`${this.#root}/tmp`)) {
+      if (entry.isFile) Deno.removeSync(`${this.#root}/tmp/${entry.name}`);
+    }
+    this.#active = true;
     this.#reconcileWriterRuns();
   }
 

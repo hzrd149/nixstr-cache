@@ -46,6 +46,10 @@ import {
   type OperationalDiagnosticSink,
 } from "../operations/diagnostics.ts";
 import { createHealthSnapshotProvider } from "../operations/health.ts";
+import {
+  createPasswordRequest,
+  type PasswordRequest,
+} from "./password_prompt.ts";
 
 export interface PublicationEventStream {
   readonly events: Observable<RawPublication>;
@@ -78,6 +82,7 @@ export interface ProductionHooks {
   readonly bind?: Bind;
   readonly signals?: readonly ("SIGINT" | "SIGTERM")[];
   readonly diagnostics?: OperationalDiagnosticSink;
+  readonly requestPassword?: PasswordRequest;
 }
 
 export function createProductionDependencies(
@@ -104,17 +109,23 @@ export function createProductionDependencies(
       const stream = (hooks.createEventStream ?? createPublicationEventStream)(
         config,
       );
-      const localRelayPool = config.localRelayUrl ? new RelayPool() : undefined;
-      const localRelay = config.localRelayUrl && localRelayPool
-        ? new LocalRelayCache(config.localRelayUrl, async (relay, event) => {
-          try {
-            return (await localRelayPool.publish([relay], event)).some((
-              outcome,
-            ) => outcome.ok);
-          } catch {
-            return false;
-          }
-        })
+      const writable = config.writable.enabled ? config.writable : undefined;
+      const localRelayPool = writable?.publication.localRelayUrl
+        ? new RelayPool()
+        : undefined;
+      const localRelay = writable?.publication.localRelayUrl && localRelayPool
+        ? new LocalRelayCache(
+          writable.publication.localRelayUrl,
+          async (relay, event) => {
+            try {
+              return (await localRelayPool.publish([relay], event)).some((
+                outcome,
+              ) => outcome.ok);
+            } catch {
+              return false;
+            }
+          },
+        )
         : undefined;
       const selector = startPublicationSelection({
         events: stream.events,
@@ -140,20 +151,21 @@ export function createProductionDependencies(
         ? undefined
         : new WriteRepository(
           `${config.databasePath}.writes`,
-          config.stagingDirectory!,
+          writable!.staging.directory,
           {
-            perBodyBytes: config.stagingBodyBytes,
-            aggregateBytes: config.stagingAggregateBytes,
+            perBodyBytes: writable!.staging.bodyBytes,
+            aggregateBytes: writable!.staging.aggregateBytes,
           },
         );
       let signer: SignerCapability | undefined;
-      let signerReady: Promise<void> | undefined;
+      let signerReady:
+        | Promise<{ readonly ok: boolean; readonly pubkey?: string }>
+        | undefined;
       if (config.writeIntent.mode !== "disabled") {
         const signerIdentity = config.writeIntent.identity;
         signer = createSignerCapability({
           intent: config.writeIntent,
-          localKeyPath: config.localKeyPath,
-          nip46SessionPath: config.nip46SessionPath,
+          requestPassword: hooks.requestPassword ?? createPasswordRequest(),
           createNip46Signer: async (session, permissionKind) => {
             const pool = new RelayPool();
             const remote = await NostrConnectSigner.fromNbunksec(session, {
@@ -181,7 +193,18 @@ export function createProductionDependencies(
             };
           },
         });
-        signerReady = signer.start();
+        signerReady = signer.start().then(async () => {
+          const state = signer!.current();
+          if (state.status !== "ready") return { ok: false } as const;
+          const pubkey = await signer!.assertIdentity();
+          writeRepository!.bindIdentity(
+            `${signerIdentity.kind}:${pubkey}:${signerIdentity.identifier}`,
+          );
+          return { ok: true, pubkey } as const;
+        }).catch(async () => {
+          await signer!.close();
+          return { ok: false } as const;
+        });
         let previous = "disconnected";
         const subscription = signer.state.subscribe((state) => {
           if (state.status === previous) return;
@@ -193,7 +216,7 @@ export function createProductionDependencies(
               : `signer_${state.status}`,
             status: state.status,
             cacheIdentity:
-              `${signerIdentity.kind}:${signerIdentity.pubkey}:${signerIdentity.identifier}`,
+              `${signerIdentity.kind}:signer-derived:${signerIdentity.identifier}`,
           });
         });
         // Signer state is process-local and the subscription is closed with it.
@@ -260,9 +283,13 @@ export function createProductionDependencies(
       const localRelay =
         (selection as typeof selection & { localRelay?: LocalRelayCache })
           .localRelay;
-      const signerReady =
-        (selection as typeof selection & { signerReady?: Promise<void> })
-          .signerReady;
+      const signerReady = (selection as typeof selection & {
+        signerReady?: Promise<
+          { readonly ok: boolean; readonly pubkey?: string }
+        >;
+      })
+        .signerReady;
+      const writable = config.writable.enabled ? config.writable : undefined;
       const fetcher = new SafeFetcher(
         new AddressPolicy(
           undefined,
@@ -349,79 +376,89 @@ export function createProductionDependencies(
           maxLinks: config.limits.linksPerNode,
         });
       };
+      let activatedOverlay: SignerOverlay | undefined;
+      let writesActivated = false;
       const overlay = writeRepository
-        ? new SignerOverlay(writeRepository)
+        ? {
+          current: () => activatedOverlay?.current(),
+          acquire: (generation?: number) =>
+            activatedOverlay!.acquire(generation),
+          resolver: (
+            snapshot: import("../write/overlay.ts").SignerOverlaySnapshot,
+          ) => activatedOverlay!.resolver(snapshot),
+        }
         : undefined;
-      const eligibility = writeRepository && overlay
-        ? new EligibilityModel(writeRepository, overlay, {
-          maxVisited: config.limits.uniqueManifestNodes,
-          maxMetadataBytes: config.limits.totalDecodedManifestBytes,
-          lowerHasStorePath: async (hash) => {
-            const publishers = (selection as unknown as {
-              current(): readonly import("../nostr/selection.ts").SelectedPublication[];
-            }).current();
-            for (const publication of publishers) {
-              try {
-                await publisherResolver(publication).resolve(
-                  publication.root.hex,
-                  `${hash}.narinfo`,
-                  "HEAD",
-                  budgetFor(),
-                  supervisor.abort.signal,
-                );
-                return true;
-              } catch (error) {
-                if (!(error instanceof VerifiedAbsent)) throw error;
-              }
-            }
-            return false;
-          },
-        })
-        : undefined;
-      const batchScheduler = writeRepository
-        ? new PublicationBatchScheduler(
+      let eligibility: EligibilityModel | undefined;
+      const activateWrites = async (pubkey: string) => {
+        if (
+          !writeRepository || !writable ||
+          config.writeIntent.mode === "disabled"
+        ) return;
+        await signer!.assertIdentity();
+        const nextOverlay = new SignerOverlay(writeRepository);
+        const nextEligibility = new EligibilityModel(
           writeRepository,
-          new HashtreeWriter(`${config.stagingDirectory}/candidate-blobs`, {
+          nextOverlay,
+          {
+            maxVisited: config.limits.uniqueManifestNodes,
+            maxMetadataBytes: config.limits.totalDecodedManifestBytes,
+            lowerHasStorePath: async (hash) => {
+              const publishers = (selection as unknown as {
+                current(): readonly import("../nostr/selection.ts").SelectedPublication[];
+              }).current();
+              for (const publication of publishers) {
+                try {
+                  await publisherResolver(publication).resolve(
+                    publication.root.hex,
+                    `${hash}.narinfo`,
+                    "HEAD",
+                    budgetFor(),
+                    supervisor.abort.signal,
+                  );
+                  return true;
+                } catch (error) {
+                  if (!(error instanceof VerifiedAbsent)) throw error;
+                }
+              }
+              return false;
+            },
+          },
+        );
+        const nextBatchScheduler = new PublicationBatchScheduler(
+          writeRepository,
+          new HashtreeWriter(`${writable!.staging.directory}/candidate-blobs`, {
             maxLinks: config.limits.linksPerNode,
             maxInventoryBlobs: config.limits.uniqueManifestNodes +
               config.limits.linksPerNode,
-            maxInventoryBytes: config.stagingAggregateBytes,
+            maxInventoryBytes: writable!.staging.aggregateBytes,
           }, writeRepository),
           undefined,
           diagnostics,
-        )
-        : undefined;
-      if (batchScheduler) supervisor.drains.add(() => batchScheduler.close());
-      if (eligibility && batchScheduler && writeRepository) {
+        );
         let lastDirtiedGeneration = writeRepository.activePublicationWindow()
           ?.generation ?? 0;
         const onCommitted = (generation: number) => {
           if (generation <= lastDirtiedGeneration) return;
           lastDirtiedGeneration = generation;
-          batchScheduler.dirty(generation);
+          nextBatchScheduler.dirty(generation);
         };
-        const subscription = eligibility.start(onCommitted);
-        const recovery = eligibility.reconcile(onCommitted).then(() => {})
-          .finally(() => supervisor.tasks.delete(recovery));
-        supervisor.tasks.add(recovery);
-        supervisor.drains.add(() => {
-          subscription.unsubscribe();
-          return Promise.resolve();
+        const writableIdentity = Object.freeze({
+          ...config.writeIntent.identity,
+          pubkey,
         });
-      }
-      if (writeRepository && signer && config.writeIntent.mode !== "disabled") {
-        const writableIdentity = config.writeIntent.identity;
         const publishPool = new RelayPool();
         const uploader = new PublicationUploader({
           request: fetcher.request.bind(fetcher),
         });
         const coordinator = new PublicationCoordinator({
           repository: writeRepository,
-          signer,
+          signer: signer!,
           selector:
             selection as unknown as import("../nostr/selection.ts").PublicationSelector,
           identity: writableIdentity,
+          authorize: () => signer!.assertIdentity().then(() => {}),
           blossomServers: () => {
+            if (signer!.current().status !== "ready") return Object.freeze([]);
             const owned = (selection as unknown as {
               current(): readonly import("../nostr/selection.ts").SelectedPublication[];
             }).current().find((item) =>
@@ -439,11 +476,16 @@ export function createProductionDependencies(
               ]),
             ]);
           },
-          nixSigKeys: config.nixSigKeys,
+          nixSigKeys: writable!.publication.nixSigKeys,
           publicationRelays: config.relayUrls.map(String),
-          lifetimeSeconds: config.publicationLifetimeSeconds,
+          lifetimeSeconds: writable!.publication.lifetimeSeconds,
           now: () => Math.floor(Date.now() / 1000),
-          replica: uploader,
+          replica: {
+            prove: async (server, entry, signal) => {
+              await signer!.assertIdentity();
+              return await uploader.prove(server, entry, signal);
+            },
+          },
           publishRelays: async (event, relays, signal) => {
             const abort = <T>(promise: Promise<T>): Promise<T> => {
               signal?.throwIfAborted();
@@ -459,6 +501,7 @@ export function createProductionDependencies(
                 ),
               ]);
             };
+            await signer!.assertIdentity();
             const outcomes = await Promise.all(relays.map(async (relay) => {
               if (localRelay?.relay === new URL(relay).href) {
                 return {
@@ -483,8 +526,8 @@ export function createProductionDependencies(
           retry: {
             baseSeconds: 30,
             maxSeconds: 3600,
-            maxAttempts: config.publicationMaxAttempts,
-            concurrency: config.publicationConcurrency,
+            maxAttempts: writable!.publication.maxAttempts,
+            concurrency: writable!.publication.concurrency,
             jitter: (_kind, target) => {
               let value = 0;
               for (const byte of new TextEncoder().encode(target)) {
@@ -495,15 +538,46 @@ export function createProductionDependencies(
           },
           diagnostics,
         });
-        const startTask = (signerReady ?? Promise.resolve()).then(() => {
+        let subscription: { unsubscribe(): void } | undefined;
+        try {
+          await nextEligibility.reconcile(onCommitted);
+          await signer!.assertIdentity();
+          subscription = nextEligibility.start(onCommitted);
           coordinator.start();
-        }).finally(() => supervisor.tasks.delete(startTask));
-        supervisor.tasks.add(startTask);
-        supervisor.drains.add(async () => {
-          await coordinator.close();
-          publishPool.close();
-        });
-      }
+          activatedOverlay = nextOverlay;
+          eligibility = nextEligibility;
+          writesActivated = true;
+          supervisor.drains.add(() => nextBatchScheduler.close());
+          supervisor.drains.add(() => {
+            subscription!.unsubscribe();
+            return Promise.resolve();
+          });
+          supervisor.drains.add(async () => {
+            await coordinator.close();
+            publishPool.close();
+          });
+        } catch (error) {
+          try {
+            subscription?.unsubscribe();
+          } catch { /* cleanup continues below */ }
+          try {
+            publishPool.close();
+          } catch { /* cleanup continues below */ }
+          await Promise.allSettled([
+            coordinator.close(),
+            nextBatchScheduler.close(),
+          ]);
+          throw error;
+        }
+      };
+      const activationTask =
+        (signerReady ?? Promise.resolve({ ok: false } as const))
+          .then(async (result) => {
+            if (!result.ok || !result.pubkey) return;
+            await activateWrites(result.pubkey);
+          }).catch(() => {})
+          .finally(() => supervisor.tasks.delete(activationTask));
+      supervisor.tasks.add(activationTask);
       const nixHandler = createNixHttpHandler({
         decodedMetadataBytes: config.limits.decodedMetadataBytes,
         selection: {
@@ -530,8 +604,12 @@ export function createProductionDependencies(
         health: createHealthSnapshotProvider(() => {
           const selected = (selection as unknown as SelectionView).current();
           const signerState = signer?.current();
-          const saga = writeRepository?.publicationSaga();
-          const endpointWork = writeRepository?.endpointWork() ?? [];
+          const saga = writesActivated
+            ? writeRepository?.publicationSaga()
+            : undefined;
+          const endpointWork = writesActivated
+            ? writeRepository?.endpointWork() ?? []
+            : [];
           const repairing = Boolean(
             saga?.committed &&
               endpointWork.some((item) => item.status !== "complete"),
@@ -559,7 +637,7 @@ export function createProductionDependencies(
             process: { repositoryHealthy: writeRepository?.health() ?? true },
             read: {
               selectedPublications: selected.length,
-              overlayEntries: overlay?.current().entries.size ?? 0,
+              overlayEntries: overlay?.current()?.entries.size ?? 0,
             },
             write: config.writeIntent.mode === "disabled"
               ? { enabled: false }
@@ -569,7 +647,7 @@ export function createProductionDependencies(
                 signerStatus: signerState?.status ?? "disconnected",
                 signerOwned: signerState?.status === "ready" ||
                   (signerState?.status === "failed" &&
-                    signerState.code !== "ownership_mismatch"),
+                    signerState.code !== "identity_changed"),
                 destinations,
                 relays: config.relayUrls.length,
                 publication,
@@ -588,9 +666,15 @@ export function createProductionDependencies(
                 selected.some((item) => item.bud03Servers.length > 0);
               return {
                 ready: state.status === "ready" && writeRepository.health() &&
+                  writesActivated &&
+                  config.writeIntent.mode !== "disabled" &&
+                  writeRepository.boundIdentity() ===
+                    `${config.writeIntent.identity.kind}:${state.pubkey}:${config.writeIntent.identity.identifier}` &&
                   config.relayUrls.length > 0 && hasDestination,
                 repository: writeRepository,
+                authorize: () => signer.assertIdentity().then(() => {}),
                 onStaged: async (route) => {
+                  await signer.assertIdentity();
                   return await (eligibility?.changed(route) ?? false);
                 },
               };

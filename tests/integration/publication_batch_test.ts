@@ -1,5 +1,11 @@
 import { assertEquals, assertExists } from "@std/assert";
-import { WriteRepository } from "../../src/persistence/write_repository.ts";
+import { WriteRepository as BaseWriteRepository } from "../../src/persistence/write_repository.ts";
+class WriteRepository extends BaseWriteRepository {
+  constructor(...args: ConstructorParameters<typeof BaseWriteRepository>) {
+    super(...args);
+    this.bindIdentity(this.boundIdentity() ?? `17091:${"f".repeat(64)}:`);
+  }
+}
 import {
   type BatchClock,
   PublicationBatchScheduler,

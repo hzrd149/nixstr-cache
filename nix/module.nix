@@ -46,7 +46,7 @@ in
       example = lib.literalExpression ''
         {
           NIXSTR_BIND_HOST = "0.0.0.0";
-          NIXSTR_CACHE_IDENTITIES = "17091:<64-hex-pubkey>:";
+          NIXSTR_CACHES = "<64-lowercase-hex-pubkey-or-npub>";
           NIXSTR_RELAY_URLS = "wss://relay.example.com,wss://nos.lol";
           NIXSTR_PREFERRED_BLOSSOM_URL = "https://blossom.example.com";
         }
@@ -56,17 +56,18 @@ in
         its entire configuration from this namespace and refuses to start with a
         printed diagnostic when a value is missing or invalid.
 
-        At minimum a cache identity (`NIXSTR_CACHE_IDENTITIES`, or the legacy
-        `NIXSTR_PUBLISHER_PUBKEYS`) and `NIXSTR_RELAY_URLS` are required. The
+        At minimum `NIXSTR_CACHES` and `NIXSTR_RELAY_URLS` are required.
+        Cache identities accept a bare lowercase hex pubkey or `npub` for a
+        default cache, and a kind-37091 `naddr` for a named cache. The
         module defaults `NIXSTR_BIND_HOST`, `NIXSTR_BIND_PORT`,
         `NIXSTR_DATABASE_PATH`, and `NIXSTR_SPOOL_DIRECTORY`.
 
         Enabling the writable overlay additionally requires
-        `NIXSTR_SIGNER_MODE` (`nip46` or `local`), `NIXSTR_WRITABLE_IDENTITY`,
-        `NIXSTR_STAGING_DIRECTORY` (for example
+        `NIXSTR_WRITABLE_ENABLED=true`, `NIXSTR_WRITABLE_TYPE` (`root` or
+        `named`), `NIXSTR_WRITABLE_SIGNER_TYPE` (`nip46` or `local`),
+        `NIXSTR_WRITABLE_STAGING_DIRECTORY` (for example
         `/var/lib/nixstr-cache/staging`), and the absolute path of exactly the
-        protected source matching the mode: `NIXSTR_LOCAL_KEY_PATH` or
-        `NIXSTR_NIP46_SESSION_PATH`. Those two files hold signing material, so
+        protected source in `NIXSTR_WRITABLE_SIGNER_PATH`. This file holds signing material, so
         provision them outside the Nix store and keep them readable by the
         service user only.
 
@@ -96,12 +97,10 @@ in
       {
         assertion =
           configuredOutOfStore
-          || setting "NIXSTR_CACHE_IDENTITIES" != ""
-          || setting "NIXSTR_PUBLISHER_PUBKEYS" != "";
+          || setting "NIXSTR_CACHES" != "";
         message = ''
           services.nixstr-cache requires at least one cache identity in
-          settings.NIXSTR_CACHE_IDENTITIES (or the legacy
-          settings.NIXSTR_PUBLISHER_PUBKEYS), or an
+          settings.NIXSTR_CACHES, or an
           services.nixstr-cache.environmentFile that supplies one.
         '';
       }

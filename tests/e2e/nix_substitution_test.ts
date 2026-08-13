@@ -203,8 +203,7 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
         env: {
           NIXSTR_BIND_HOST: "127.0.0.1",
           NIXSTR_BIND_PORT: String(daemonPort),
-          NIXSTR_CACHE_IDENTITIES:
-            `17091:${event.pubkey}:,17091:${secondEvent.pubkey}:`,
+          NIXSTR_CACHES: `17091:${event.pubkey}:,17091:${secondEvent.pubkey}:`,
           NIXSTR_RELAY_URLS: `ws://127.0.0.1:${relayAddress.port}`,
           NIXSTR_PREFERRED_BLOSSOM_URL: blossomUrl,
           NIXSTR_LOCAL_BLOSSOM_URL: localUrl,
