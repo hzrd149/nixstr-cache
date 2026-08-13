@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: Milestone v1.0 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-08-13 — Completed quick task 260813-lgb: Add CLI signer overrides with pre-bind ncryptsec unlocking
+Last activity: 2026-08-13 - Completed quick task 260813-nqe: update all applesauce dependencies to the alpha next build for bug fixes 0.0.0-next-20260813160224
 
 ## Performance Metrics
 
@@ -172,6 +172,7 @@ None for the shipped v1.0 milestone.
 | 260813-gte | Add ncryptsec PasswordSigner support with secure startup unlocking | 2026-08-13 | uncommitted | [260813-gte-add-support-for-an-ncryptsec-signer-type](./quick/260813-gte-add-support-for-an-ncryptsec-signer-type/) |
 | 260813-fhz | Replace flat writable configuration with nested groups and signer-derived durable ownership | 2026-08-13 | uncommitted | [260813-fhz-replace-flat-writable-configuration-with](./quick/260813-fhz-replace-flat-writable-configuration-with/) |
 | 260813-lgb | Add CLI signer overrides with pre-bind ncryptsec unlocking | 2026-08-13 | uncommitted | [260813-lgb-add-cli-signer-overrides-for-nsec-ncrypt](./quick/260813-lgb-add-cli-signer-overrides-for-nsec-ncrypt/) |
+| 260813-nqe | update all applesauce dependencies to the alpha next build for bug fixes 0.0.0-next-20260813160224 | 2026-08-13 | 0de0416 | [260813-nqe-update-all-applesauce-dependencies-to-th](./quick/260813-nqe-update-all-applesauce-dependencies-to-th/) |
 
 ## Deferred Items
 
