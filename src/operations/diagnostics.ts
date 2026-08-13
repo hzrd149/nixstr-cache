@@ -1,5 +1,13 @@
 export type OperationalDiagnostic =
   | {
+    readonly type: "blob_store";
+    readonly code: "capacity_exhausted" | "reconcile_failure" | "delete_retry";
+    readonly readyBytes: number;
+    readonly reservedBytes: number;
+    readonly capacityBytes: number;
+    readonly count?: number;
+  }
+  | {
     readonly type: "staging_failure";
     readonly code:
       | "staging_conflict"
@@ -201,6 +209,16 @@ export function formatOperationalDiagnostic(
   let level = "INFO";
   let message: string;
   switch (item.type) {
+    case "blob_store":
+      level = item.code === "delete_retry" ? "WARN" : "ERROR";
+      message = `blob store: ${item.code}`;
+      fields.push(
+        `ready_bytes=${item.readyBytes}`,
+        `reserved_bytes=${item.reservedBytes}`,
+        `capacity_bytes=${item.capacityBytes}`,
+      );
+      if (item.count !== undefined) fields.push(`count=${item.count}`);
+      break;
     case "staging_failure":
       level = "WARN";
       message = `upload staging failed: ${item.code}`;

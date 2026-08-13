@@ -5,6 +5,7 @@ import { Subject } from "rxjs";
 import { verifyEvent } from "nostr-tools";
 import type { CandidateBlob } from "../hashtree/writer.ts";
 import { validatePublication } from "../protocol/publication.ts";
+import { BlobStore, type BlobStoreOptions } from "./blob_store.ts";
 
 export class WriteConflict extends Error {
   constructor() {
@@ -279,6 +280,11 @@ export class WriteRepository {
     return (this.#db.prepare(
       "SELECT identity FROM writable_owner WHERE singleton=1",
     ).get() as { identity?: string } | undefined)?.identity;
+  }
+
+  /** Shares this repository's SQLite transaction boundary with the blob catalog. */
+  openBlobStore(root: string, options: BlobStoreOptions = {}): BlobStore {
+    return new BlobStore(this.#db, root, options);
   }
 
   #stagingHasContent(): boolean {

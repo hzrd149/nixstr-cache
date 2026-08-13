@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import {
   BlobStore,
   DEFAULT_BLOB_STORE_BYTES,
@@ -24,10 +24,14 @@ Deno.test("blob store accounts physical bytes once and enforces reservations", a
       reserveBytes: 4,
     });
     assertEquals(first.hash, duplicate.hash);
-    assertEquals(store.usage(), { readyBytes: 4, reservedBytes: 0, capacityBytes: 8 });
+    assertEquals(store.usage(), {
+      readyBytes: 4,
+      reservedBytes: 0,
+      capacityBytes: 8,
+    });
     const reservation = store.reserve(4);
     assertEquals(store.usage().reservedBytes, 4);
-    assertRejects(() => Promise.resolve().then(() => store.reserve(1)), RangeError);
+    assertThrows(() => store.reserve(1), RangeError);
     reservation.release();
     store.close();
   } finally {
@@ -48,7 +52,11 @@ Deno.test("blob store leases exclude eviction and write ownership controls delet
       reserveBytes: 3,
     });
     const lease = store.lookup(remote.hash)!;
-    await store.admit(bytes("def"), { origin: "remote", reserveBytes: 3 });
+    await store.admit(bytes("def"), {
+      origin: "remote",
+      owner: "pinned",
+      reserveBytes: 3,
+    });
     assertRejects(
       () => store.admit(bytes("g"), { origin: "remote", reserveBytes: 1 }),
       RangeError,
