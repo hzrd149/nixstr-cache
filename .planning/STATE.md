@@ -174,6 +174,7 @@ None for the shipped v1.0 milestone.
 | 260813-lgb | Add CLI signer overrides with pre-bind ncryptsec unlocking | 2026-08-13 | uncommitted | [260813-lgb-add-cli-signer-overrides-for-nsec-ncrypt](./quick/260813-lgb-add-cli-signer-overrides-for-nsec-ncrypt/) |
 | 260813-nqe | update all applesauce dependencies to the alpha next build for bug fixes 0.0.0-next-20260813160224 | 2026-08-13 | 0de0416 | [260813-nqe-update-all-applesauce-dependencies-to-th](./quick/260813-nqe-update-all-applesauce-dependencies-to-th/) |
 | 260813-o14 | Expand logging for reactive write relay discovery and changes | 2026-08-13 | 0e1e1a1 | [260813-o14-expand-logging-to-report-when-effective-](./quick/260813-o14-expand-logging-to-report-when-effective-/) |
+| 260813-o5i | Add reactive cache selection, package load, and Hashtree NAR provenance logging | 2026-08-13 | 4639a7d | [260813-o5i-add-reactive-logging-for-cache-selection](./quick/260813-o5i-add-reactive-logging-for-cache-selection/) |
 
 ## Deferred Items
 
@@ -184,8 +185,8 @@ None for the shipped v1.0 milestone.
 
 ## Session Continuity
 
-Last session: 2026-08-13T16:22:00.000Z
-Stopped at: Completed quick task 260813-o14
+Last session: 2026-08-13T16:27:00.000Z
+Stopped at: Completed quick task 260813-o5i
 Resume file: None
 
 ## Operator Next Steps
