@@ -11,6 +11,27 @@ import {
   PublicationBatchScheduler,
 } from "../../src/write/batch_scheduler.ts";
 import { HashtreeWriter } from "../../src/hashtree/writer.ts";
+import type { HashtreeBuild } from "../../src/hashtree/writer.ts";
+import { debugWriteHashtreeState } from "../../src/operations/debug.ts";
+
+const NHASH_A =
+  "nhash1qqsg2g2kl6dmsqxmgfgwrnpq794qd0h2zcn4r4q4qcvn9jcq0m7792cf2764x";
+const NHASH_B =
+  "nhash1qqs9z6rzcqs82lfrzgrwckty9hapjruvms3pnarkr75t7vfj6xynhqs9zzcqs";
+
+function candidate(rootNhash: string, rootHex: string): HashtreeBuild {
+  return {
+    runId: `run-${rootHex[0]}`,
+    rootHex,
+    rootNhash,
+    rootPath: "/not-logged",
+    inventory: Object.assign([], { length: 0 }),
+    totalBytes: 17,
+    createdBlobs: 0,
+    maxBufferedLinks: 0,
+    dispose: () => Promise.resolve(),
+  };
+}
 
 class FakeClock implements BatchClock {
   now = 0;
@@ -289,6 +310,85 @@ Deno.test("streams frozen batch rows directly into the writer", async () => {
     await scheduler.close();
     repository.close();
   } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("writable Hashtree state logs durable distinct roots only", async () => {
+  const root = await Deno.makeTempDir();
+  const original = console.debug;
+  const calls: unknown[][] = [];
+  console.debug = (...args: unknown[]) => calls.push(args);
+  debugWriteHashtreeState.enabled = true;
+  try {
+    const repository = new WriteRepository(
+      `${root}/write.db`,
+      `${root}/spool`,
+      { perBodyBytes: 4096, aggregateBytes: 65536 },
+    );
+    await repository.stage("one", new Blob(["1"]).stream());
+    const first = repository.commitOverlayRoutes(["one"]);
+    const clock = new FakeClock();
+    let build = 0;
+    const scheduler = new PublicationBatchScheduler(repository, {
+      build: () =>
+        Promise.resolve(
+          build++ < 2
+            ? candidate(NHASH_A, "a".repeat(64))
+            : candidate(NHASH_B, "b".repeat(64)),
+        ),
+    }, clock);
+    scheduler.dirty(first);
+    await clock.advance(5_000);
+    await scheduler.idle();
+    scheduler.dirty(first);
+    await clock.advance(5_000);
+    await scheduler.idle();
+    await repository.stage("two", new Blob(["2"]).stream());
+    const second = repository.commitOverlayRoutes(["one", "two"]);
+    scheduler.dirty(second);
+    await clock.advance(5_000);
+    await scheduler.idle();
+    assertEquals(calls, [
+      [`nixstr:write:hashtree pending generation=${first} batchId=1 root=${NHASH_A} blobCount=0 totalBytes=17`],
+      [`nixstr:write:hashtree pending generation=${second} batchId=3 root=${NHASH_B} blobCount=0 totalBytes=17`],
+    ]);
+    await scheduler.close();
+    repository.close();
+  } finally {
+    debugWriteHashtreeState.enabled = false;
+    console.debug = original;
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("failed Hashtree builds do not log a pending root", async () => {
+  const root = await Deno.makeTempDir();
+  const original = console.debug;
+  const calls: unknown[][] = [];
+  console.debug = (...args: unknown[]) => calls.push(args);
+  debugWriteHashtreeState.enabled = true;
+  try {
+    const repository = new WriteRepository(
+      `${root}/write.db`,
+      `${root}/spool`,
+      { perBodyBytes: 4096, aggregateBytes: 65536 },
+    );
+    await repository.stage("one", new Blob(["1"]).stream());
+    const generation = repository.commitOverlayRoutes(["one"]);
+    const clock = new FakeClock();
+    const scheduler = new PublicationBatchScheduler(repository, {
+      build: () => Promise.reject(new Error("failed")),
+    }, clock);
+    scheduler.dirty(generation);
+    await clock.advance(5_000);
+    await scheduler.idle().catch(() => {});
+    assertEquals(calls, []);
+    await scheduler.close().catch(() => {});
+    repository.close();
+  } finally {
+    debugWriteHashtreeState.enabled = false;
+    console.debug = original;
     await Deno.remove(root, { recursive: true });
   }
 });
