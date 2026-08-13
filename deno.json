@@ -23,6 +23,7 @@
     "@noble/curves": "npm:@noble/curves@2.3.0",
     "@scure/base": "npm:@scure/base@2.3.0",
     "@std/assert": "jsr:@std/assert@1.0.19",
+    "@std/cli": "jsr:@std/cli@1.0.32",
     "applesauce-core": "npm:applesauce-core@6.2.0",
     "applesauce-loaders": "npm:applesauce-loaders@6.2.0",
     "applesauce-relay": "npm:applesauce-relay@6.2.1",
