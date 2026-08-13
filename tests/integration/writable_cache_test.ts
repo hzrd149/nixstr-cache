@@ -344,6 +344,159 @@ Deno.test("complete object commits to signer-first immutable overlay", async () 
   await Deno.remove(root, { recursive: true });
 });
 
+Deno.test("self-referential Nix narinfo commits to the writable overlay", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const repository = new WriteRepository(
+      `${root}/write.db`,
+      `${root}/spool`,
+      { perBodyBytes: 4096, aggregateBytes: 32768 },
+    );
+    const storeHash = "h5yzhyi8j6iq4r26giryd0rh9ynsayan";
+    const narinfo = [
+      `StorePath: /nix/store/${storeHash}-libunistring-1.4.2`,
+      "URL: nar/self.nar",
+      "Compression: none",
+      "FileHash: sha256:abc",
+      "FileSize: 4",
+      "NarHash: sha256:abc",
+      "NarSize: 4",
+      `References: ${storeHash}-libunistring-1.4.2`,
+      "",
+    ].join("\n");
+    const overlay = new SignerOverlay(repository);
+    const eligibility = new EligibilityModel(repository, overlay, {
+      maxVisited: 8,
+      maxMetadataBytes: 8192,
+      lowerHasStorePath: () => false,
+    });
+    const handler = createNixHttpHandler({
+      decodedMetadataBytes: 4096,
+      selection: { current: () => [] },
+      overlay,
+      resolverFor: () => {
+        throw new Error("publisher must not be consulted");
+      },
+      write: {
+        current: () => ({
+          ready: true,
+          repository,
+          onStaged: (route) => eligibility.changed(route),
+        }),
+      },
+    });
+
+    for (
+      const [route, body] of [
+        ["nar/self.nar", "self"],
+        [`${storeHash}.narinfo`, narinfo],
+      ]
+    ) {
+      assertEquals(
+        (await handler(
+          new Request(`http://cache/${route}`, {
+            method: "PUT",
+            body: new Blob([body]).stream(),
+            duplex: "half",
+          } as RequestInit),
+        )).status,
+        200,
+      );
+    }
+    assertEquals(overlay.current().storePaths, new Set([storeHash]));
+    assertEquals(
+      (await handler(new Request(`http://cache/${storeHash}.narinfo`))).status,
+      200,
+    );
+    handler.close();
+    repository.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("idempotent narinfo PUT repairs a missing metadata index", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const repository = new WriteRepository(
+      `${root}/write.db`,
+      `${root}/spool`,
+      { perBodyBytes: 4096, aggregateBytes: 32768 },
+    );
+    const storeHash = "0123456789abcdfghijklmnpqrsvwxyz";
+    const narinfo = [
+      `StorePath: /nix/store/${storeHash}-demo`,
+      "URL: nar/recovered.nar",
+      "Compression: none",
+      "FileHash: sha256:abc",
+      "FileSize: 9",
+      "NarHash: sha256:abc",
+      "NarSize: 9",
+      "References: ",
+      "",
+    ].join("\n");
+
+    // Reproduce an interrupted prior admission: durable bytes exist, but the
+    // semantic narinfo index was never recorded.
+    await repository.stage(
+      `${storeHash}.narinfo`,
+      new Blob([narinfo]).stream(),
+    );
+    assertEquals(repository.stagedCandidateHashes(8), []);
+
+    const overlay = new SignerOverlay(repository);
+    const eligibility = new EligibilityModel(repository, overlay, {
+      maxVisited: 8,
+      maxMetadataBytes: 8192,
+      lowerHasStorePath: () => false,
+    });
+    const handler = createNixHttpHandler({
+      decodedMetadataBytes: 4096,
+      selection: { current: () => [] },
+      overlay,
+      resolverFor: () => {
+        throw new Error("publisher must not be consulted");
+      },
+      write: {
+        current: () => ({
+          ready: true,
+          repository,
+          onStaged: (route) => eligibility.changed(route),
+        }),
+      },
+    });
+
+    assertEquals(
+      (await handler(
+        new Request(`http://cache/${storeHash}.narinfo`, {
+          method: "PUT",
+          body: new Blob([narinfo]).stream(),
+          duplex: "half",
+        } as RequestInit),
+      )).status,
+      200,
+    );
+    assertEquals(
+      (await handler(
+        new Request("http://cache/nar/recovered.nar", {
+          method: "PUT",
+          body: new Blob(["recovered"]).stream(),
+          duplex: "half",
+        } as RequestInit),
+      )).status,
+      200,
+    );
+    assertEquals(
+      (await handler(new Request(`http://cache/${storeHash}.narinfo`))).status,
+      200,
+    );
+    handler.close();
+    repository.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
 Deno.test("reverse dependencies cycles restart and concurrent generations remain closed", async () => {
   const root = await Deno.makeTempDir();
   const db = `${root}/write.db`;

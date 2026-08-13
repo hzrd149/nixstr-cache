@@ -195,7 +195,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           request.signal,
           narinfoMatch ? dependencies.decodedMetadataBytes : undefined,
         );
-        if (narinfoMatch && !staged.idempotent) {
+        if (narinfoMatch) {
           const raw = await Deno.readTextFile(staged.path);
           try {
             const parsed = parseNarInfo(raw);

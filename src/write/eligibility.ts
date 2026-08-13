@@ -74,6 +74,7 @@ export class EligibilityModel {
         let closed = true;
         for (const reference of candidate.references) {
           if (
+            reference !== candidate.storePathHash &&
             !committed.has(reference) && !admitted.has(reference) &&
             !await this.options.lowerHasStorePath(reference)
           ) {
