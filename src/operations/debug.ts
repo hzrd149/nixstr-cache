@@ -27,13 +27,21 @@ export const debugHttpRequest = compactDebug("nixstr:http:request");
 export const debugHttpRoute = compactDebug("nixstr:http:route");
 export const debugHttpUpstream = compactDebug("nixstr:http:upstream");
 
-let nextRequestId = 0;
+let nextInboundId = 0;
+let nextOutboundId = 0;
 
-export function requestId(): number {
-  nextRequestId = nextRequestId === Number.MAX_SAFE_INTEGER
+export function inboundRequestId(): number {
+  nextInboundId = nextInboundId === Number.MAX_SAFE_INTEGER
     ? 1
-    : nextRequestId + 1;
-  return nextRequestId;
+    : nextInboundId + 1;
+  return nextInboundId;
+}
+
+export function outboundRequestId(): number {
+  nextOutboundId = nextOutboundId === Number.MAX_SAFE_INTEGER
+    ? 1
+    : nextOutboundId + 1;
+  return nextOutboundId;
 }
 
 export function debugPath(value: string): string {

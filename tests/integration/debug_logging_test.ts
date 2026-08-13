@@ -3,7 +3,8 @@ import {
   debugEndpoint,
   debugHttpRequest,
   debugPath,
-  requestId,
+  inboundRequestId,
+  outboundRequestId,
 } from "../../src/operations/debug.ts";
 
 Deno.test("HTTP debug fields redact URL secrets and hostile path bytes", () => {
@@ -25,7 +26,9 @@ Deno.test("HTTP debug facade emits compact strings instead of objects", () => {
   try {
     debugHttpRequest.enabled = true;
     debugHttpRequest("completed", {
-      requestId: 7,
+      direction: "inbound",
+      inboundId: 7,
+      listener: "http://127.0.0.1:8787/",
       method: "GET",
       path: "/nar/demo.nar",
       status: 200,
@@ -38,14 +41,16 @@ Deno.test("HTTP debug facade emits compact strings instead of objects", () => {
   assertEquals(calls[0].length, 1);
   assertEquals(
     calls[0][0],
-    "nixstr:http:request completed requestId=7 method=GET path=/nar/demo.nar status=200",
+    "nixstr:http:request completed direction=inbound inboundId=7 listener=http://127.0.0.1:8787/ method=GET path=/nar/demo.nar status=200",
   );
 });
 
 Deno.test("HTTP debug correlation identifiers are positive and distinct", () => {
-  const first = requestId();
-  const second = requestId();
+  const first = inboundRequestId();
+  const second = inboundRequestId();
+  const outbound = outboundRequestId();
   assertEquals(first > 0, true);
   assertEquals(second > 0, true);
   assertEquals(first === second, false);
+  assertEquals(outbound, 1);
 });

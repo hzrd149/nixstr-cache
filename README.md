@@ -129,6 +129,15 @@ bodies, headers, URL credentials, query strings, and fragments. Normal
 operational diagnostics remain enabled independently of `DEBUG`. Each debug
 entry is one compact `key=value` line rather than a serialized object.
 
+An inbound request is visibly attributed to the local listener, for example:
+
+```text
+nixstr:http:request started direction=inbound inboundId=1 listener=http://127.0.0.1:8787/ method=GET path=/nix-cache-info
+```
+
+Outbound fetches use a separate `outboundId`, so matching numeric values do not
+imply that an upstream operation belongs to a particular inbound request.
+
 ## Nix packaging
 
 The flake packages the daemon with

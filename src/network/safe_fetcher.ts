@@ -1,7 +1,7 @@
 import {
   debugEndpoint,
   debugHttpUpstream,
-  requestId,
+  outboundRequestId,
 } from "../operations/debug.ts";
 
 export type SourceTrust = "publisher" | "configured";
@@ -637,7 +637,7 @@ export class SafeFetcher {
       readonly signal?: AbortSignal;
     },
   ): Promise<PinnedResponse> {
-    const trace = requestId();
+    const trace = outboundRequestId();
     const total = AbortSignal.timeout(this.limits.totalTimeoutMs);
     const totalSignal = init.signal
       ? AbortSignal.any([init.signal, total])
@@ -645,7 +645,7 @@ export class SafeFetcher {
     let url = new URL(input);
     for (let hop = 0; hop <= this.limits.maxRedirects; hop++) {
       debugHttpUpstream("attempt", {
-        requestId: trace,
+        outboundId: trace,
         method: init.method,
         endpoint: debugEndpoint(url),
         trust,
@@ -665,7 +665,7 @@ export class SafeFetcher {
         });
       } catch (error) {
         debugHttpUpstream("failed", {
-          requestId: trace,
+          outboundId: trace,
           method: init.method,
           endpoint: debugEndpoint(url),
           trust,
@@ -680,7 +680,7 @@ export class SafeFetcher {
         throw error;
       }
       debugHttpUpstream("response", {
-        requestId: trace,
+        outboundId: trace,
         method: init.method,
         endpoint: debugEndpoint(url),
         trust,
@@ -700,7 +700,7 @@ export class SafeFetcher {
       }
       const redirect = new URL(location, url);
       debugHttpUpstream("redirect", {
-        requestId: trace,
+        outboundId: trace,
         from: debugEndpoint(url),
         to: debugEndpoint(redirect),
         hop,

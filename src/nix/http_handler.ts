@@ -11,10 +11,11 @@ import type { SignerOverlay, SignerOverlaySnapshot } from "../write/overlay.ts";
 import type { HealthSnapshotProvider } from "../operations/health.ts";
 import type { OperationalDiagnosticSink } from "../operations/diagnostics.ts";
 import {
+  debugEndpoint,
   debugHttpRequest,
   debugHttpRoute,
   debugPath,
-  requestId,
+  inboundRequestId,
 } from "../operations/debug.ts";
 import { cacheIdentity } from "../protocol/publication.ts";
 import {
@@ -449,15 +450,19 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
     }
   };
   const handler = async (request: Request): Promise<Response> => {
-    const trace = requestId();
+    const trace = inboundRequestId();
     const started = Date.now();
+    const url = new URL(request.url);
+    const listener = debugEndpoint(url.origin);
     let status = 500;
     let reasons: readonly string[] | undefined;
     try {
       debugHttpRequest("started", {
-        requestId: trace,
+        direction: "inbound",
+        inboundId: trace,
+        listener,
         method: request.method,
-        path: debugPath(new URL(request.url).pathname),
+        path: debugPath(url.pathname),
       });
       const response = await handleRequest(request, trace);
       status = response.status;
@@ -472,9 +477,11 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       return response;
     } finally {
       debugHttpRequest("completed", {
-        requestId: trace,
+        direction: "inbound",
+        inboundId: trace,
+        listener,
         method: request.method,
-        path: debugPath(new URL(request.url).pathname),
+        path: debugPath(url.pathname),
         status,
         durationMs: Math.max(0, Date.now() - started),
         ...(reasons?.length ? { reasons } : {}),
