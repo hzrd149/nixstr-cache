@@ -110,12 +110,38 @@ export class PublicationCoordinator {
     this.#schedule(0);
   }
   async close(): Promise<void> {
+    if (this.#closed) return;
     this.#closed = true;
     this.#abort.abort("publication coordinator closed");
-    this.options.repository.restoreClaimedWork(this.options.now());
-    this.#subscription?.unsubscribe();
-    if (this.#timer !== undefined) clearTimeout(this.#timer);
-    await this.#serial;
+    const errors: unknown[] = [];
+    try {
+      this.#subscription?.unsubscribe();
+    } catch (error) {
+      errors.push(error);
+    }
+    this.#subscription = undefined;
+    try {
+      if (this.#timer !== undefined) clearTimeout(this.#timer);
+    } catch (error) {
+      errors.push(error);
+    }
+    this.#timer = undefined;
+    try {
+      this.options.repository.restoreClaimedWork(this.options.now());
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      await this.#serial;
+    } catch (error) {
+      errors.push(error);
+    }
+    if (errors.length) {
+      throw new AggregateError(
+        errors,
+        "publication coordinator shutdown failed",
+      );
+    }
   }
   #schedule(delayMs?: number): void {
     if (this.#closed) return;

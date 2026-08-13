@@ -322,18 +322,39 @@ export function createProductionDependencies(
           const supervisor = supervisors.get(selectionHandle);
           supervisor?.abort.abort("daemon shutdown");
           const finish = async () => {
+            const errors: unknown[] = [];
             try {
               cacheSelectionSubscription.unsubscribe();
               selector.dispose();
-            } finally {
+            } catch (error) {
+              errors.push(error);
+            }
+            try {
               stream.close();
-              try {
-                await signer?.close();
-              } finally {
-                writeRepository?.close();
-                if (sharedNostr) closeNostr();
-                else nostr.close();
-              }
+            } catch (error) {
+              errors.push(error);
+            }
+            try {
+              await signer?.close();
+            } catch (error) {
+              errors.push(error);
+            }
+            try {
+              writeRepository?.close();
+            } catch (error) {
+              errors.push(error);
+            }
+            try {
+              if (sharedNostr) closeNostr();
+              else nostr.close();
+            } catch (error) {
+              errors.push(error);
+            }
+            if (errors.length) {
+              throw new AggregateError(
+                errors,
+                "daemon resource shutdown failed",
+              );
             }
           };
           if (supervisor?.tasks.size) {

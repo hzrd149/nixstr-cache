@@ -137,9 +137,27 @@ function createService(
     close() {
       if (closed) return;
       closed = true;
-      for (const subscription of subscriptions) subscription.unsubscribe();
-      store.dispose();
-      pool.close();
+      const errors: unknown[] = [];
+      for (const subscription of subscriptions) {
+        try {
+          subscription.unsubscribe();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      try {
+        store.dispose();
+      } catch (error) {
+        errors.push(error);
+      }
+      try {
+        pool.close();
+      } catch (error) {
+        errors.push(error);
+      }
+      if (errors.length) {
+        throw new AggregateError(errors, "Nostr shutdown failed");
+      }
     },
   };
   return Object.freeze(service);

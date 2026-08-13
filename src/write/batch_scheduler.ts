@@ -153,11 +153,16 @@ export class PublicationBatchScheduler {
     return this.#serial;
   }
   async close(): Promise<void> {
+    if (this.#closed) return;
     this.#closed = true;
     this.#abort.abort("batch scheduler closed");
     if (this.#quiet !== undefined) this.clock.clearTimer(this.#quiet);
     if (this.#maximum !== undefined) this.clock.clearTimer(this.#maximum);
-    await this.#serial;
-    await this.writer.close?.();
+    this.#quiet = this.#maximum = undefined;
+    try {
+      await this.#serial;
+    } finally {
+      await this.writer.close?.();
+    }
   }
 }
