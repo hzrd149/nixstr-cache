@@ -178,6 +178,7 @@ None for the shipped v1.0 milestone.
 | 260813-ogk | Add opt-in DEBUG namespace tracing for HTTP requests and decisions | 2026-08-13 | 3d7c14a | [260813-ogk-add-opt-in-debug-namespace-tracing-with-](./quick/260813-ogk-add-opt-in-debug-namespace-tracing-with-/) |
 | 260813-oq1 | Identify inbound local Nix HTTP requests and separate outbound IDs | 2026-08-13 | 18a9882 | [260813-oq1-make-inbound-nix-cache-http-debug-logs-c](./quick/260813-oq1-make-inbound-nix-cache-http-debug-logs-c/) |
 | 260813-p2w | Implement bounded daemon-wide verified Hashtree manifest cache | 2026-08-13 | f8a88df | [260813-p2w-implement-bounded-daemon-wide-in-memory-](./quick/260813-p2w-implement-bounded-daemon-wide-in-memory-/) |
+| 260813-qy6 | Log compact reactive cache and writable Hashtree state | 2026-08-13 | 706d0b2 | [260813-qy6-log-write-hashtree-state-and-reactive-ca](./quick/260813-qy6-log-write-hashtree-state-and-reactive-ca/) |
 
 ## Deferred Items
 
