@@ -33,14 +33,24 @@ Deno.test("canonical writer is deterministic, reader-compatible, and reuses blob
     const rootWire = await Deno.readFile(
       [...first.inventory].find((x) => x.hash === first.rootHex)!.path,
     );
-    assertEquals(
-      decodeManifest(rootWire, {
-        maxWireBytes: 1_000_000,
-        maxDecodedBytes: 1_000_000,
-        maxLinks: 174,
-      }).type,
-      "directory",
+    const manifestLimits = {
+      maxWireBytes: 1_000_000,
+      maxDecodedBytes: 1_000_000,
+      maxLinks: 174,
+    };
+    const rootManifest = decodeManifest(rootWire, manifestLimits);
+    assertEquals(rootManifest.type, "directory");
+    const narLink = rootManifest.links.find((link) => link.name === "nar")!;
+    assertEquals(narLink.size, input[0].size);
+    const narWire = await Deno.readFile(
+      [...first.inventory].find((x) => x.hash === narLink.hash.toHex())!.path,
     );
+    const narManifest = decodeManifest(narWire, manifestLimits);
+    const fileLink = narManifest.links.find((link) =>
+      link.name === "example.nar"
+    )!;
+    assertEquals(fileLink.type, 1);
+    assertEquals(fileLink.size, input[0].size);
     await first.dispose();
     assertEquals(
       await Deno.stat(second.rootPath).then((value) => value.isFile),
@@ -69,6 +79,75 @@ Deno.test("canonical writer is deterministic, reader-compatible, and reuses blob
       artifacts.some((name) => name.startsWith("inventory-")),
       false,
     );
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("file links preserve descendant plaintext sizes", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const size = FILE_CHUNK_BYTES * 2 + 1;
+    const source = `${root}/source`;
+    await Deno.writeFile(source, new Uint8Array(size).fill(7));
+    const writer = new HashtreeWriter(`${root}/trees`, {
+      maxLinks: 2,
+      maxInventoryBlobs: 32,
+      maxInventoryBytes: 8_000_000,
+    });
+    const built = await writer.build([
+      { route: "nar/example.nar", path: source, size },
+    ]);
+    const limits = {
+      maxWireBytes: 1_000_000,
+      maxDecodedBytes: 1_000_000,
+      maxLinks: 2,
+    };
+    const manifest = async (build: typeof built, hash: string) =>
+      decodeManifest(
+        await Deno.readFile(
+          [...build.inventory].find((blob) => blob.hash === hash)!.path,
+        ),
+        limits,
+      );
+    const rootManifest = await manifest(built, built.rootHex);
+    const narLink = rootManifest.links.find((link) => link.name === "nar")!;
+    assertEquals(narLink.size, size);
+    const narManifest = await manifest(built, narLink.hash.toHex());
+    const fileLink = narManifest.links.find((link) =>
+      link.name === "example.nar"
+    )!;
+    assertEquals(fileLink.type, 1);
+    assertEquals(fileLink.size, size);
+    const fileManifest = await manifest(built, fileLink.hash.toHex());
+    assertEquals(fileManifest.type, "file");
+    assertEquals(
+      fileManifest.links.map((link) => link.size),
+      [FILE_CHUNK_BYTES * 2, 1],
+    );
+
+    const updatedSize = FILE_CHUNK_BYTES + 1;
+    await Deno.writeFile(source, new Uint8Array(updatedSize).fill(8));
+    const updated = await writer.build([
+      { route: "nar/example.nar", path: source, size: updatedSize },
+    ], built);
+    const updatedRoot = await manifest(updated, updated.rootHex);
+    const updatedNar = updatedRoot.links.find((link) => link.name === "nar")!;
+    assertEquals(updatedNar.size, updatedSize);
+    const updatedDirectory = await manifest(updated, updatedNar.hash.toHex());
+    const updatedFile = updatedDirectory.links.find((link) =>
+      link.name === "example.nar"
+    )!;
+    assertEquals(updatedFile.size, updatedSize);
+    assertEquals(
+      (await manifest(updated, updatedFile.hash.toHex())).links.map((link) =>
+        link.size
+      ),
+      [FILE_CHUNK_BYTES, 1],
+    );
+    await updated.dispose();
+    await built.dispose();
+    await writer.close();
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -298,18 +377,18 @@ Deno.test("pinned canonical boundary hashes detect chunk grouping drift", async 
   const expected = [
     [
       FILE_CHUNK_BYTES - 1,
-      "852156fe9bb800db4250e1cc20f16a06beea162751d415061932cb007efde2ab",
-      "nhash1qqsg2g2kl6dmsqxmgfgwrnpq794qd0h2zcn4r4q4qcvn9jcq0m7792cf2764x",
+      "a1180087f359125af504ab9bf443ebb5a77d1f9cb0a5f5694dbc1797f3546d21",
+      "nhash1qqs2zxqqsle4jyj675z2hxl5g04mtfmar7wtpf04d9xmc9uh7d2x6ggdkgdax",
     ],
     [
       FILE_CHUNK_BYTES,
-      "516862c020757d231206ec59642dfa190f8cdc2219f4761fa8bf3132d1893b82",
-      "nhash1qqs9z6rzcqs82lfrzgrwckty9hapjruvms3pnarkr75t7vfj6xynhqs9zzcqs",
+      "26099d59c52cd8963427d31e9116dc52711a4ee884c7b457296c71411d369fa2",
+      "nhash1qqszvzvat8zjekykxsnax853zmw9yug6fm5gf3a52u5kcu2pr5mflgsa7rjfz",
     ],
     [
       FILE_CHUNK_BYTES + 1,
-      "85e63254c339fb200759e7cd3986bfa2854f8e1bbb24241876b1342d84fe1629",
-      "nhash1qqsgte3j2npnn7eqqav70nfes6l69p203cdmkfpyrpmtzdpdsnlpv2g3m0p4c",
+      "9a3e00917fd6f3ffabb59d2b7451b7eff7dc9652da5fee690f66a1bc277dcfae",
+      "nhash1qqsf50sqj9ladull4w6e62m52xm7la7ujefd5hlwdy8kdgduya7ultsu35duw",
     ],
   ] as const;
   const root = await Deno.makeTempDir();

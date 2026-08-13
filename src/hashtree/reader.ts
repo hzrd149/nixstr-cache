@@ -3,9 +3,11 @@ import type {
   BlobFetchLimits,
   VerifiedBlob,
 } from "../blossom/blob_fetcher.ts";
+import { blobFailureSources } from "../blossom/blob_fetcher.ts";
 import type { SourceCandidate } from "../blossom/source_plan.ts";
 import {
   decodeValidatedManifest,
+  encodeManifest,
   type Manifest,
   type ManifestLimits,
   type ManifestLink,
@@ -38,6 +40,16 @@ export class VerifiedAbsent extends Error {
   constructor(path: string) {
     super(`verified path is absent: ${path}`);
     this.name = "VerifiedAbsent";
+  }
+}
+export class NarResolutionFailed extends Error {
+  constructor(
+    readonly path: string,
+    readonly sources: readonly string[],
+    options?: ErrorOptions,
+  ) {
+    super(`tree path failed to resolve: ${path}`, options);
+    this.name = "NarResolutionFailed";
   }
 }
 
@@ -217,31 +229,44 @@ export class PathResolver {
           size: link.size,
           type: link.type,
         };
-        if (method === "HEAD") return Object.freeze(descriptor);
-        if (link.type === 0) {
-          return Object.freeze({
-            ...descriptor,
-            body: await this.#rawStream(
-              descriptor.hash,
-              link.size,
-              budget,
-              signal,
-            ),
-          });
-        }
-        if (link.type === 1) {
-          return Object.freeze({
-            ...descriptor,
-            body: await this.#fileStream(
+        try {
+          if (link.type === 0) {
+            if (method === "HEAD") return Object.freeze(descriptor);
+            return Object.freeze({
+              ...descriptor,
+              body: await this.#rawStream(
+                descriptor.hash,
+                link.size,
+                budget,
+                signal,
+              ),
+            });
+          }
+          if (link.type === 1) {
+            const plan = await this.#filePlan(
               descriptor.hash,
               link.size,
               budget,
               manifests,
               signal,
-            ),
-          });
+            );
+            const resolved = { ...descriptor, size: plan.size };
+            if (method === "HEAD") return Object.freeze(resolved);
+            return Object.freeze({
+              ...resolved,
+              body: await this.#fileStream(
+                plan.chunks,
+                budget,
+                signal,
+              ),
+            });
+          }
+          throw new Error("GET of a directory is unsupported");
+        } catch (error) {
+          const sources = blobFailureSources(error);
+          if (sources.length === 0) throw error;
+          throw new NarResolutionFailed(path, sources, { cause: error });
         }
-        throw new Error("GET of a directory is unsupported");
       }
       if (link.type !== 2 && link.type !== 3) throw new VerifiedAbsent(path);
       segmentIndex++;
@@ -328,72 +353,91 @@ export class PathResolver {
     const blob = await this.#fetch(hash, budget, signal, size);
     return cleanupStream(blob, size, budget);
   }
-  #fileStream(
+  async #filePlan(
     hash: string,
     expectedSize: number,
     budget: RequestBudget,
     cache: Map<string, Manifest>,
     signal?: AbortSignal,
-  ): ReadableStream<Uint8Array> {
-    const stack: Array<{
-      hash: string;
-      depth: number;
-      manifest?: Manifest;
-      index: number;
-    }> = [{ hash, depth: 1, index: 0 }];
-    let total = 0;
-    const nextChunk = async (): Promise<
-      { hash: string; size: number } | undefined
-    > => {
+  ): Promise<{
+    readonly size: number;
+    readonly chunks: readonly {
+      readonly hash: string;
+      readonly size: number;
+    }[];
+  }> {
+    const visit = async (
+      manifestHash: string,
+      depth: number,
+    ): Promise<{
+      readonly size: number;
+      readonly wireSize: number;
+      readonly chunks: readonly {
+        readonly hash: string;
+        readonly size: number;
+      }[];
+    }> => {
       signal?.throwIfAborted();
-      while (stack.length) {
-        const frame = stack.at(-1)!;
-        if (!frame.manifest) {
-          budget.checkDepth(frame.depth);
-          frame.manifest = await this.#manifest(
-            frame.hash,
-            budget,
-            cache,
-            signal,
-          );
-          if (frame.manifest.type !== "file") {
-            throw new Error("file link did not resolve to a file manifest");
+      budget.checkDepth(depth);
+      const manifest = await this.#manifest(
+        manifestHash,
+        budget,
+        cache,
+        signal,
+      );
+      if (manifest.type !== "file") {
+        throw new Error("file link did not resolve to a file manifest");
+      }
+      budget.debitLinks(manifest.links.length);
+      let total = 0;
+      const chunks: { hash: string; size: number }[] = [];
+      for (const link of manifest.links) {
+        let representedSize: number;
+        if (link.type === 0) {
+          representedSize = link.size;
+          chunks.push({ hash: link.hash.toHex(), size: link.size });
+        } else if (link.type === 1) {
+          const child = await visit(link.hash.toHex(), depth + 1);
+          if (link.size !== child.size && link.size !== child.wireSize) {
+            throw new Error(
+              "nested file manifest size differs from authenticated link",
+            );
           }
-          budget.debitLinks(frame.manifest.links.length);
-        }
-        if (frame.index >= frame.manifest.links.length) {
-          stack.pop();
-          continue;
-        }
-        const link = frame.manifest.links[frame.index++];
-        if (link.type === 1) {
-          stack.push({
-            hash: link.hash.toHex(),
-            depth: frame.depth + 1,
-            index: 0,
-          });
-        } else if (link.type === 0) {
-          if (!Number.isSafeInteger(total + link.size)) {
-            throw new BudgetExceeded("file output size is not a safe integer");
-          }
-          total += link.size;
-          budget.ensureOutputAvailable(total);
-          return { hash: link.hash.toHex(), size: link.size };
+          representedSize = child.size;
+          for (const chunk of child.chunks) chunks.push(chunk);
         } else throw new Error("invalid file-manifest child type");
+        if (!Number.isSafeInteger(total + representedSize)) {
+          throw new BudgetExceeded("file output size is not a safe integer");
+        }
+        total += representedSize;
+        budget.ensureOutputAvailable(total);
       }
-      if (total !== expectedSize) {
-        throw new Error(
-          "file manifest size differs from authenticated directory link",
-        );
-      }
-      return undefined;
+      return Object.freeze({
+        size: total,
+        wireSize: encodeManifest(manifest).length,
+        chunks: Object.freeze(chunks),
+      });
     };
+    const plan = await visit(hash, 1);
+    if (expectedSize !== plan.size && expectedSize !== plan.wireSize) {
+      throw new Error(
+        "file manifest size differs from authenticated directory link",
+      );
+    }
+    return Object.freeze({ size: plan.size, chunks: plan.chunks });
+  }
+  #fileStream(
+    chunks: readonly { readonly hash: string; readonly size: number }[],
+    budget: RequestBudget,
+    signal?: AbortSignal,
+  ): ReadableStream<Uint8Array> {
+    let index = 0;
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     return new ReadableStream<Uint8Array>({
       pull: async (controller) => {
         while (true) {
           if (!reader) {
-            const chunk = await nextChunk();
+            const chunk = chunks[index++];
             if (!chunk) {
               controller.close();
               return;

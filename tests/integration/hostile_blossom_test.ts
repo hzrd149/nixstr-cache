@@ -448,6 +448,119 @@ Deno.test("ordered|transfer budget|output budget: nested file manifests preserve
   assertEquals(await new Response(result.body).text(), "ABCD");
 });
 
+Deno.test("legacy file-link wire sizes derive bounded authenticated plaintext sizes", async () => {
+  const first = new TextEncoder().encode("legacy ");
+  const second = new TextEncoder().encode("readable NAR");
+  const content = new Uint8Array(first.length + second.length);
+  content.set(first);
+  content.set(second, first.length);
+  const child = manifest({
+    l: [{ h: hashBytes(second), s: second.length, t: 0 }],
+    t: 1,
+  });
+  const file = manifest({
+    l: [
+      { h: hashBytes(first), s: first.length, t: 0 },
+      { h: hashBytes(child), s: child.length, t: 1 },
+    ],
+    t: 1,
+  });
+  const invalidFile = manifest({
+    l: [
+      { h: hashBytes(first), s: first.length, t: 0 },
+      { h: hashBytes(child), s: child.length + 1, t: 1 },
+    ],
+    t: 1,
+  });
+  const legacyRoot = manifest({
+    l: [{ h: hashBytes(file), n: "legacy", s: file.length, t: 1 }],
+    t: 2,
+  });
+  const invalidRoot = manifest({
+    l: [{
+      h: hashBytes(invalidFile),
+      n: "invalid",
+      s: invalidFile.length,
+      t: 1,
+    }],
+    t: 2,
+  });
+  const blobs = new Map(
+    [legacyRoot, invalidRoot, file, invalidFile, child, first, second].map((
+      bytes,
+    ) => [
+      hex(hashBytes(bytes)),
+      bytes,
+    ]),
+  );
+  const calls: string[] = [];
+  const spool = await Deno.makeTempDir();
+  try {
+    const resolver = new PathResolver(
+      new BlobFetcher({
+        fetcher: {
+          fetch: (url: string | URL) => {
+            const hash = String(url).split("/").at(-1)!;
+            calls.push(hash);
+            return Promise.resolve(response(blobs.get(hash)!));
+          },
+        },
+        quarantine: {
+          isQuarantined: () => false,
+          quarantine: () => {},
+          releaseQuarantine: () => {},
+        },
+        spoolDirectory: spool,
+      }),
+      buildSourcePlan({ event: ["http://tree.test"] }),
+      { maxWireBytes: 4096, maxDecodedBytes: 4096, maxLinks: 10 },
+    );
+    const head = await resolver.resolve(
+      hex(hashBytes(legacyRoot)),
+      "legacy",
+      "HEAD",
+      new RequestBudget(traversalLimits()),
+    );
+    assertEquals(head.size, content.length);
+    assertEquals(calls.includes(hex(hashBytes(first))), false);
+    assertEquals(calls.includes(hex(hashBytes(second))), false);
+
+    const get = await resolver.resolve(
+      hex(hashBytes(legacyRoot)),
+      "legacy",
+      "GET",
+      new RequestBudget(traversalLimits()),
+    );
+    assertEquals(get.size, content.length);
+    assertEquals(await new Response(get.body).bytes(), content);
+
+    await assertRejects(
+      () =>
+        resolver.resolve(
+          hex(hashBytes(invalidRoot)),
+          "invalid",
+          "HEAD",
+          new RequestBudget(traversalLimits()),
+        ),
+      Error,
+      "nested file manifest size differs",
+    );
+    await assertRejects(
+      () =>
+        resolver.resolve(
+          hex(hashBytes(legacyRoot)),
+          "legacy",
+          "HEAD",
+          new RequestBudget(traversalLimits({ maxLinks: 3 })),
+        ),
+      Error,
+      "link budget exceeded",
+    );
+  } finally {
+    await Deno.remove(spool, { recursive: true });
+  }
+});
+
 Deno.test("ordered|transfer budget|output budget: policy bounds declarations and actual retry bytes", async () => {
   const content = new TextEncoder().encode("12345");
   const contentHash = hashBytes(content);

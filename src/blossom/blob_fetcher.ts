@@ -181,7 +181,13 @@ export class BlobFetcher {
       try {
         return await this.#attempt(expectedHash, source, limits, signal);
       } catch (error) {
-        failures.push(error);
+        failures.push(
+          error instanceof BlobAttemptError
+            ? error
+            : new BlobAttemptError("blob source failed", source, {
+              cause: error,
+            }),
+        );
         if (error instanceof HashMismatch) {
           if (source.role === "local-cache") {
             this.#onLocalDiagnostic?.(Object.freeze({
@@ -308,4 +314,17 @@ export class BlobFetcher {
       if (path) await removeIfPresent(path);
     }
   }
+}
+
+export function blobFailureSources(error: unknown): readonly string[] {
+  const failures = error instanceof BlobUnavailable ? error.failures : [error];
+  return Object.freeze([
+    ...new Set(
+      failures.flatMap((failure) =>
+        failure instanceof BlobAttemptError && failure.source
+          ? [failure.source.origin]
+          : []
+      ),
+    ),
+  ]);
 }

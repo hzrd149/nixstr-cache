@@ -73,6 +73,7 @@ export function releaseContentOwner(owner: string, samplePath: string): void {
 }
 type Built = CandidateBlob & {
   bytes: Uint8Array;
+  logicalSize: number;
   type: 0 | 1 | 2 | 3;
   count: number;
   first?: string;
@@ -343,6 +344,16 @@ export class HashtreeWriter {
           ...(link.name === undefined ? {} : { name: link.name }),
           ...(link.metadata === undefined ? {} : { metadata: link.metadata }),
         });
+      const logicalSize = (links: readonly ManifestLink[]) => {
+        let total = 0;
+        for (const link of links) {
+          if (!Number.isSafeInteger(total + link.size)) {
+            throw new RangeError("logical size is not a safe integer");
+          }
+          total += link.size;
+        }
+        return total;
+      };
       const collapse = async (
         scope: string,
         kind: "file" | "directory",
@@ -369,6 +380,7 @@ export class HashtreeWriter {
             return {
               ...blob,
               bytes,
+              logicalSize: logicalSize(links),
               type: manifestKind === "file"
                 ? 1
                 : manifestKind === "directory"
@@ -398,11 +410,12 @@ export class HashtreeWriter {
               : "fanout";
             const bytes = encodeManifest({ type: manifestKind, links });
             const blob = await persist(bytes);
+            const representedBytes = logicalSize(links);
             const link: ManifestLink = kind === "file"
-              ? { hash: hexBytes(blob.hash), size: blob.size, type: 1 }
+              ? { hash: hexBytes(blob.hash), size: representedBytes, type: 1 }
               : {
                 hash: hexBytes(blob.hash),
-                size: blob.size,
+                size: representedBytes,
                 type: manifestKind === "directory" ? 2 : 3,
                 metadata: {
                   count: links.reduce(
@@ -450,7 +463,7 @@ export class HashtreeWriter {
         const built = await buildFile(file);
         index.prepare("UPDATE nodes SET hash=?,size=?,type=? WHERE path=?").run(
           built.hash,
-          built.size,
+          built.logicalSize,
           built.type,
           file.route,
         );
@@ -483,7 +496,7 @@ export class HashtreeWriter {
         const built = await collapse(scope, "directory", count);
         index.prepare("UPDATE nodes SET hash=?,size=?,type=? WHERE path=?").run(
           built.hash,
-          built.size,
+          built.logicalSize,
           built.type,
           directory.path,
         );
@@ -491,10 +504,14 @@ export class HashtreeWriter {
       const rootRow = index.prepare(
         "SELECT hash,size,type FROM nodes WHERE path='' ",
       ).get() as unknown as { hash: string; size: number; type: 2 | 3 };
+      const rootBytes = await Deno.readFile(`${this.root}/${rootRow.hash}`);
       const root: Built = {
-        ...rootRow,
+        hash: rootRow.hash,
+        size: rootBytes.length,
+        logicalSize: rootRow.size,
+        type: rootRow.type,
         path: `${this.root}/${rootRow.hash}`,
-        bytes: await Deno.readFile(`${this.root}/${rootRow.hash}`),
+        bytes: rootBytes,
         count: entries,
       };
       const inventoryCount = Number(

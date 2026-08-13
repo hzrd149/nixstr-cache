@@ -11,7 +11,7 @@ let
     inherit version src;
 
     entrypoint = "main.ts";
-    denoDepsHash = "sha256-CDc7jLnPG6RVIAs5ACIKKBue30i2T3jYwDYXZIq3xYM=";
+    denoDepsHash = "sha256-9UKfbO6HWXC9AmLkp3VY/tfwHP8Bl3KzDjfxeMH3JbY=";
 
     runFlags = [
       # Resolve dependencies from the vendor/ and node_modules/ trees installed

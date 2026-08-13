@@ -1,5 +1,6 @@
 import {
   BudgetExceeded,
+  NarResolutionFailed,
   PathResolver,
   RequestBudget,
   VerifiedAbsent,
@@ -363,11 +364,6 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       let servingPublication: SelectedPublication | undefined;
       let servingRoute: "pinned" | "fallback" = "fallback";
       if (!resolved && pinned) {
-        debugHttpRoute("resolving NAR from pinned Hashtree cache", {
-          requestId: trace,
-          path,
-          cache: cacheIdentity(pinned),
-        });
         resolved = await dependencies.resolverFor(pinned).resolve(
           pinned.root.hex,
           path,
@@ -380,11 +376,6 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       } else if (!resolved) {
         for (const publication of snapshot) {
           try {
-            debugHttpRoute("trying Hashtree cache", {
-              requestId: trace,
-              path,
-              cache: cacheIdentity(publication),
-            });
             resolved = await dependencies.resolverFor(publication).resolve(
               publication.root.hex,
               path,
@@ -396,11 +387,6 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
             break;
           } catch (error) {
             if (!(error instanceof VerifiedAbsent)) throw error;
-            debugHttpRoute("Hashtree cache miss", {
-              requestId: trace,
-              path,
-              cache: cacheIdentity(publication),
-            });
           }
         }
         if (!resolved) throw new VerifiedAbsent(path);
@@ -437,6 +423,13 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       });
     } catch (error) {
       releaseOverlay?.();
+      if (narMatch && error instanceof NarResolutionFailed) {
+        debugHttpRoute("NAR source resolution failed", {
+          requestId: trace,
+          path,
+          sources: error.sources,
+        });
+      }
       debugHttpRoute("request resolution failed", {
         requestId: trace,
         path,

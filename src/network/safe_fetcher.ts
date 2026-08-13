@@ -1,9 +1,3 @@
-import {
-  debugEndpoint,
-  debugHttpUpstream,
-  outboundRequestId,
-} from "../operations/debug.ts";
-
 export type SourceTrust = "publisher" | "configured";
 export type Resolver = (
   hostname: string,
@@ -637,55 +631,21 @@ export class SafeFetcher {
       readonly signal?: AbortSignal;
     },
   ): Promise<PinnedResponse> {
-    const trace = outboundRequestId();
     const total = AbortSignal.timeout(this.limits.totalTimeoutMs);
     const totalSignal = init.signal
       ? AbortSignal.any([init.signal, total])
       : total;
     let url = new URL(input);
     for (let hop = 0; hop <= this.limits.maxRedirects; hop++) {
-      debugHttpUpstream("attempt", {
-        outboundId: trace,
+      const target = await this.policy.approve(url, trust, totalSignal);
+      const connect = AbortSignal.timeout(this.limits.connectTimeoutMs);
+      const response = await this.transport.fetch(target, {
+        signal: totalSignal,
+        connectSignal: AbortSignal.any([totalSignal, connect]),
+        idleTimeoutMs: this.limits.idleTimeoutMs,
         method: init.method,
-        endpoint: debugEndpoint(url),
-        trust,
-        hop,
-      });
-      let response: PinnedResponse;
-      try {
-        const target = await this.policy.approve(url, trust, totalSignal);
-        const connect = AbortSignal.timeout(this.limits.connectTimeoutMs);
-        response = await this.transport.fetch(target, {
-          signal: totalSignal,
-          connectSignal: AbortSignal.any([totalSignal, connect]),
-          idleTimeoutMs: this.limits.idleTimeoutMs,
-          method: init.method,
-          headers: init.headers,
-          body: init.body,
-        });
-      } catch (error) {
-        debugHttpUpstream("failed", {
-          outboundId: trace,
-          method: init.method,
-          endpoint: debugEndpoint(url),
-          trust,
-          hop,
-          error: error instanceof NetworkPolicyError
-            ? "network_policy"
-            : error instanceof NetworkTimeoutError ||
-                error instanceof DOMException && error.name === "TimeoutError"
-            ? "timeout"
-            : "transport",
-        });
-        throw error;
-      }
-      debugHttpUpstream("response", {
-        outboundId: trace,
-        method: init.method,
-        endpoint: debugEndpoint(url),
-        trust,
-        hop,
-        status: response.status,
+        headers: init.headers,
+        body: init.body,
       });
       if (![301, 302, 303, 307, 308].includes(response.status)) return response;
       const location = response.headers.get("location");
@@ -699,12 +659,6 @@ export class SafeFetcher {
         throw new NetworkPolicyError("upload redirects are forbidden");
       }
       const redirect = new URL(location, url);
-      debugHttpUpstream("redirect", {
-        outboundId: trace,
-        from: debugEndpoint(url),
-        to: debugEndpoint(redirect),
-        hop,
-      });
       url = redirect;
     }
     throw new NetworkPolicyError("redirect limit exceeded");

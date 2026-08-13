@@ -3,11 +3,18 @@ import {
   debugCacheState,
   debugEndpoint,
   debugHttpRequest,
+  debugHttpRoute,
   debugPath,
   debugWriteHashtreeState,
   inboundRequestId,
   outboundRequestId,
 } from "../../src/operations/debug.ts";
+import { createNixHttpHandler } from "../../src/nix/http_handler.ts";
+import {
+  NarResolutionFailed,
+  VerifiedAbsent,
+} from "../../src/hashtree/reader.ts";
+import type { SelectedPublication } from "../../src/nostr/selection.ts";
 
 const NHASH_A =
   "nhash1qqsg2g2kl6dmsqxmgfgwrnpq794qd0h2zcn4r4q4qcvn9jcq0m7792cf2764x";
@@ -115,4 +122,55 @@ Deno.test("write Hashtree debug emits stable scalar candidate fields", () => {
   const output = String(calls[0][0]);
   assertEquals(/[{}]/.test(output), false);
   assertEquals(/\b[0-9a-f]{64}\b/.test(output), false);
+});
+
+Deno.test("NAR sourcing debug is emitted only for an in-tree resolution failure", async () => {
+  const publication = {
+    event: { id: "e", pubkey: "a".repeat(64), kind: 17091 },
+    identity: { kind: 17091, pubkey: "a".repeat(64) },
+    root: { hex: "0".repeat(64) },
+  } as SelectedPublication;
+  const calls: unknown[][] = [];
+  const original = console.debug;
+  console.debug = (...args: unknown[]) => calls.push(args);
+  debugHttpRoute.enabled = true;
+  try {
+    const handler = createNixHttpHandler({
+      decodedMetadataBytes: 4096,
+      selection: { current: () => [publication] },
+      resolverFor: () => ({
+        resolve: (_root, path) =>
+          Promise.reject(
+            path.includes("missing")
+              ? new VerifiedAbsent(path)
+              : new NarResolutionFailed(path, [
+                "https://one.example",
+                "https://two.example",
+              ]),
+          ),
+      }),
+    });
+    await handler(new Request("http://cache/nar/missing.nar"));
+    await handler(new Request("http://cache/nar/present.nar"));
+  } finally {
+    debugHttpRoute.enabled = false;
+    console.debug = original;
+  }
+
+  const sourcing = calls.filter(([message]) =>
+    String(message).includes("NAR source resolution failed")
+  );
+  assertEquals(sourcing.length, 1);
+  assertEquals(
+    calls.some(([message]) =>
+      /trying Hashtree cache|Hashtree cache miss|http:upstream/.test(
+        String(message),
+      )
+    ),
+    false,
+  );
+  assertEquals(
+    String(sourcing[0][0]).replace(/requestId=\d+/, "requestId=<id>"),
+    "nixstr:http:route NAR source resolution failed requestId=<id> path=nar/present.nar sources=https://one.example,https://two.example",
+  );
 });
