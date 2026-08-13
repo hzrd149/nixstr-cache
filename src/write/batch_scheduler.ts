@@ -1,9 +1,11 @@
 import type {
   FrozenBatch,
+  PendingCandidate,
   WriteRepository,
 } from "../persistence/write_repository.ts";
 import type { HashtreeBuild, LogicalFileSource } from "../hashtree/writer.ts";
 import type { OperationalDiagnosticSink } from "../operations/diagnostics.ts";
+import { debugWriteHashtreeState } from "../operations/debug.ts";
 
 export interface BatchWriter {
   build(
@@ -19,6 +21,10 @@ export interface BatchClock {
   setTimer(callback: () => void, delay: number): number;
   clearTimer(id: number): void;
 }
+export type WritableStateDebug = (
+  message: string,
+  fields: Readonly<Record<string, string | number>>,
+) => void;
 const systemClock: BatchClock = {
   get now() {
     return Date.now();
@@ -36,13 +42,17 @@ export class PublicationBatchScheduler {
   #maximum?: number;
   #serial: Promise<void> = Promise.resolve();
   #closed = false;
+  #lastPendingRoot?: string;
   readonly #abort = new AbortController();
   constructor(
     readonly repository: WriteRepository,
     readonly writer: BatchWriter,
     readonly clock: BatchClock = systemClock,
     readonly diagnostics?: OperationalDiagnosticSink,
+    readonly stateDebug: WritableStateDebug = debugWriteHashtreeState,
   ) {
+    const pending = repository.pendingCandidate();
+    if (pending) this.#logPending(pending);
     for (const batch of repository.failedBatches()) this.#enqueue(batch);
     const window = repository.activePublicationWindow();
     if (window) this.#arm(window);
@@ -102,6 +112,14 @@ export class PublicationBatchScheduler {
           candidate.inventory,
           candidate.runId,
         );
+        this.#logPending({
+          batchId: batch.id,
+          generation: batch.generation,
+          rootHex: candidate.rootHex,
+          nhash: candidate.rootNhash,
+          blobCount: candidate.inventory.length,
+          totalBytes: candidate.totalBytes,
+        });
       } catch (error) {
         this.repository.markBatchFailed(batch.id);
         try {
@@ -117,6 +135,19 @@ export class PublicationBatchScheduler {
         await candidate?.dispose();
       }
     });
+  }
+  #logPending(candidate: PendingCandidate): void {
+    if (candidate.nhash === this.#lastPendingRoot) return;
+    try {
+      this.stateDebug("pending", {
+        generation: candidate.generation,
+        batchId: candidate.batchId,
+        root: candidate.nhash,
+        blobCount: candidate.blobCount,
+        totalBytes: candidate.totalBytes,
+      });
+      this.#lastPendingRoot = candidate.nhash;
+    } catch { /* debug logging is non-authoritative */ }
   }
   idle(): Promise<void> {
     return this.#serial;

@@ -62,6 +62,7 @@ import {
   createConsoleDiagnosticSink,
   type OperationalDiagnosticSink,
 } from "../operations/diagnostics.ts";
+import { debugCacheState } from "../operations/debug.ts";
 import { createHealthSnapshotProvider } from "../operations/health.ts";
 import {
   createPasswordRequest,
@@ -185,6 +186,14 @@ export function createProductionDependencies(
       let cacheSelectionSeen = false;
       const cacheSelectionSubscription = selector.selected$.subscribe(
         (selected) => {
+          try {
+            debugCacheState("selected", {
+              count: selected.length,
+              caches: selected.map((publication) =>
+                `${cacheIdentity(publication)}@${publication.root.nhash}`
+              ),
+            });
+          } catch { /* debug logging is non-authoritative */ }
           diagnostics.emit({
             type: "cache_selection",
             code: cacheSelectionSeen

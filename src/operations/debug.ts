@@ -11,6 +11,7 @@ interface CompactDebug {
 function compactDebug(namespace: string): CompactDebug {
   const debug = createDebug(namespace);
   const compact = (message: string, fields: DebugFields = {}): void => {
+    if (!debug.enabled) return;
     const suffix = Object.entries(fields).map(([key, value]) =>
       `${key}=${Array.isArray(value) ? value.join(",") : String(value)}`
     ).join(" ");
