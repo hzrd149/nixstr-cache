@@ -25,7 +25,7 @@ Pin the runtime and package graph rather than targeting floating major versions.
 - `applesauce-core@6.2.0`, `applesauce-relay@6.2.1`, `applesauce-loaders@6.2.0`, and `applesauce-signers@6.2.2`: required reactive Nostr store, relay pool, loaders, casts, and interchangeable NIP-46/local signers.
 - RxJS `7.8.2`: control-plane composition, cancellation, signer state, and serialized debounce/max-delay publication scheduling; never use it as the bulk byte transport.
 - Web Streams API: backpressured request, response, Blossom, hashing, staging, and NAR pipelines with cancellation and bounded memory.
-- `@db/sqlite@0.13.0`: durable security and workflow state—freshness watermarks, downgrade consent, staged generations, publication transitions, and replication debt. Applesauce SQLite persistence is optional and must not own security-critical state.
+- Deno-bundled `node:sqlite`: durable security and workflow state—freshness watermarks, downgrade consent, staged generations, publication transitions, and replication debt. Synchronous `DatabaseSync` provides transactions, prepared statements, result metadata, read-only connections, and explicit close lifecycle without a package or import-map alias. Applesauce SQLite persistence is optional and must not own security-critical state.
 - `@noble/hashes@2.3.0`, `@noble/curves@2.3.0`, and `@scure/base@2.3.0`: incremental SHA-256, Ed25519 verification, and strict Bech32/TLV primitives.
 - Deno tests plus `@std/assert`, `@std/testing`, and `fast-check@4.9.0`: unit, property, hostile-fixture, streaming, crash-boundary, and integration coverage; include pinned upstream Blossom and real Nix CLI compatibility suites.
 - Project-owned `hashtree-codec`, reader, writer, hardened `blossom-client`, and lossless `nix-cache-codec`: isolate proposed or profile-specific protocol semantics behind narrow tested ports.
@@ -210,6 +210,7 @@ Phases with standard patterns (skip research-phase unless dependencies changed):
 - [Blossom specifications](https://github.com/hzrd149/blossom) and proposal PRs [BUD-15](https://github.com/hzrd149/blossom/pull/104), [BUD-16](https://github.com/hzrd149/blossom/pull/105), [BUD-17](https://github.com/hzrd149/blossom/pull/106), [BUD-18](https://github.com/hzrd149/blossom/pull/107) — blob transport, server discovery, encryption, manifests, chunking, and `htree` references.
 - [Applesauce documentation](https://applesauce.build/) and [monorepo](https://github.com/hzrd149/applesauce) — current EventStore, RelayPool, casts/models, loaders, signer interfaces, and package compatibility.
 - [Deno HTTP server](https://docs.deno.com/runtime/fundamentals/http_server/) and [Web Streams](https://docs.deno.com/api/web/streams/) documentation — direct streaming server and backpressure primitives.
+- [Deno SQLite guide](https://docs.deno.com/examples/sqlite/) and [`node:sqlite` API reference](https://docs.deno.com/api/node/sqlite/) — built-in synchronous SQLite support and `DatabaseSync` lifecycle.
 
 ### Secondary (MEDIUM confidence)
 

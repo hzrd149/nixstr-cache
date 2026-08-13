@@ -24,7 +24,7 @@
 |---------|---------|---------|-------------|
 | `applesauce-loaders` | `6.2.0` | Observable loaders combining cache/store and upstream requests | Use for BUD-03 kind `10063`, NIP-65 relay lists, and one-shot relay-backed lookups that should feed the shared `EventStore`. Do not force the Hashtree byte DAG through it. |
 | `applesauce-sqlite` | `6.0.0` | Persistent Applesauce event database | Use its documented `applesauce-sqlite/deno` export when persistence of selected Nostr events is useful. Keep the security-critical highest-accepted timestamps and downgrade consent in a separate domain repository/schema so cleanup of relay data cannot erase anti-rollback state. |
-| `@db/sqlite` | `0.13.0` | Small durable domain-state database | Recommended for freshness watermarks, accepted signed/unsigned state, pending publication metadata, and retry queues. SQLite transactions match publication-boundary semantics and avoid inventing a journal format. |
+| `node:sqlite` | Deno 2.9 built-in | Small durable domain-state database | Use synchronous `DatabaseSync` for freshness watermarks, accepted signed/unsigned state, pending publication metadata, and retry queues. It provides synchronous transactions, prepared statements, result metadata, read-only connections, and an explicit `close()` lifecycle without an import-map alias. |
 | `@noble/hashes` | `2.3.0` | Incremental SHA-256 and HMAC/HKDF primitives | Use `sha256.create().update(chunk)` in TransformStreams for bounded-memory hashing. Web Crypto `subtle.digest()` takes a complete buffer and is therefore unsuitable for multi-GB NAR/blob paths. |
 | `@noble/curves` | `2.3.0` | Ed25519 verification for Nix `Sig` records | Use its Ed25519 verifier after strict canonical base64/key parsing. Applesauce/nostr-tools remains authoritative for Nostr event verification; do not duplicate Schnorr event verification in domain code. |
 | `@scure/base` | `2.3.0` | Bech32 decoding/encoding for strict `nhash` handling | Use only the low-level bech32 codec plus a project-owned strict TLV decoder enforcing exactly the NIP.md-allowed type `0` and optional type `5` records. |
@@ -67,9 +67,8 @@ deno add npm:applesauce-core@6.2.0 \
   npm:applesauce-signers@6.2.2 \
   npm:rxjs@7.8.2
 
-# Persistence and protocol primitives
-deno add jsr:@db/sqlite@0.13.0 \
-  npm:@noble/hashes@2.3.0 \
+# Protocol primitives (`node:sqlite` is built into Deno)
+deno add npm:@noble/hashes@2.3.0 \
   npm:@noble/curves@2.3.0 \
   npm:@scure/base@2.3.0
 
@@ -165,6 +164,7 @@ For the five-second quiet/sixty-second maximum publication rule, compose a publi
 | Package A | Compatible With | Notes |
 |-----------|-----------------|-------|
 | Deno `2.9.5` | npm ESM packages and JSR dependencies above | Current Deno npm compatibility handles the Applesauce ESM packages. Validate the complete locked graph with `deno check` in CI. |
+| Deno `2.9.5` `node:sqlite` | Built in since Deno 2.2 | `DatabaseSync` needs no package or import-map alias and supplies synchronous transactions, prepared statements, result metadata, read-only connections, and explicit close lifecycle. |
 | `applesauce-core@6.2.0` | `nostr-tools ^2.24`, `rxjs ^7.8.1` | Its manifest supplies both transitively; explicitly pin RxJS once at `7.8.2` to keep one graph instance. |
 | `applesauce-relay@6.2.1` | `applesauce-core ^6.2.0`, `rxjs ^7.8.1` | Keep all current Applesauce packages on the same 6.x release family. |
 | `applesauce-loaders@6.2.0` | `applesauce-core ^6.2.0`, `rxjs ^7.8.1` | Its current README describes loaders as Observable-based and designed to feed a unified `EventStore.eventLoader`. |
@@ -189,6 +189,7 @@ For the five-second quiet/sixty-second maximum publication rule, compose a publi
 - [Applesauce documentation](https://applesauce.build/) — official getting-started, relay, model/cast, and API reference entry point (HIGH).
 - [applesauce-core on npm](https://www.npmjs.com/package/applesauce-core), [applesauce-relay on npm](https://www.npmjs.com/package/applesauce-relay), [applesauce-signers on npm](https://www.npmjs.com/package/applesauce-signers) — published versions and dependency constraints (HIGH).
 - [Deno releases](https://github.com/denoland/deno/releases/tag/v2.9.5) — current stable runtime version (HIGH).
+- [Deno SQLite guide](https://docs.deno.com/examples/sqlite/) and [`node:sqlite` API reference](https://docs.deno.com/api/node/sqlite/) — built-in synchronous SQLite support and `DatabaseSync` lifecycle (HIGH).
 - [Deno HTTP server docs](https://docs.deno.com/api/deno/~/Deno.serve) and [Web Streams examples](https://docs.deno.com/examples/http_server_streaming/) — standards-native streaming server behavior (HIGH).
 - [Deno npm compatibility](https://docs.deno.com/runtime/fundamentals/node/#using-npm-packages) — npm specifiers and Node/npm interoperability (HIGH).
 - [Blossom specifications](https://github.com/hzrd149/blossom) — BUD-01/BUD-03 and protocol repository (HIGH for merged BUDs).
