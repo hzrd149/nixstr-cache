@@ -176,6 +176,7 @@ None for the shipped v1.0 milestone.
 | 260813-o14 | Expand logging for reactive write relay discovery and changes | 2026-08-13 | 0e1e1a1 | [260813-o14-expand-logging-to-report-when-effective-](./quick/260813-o14-expand-logging-to-report-when-effective-/) |
 | 260813-o5i | Add reactive cache selection, package load, and Hashtree NAR provenance logging | 2026-08-13 | 4639a7d | [260813-o5i-add-reactive-logging-for-cache-selection](./quick/260813-o5i-add-reactive-logging-for-cache-selection/) |
 | 260813-ogk | Add opt-in DEBUG namespace tracing for HTTP requests and decisions | 2026-08-13 | 3d7c14a | [260813-ogk-add-opt-in-debug-namespace-tracing-with-](./quick/260813-ogk-add-opt-in-debug-namespace-tracing-with-/) |
+| 260813-oq1 | Identify inbound local Nix HTTP requests and separate outbound IDs | 2026-08-13 | 18a9882 | [260813-oq1-make-inbound-nix-cache-http-debug-logs-c](./quick/260813-oq1-make-inbound-nix-cache-http-debug-logs-c/) |
 
 ## Deferred Items
 
@@ -186,8 +187,8 @@ None for the shipped v1.0 milestone.
 
 ## Session Continuity
 
-Last session: 2026-08-13T16:39:00.000Z
-Stopped at: Completed quick task 260813-ogk
+Last session: 2026-08-13T16:50:00.000Z
+Stopped at: Completed quick task 260813-oq1
 Resume file: None
 
 ## Operator Next Steps
