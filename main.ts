@@ -45,6 +45,8 @@ const SUPPORTED_ENVIRONMENT_NAMES = [
   "NIXSTR_LIMIT_IDLE_TIMEOUT_MS",
   "NIXSTR_LIMIT_TOTAL_TIMEOUT_MS",
   "NIXSTR_LIMIT_CONCURRENT_FETCHES",
+  "NIXSTR_LIMIT_MANIFEST_CACHE_ENTRIES",
+  "NIXSTR_LIMIT_MANIFEST_CACHE_BYTES",
 ] as const;
 
 export type EnvironmentReader = (name: string) => string | undefined;
@@ -95,6 +97,8 @@ const JSON_LIMIT_FIELDS = new Set([
   "idleTimeoutMs",
   "totalTimeoutMs",
   "concurrentFetches",
+  "manifestCacheEntries",
+  "manifestCacheBytes",
 ]);
 
 export function collectRawConfigFromEnvironment(
@@ -139,6 +143,8 @@ export function rawConfigFromEnvironment(
       idleTimeoutMs: environment.NIXSTR_LIMIT_IDLE_TIMEOUT_MS,
       totalTimeoutMs: environment.NIXSTR_LIMIT_TOTAL_TIMEOUT_MS,
       concurrentFetches: environment.NIXSTR_LIMIT_CONCURRENT_FETCHES,
+      manifestCacheEntries: environment.NIXSTR_LIMIT_MANIFEST_CACHE_ENTRIES,
+      manifestCacheBytes: environment.NIXSTR_LIMIT_MANIFEST_CACHE_BYTES,
     },
   };
 }

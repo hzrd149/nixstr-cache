@@ -701,6 +701,8 @@ Deno.test("production environment collector maps every supported limit", () => {
     NIXSTR_LIMIT_IDLE_TIMEOUT_MS: "30002",
     NIXSTR_LIMIT_TOTAL_TIMEOUT_MS: "300003",
     NIXSTR_LIMIT_CONCURRENT_FETCHES: "9",
+    NIXSTR_LIMIT_MANIFEST_CACHE_ENTRIES: "1000",
+    NIXSTR_LIMIT_MANIFEST_CACHE_BYTES: "10000010",
   } as const;
   const requested: string[] = [];
   const raw = collectRawConfigFromEnvironment((name) => {
@@ -725,6 +727,8 @@ Deno.test("production environment collector maps every supported limit", () => {
     idleTimeoutMs: 30002,
     totalTimeoutMs: 300003,
     concurrentFetches: 9,
+    manifestCacheEntries: 1000,
+    manifestCacheBytes: 10000010,
   });
   for (const name of Object.keys(environment)) assert(requested.includes(name));
 });

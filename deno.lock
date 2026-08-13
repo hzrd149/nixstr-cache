@@ -3,6 +3,7 @@
   "specifiers": {
     "jsr:@grammyjs/debug@0.3.1": "0.3.1",
     "jsr:@std/assert@1.0.19": "1.0.19",
+    "jsr:@std/cache@0.2.2": "0.2.2",
     "jsr:@std/cli@1.0.32": "1.0.32",
     "jsr:@std/fmt@^1.0.10": "1.0.10",
     "jsr:@std/internal@^1.0.12": "1.0.14",
@@ -29,6 +30,9 @@
       "dependencies": [
         "jsr:@std/internal@^1.0.12"
       ]
+    },
+    "@std/cache@0.2.2": {
+      "integrity": "4c8fb31c7553837b537f55e26c9c91b2784f9a8c64f43772a7884a059b04d46e"
     },
     "@std/cli@1.0.32": {
       "integrity": "188b3a100d6202d64e3f5bd3d799c7fa4f6d77f92cc65eb7f641c1fa0aa92a66",
@@ -225,6 +229,7 @@
     "dependencies": [
       "jsr:@grammyjs/debug@0.3.1",
       "jsr:@std/assert@1.0.19",
+      "jsr:@std/cache@0.2.2",
       "jsr:@std/cli@1.0.32",
       "npm:@msgpack/msgpack@3.1.3",
       "npm:@noble/curves@2.3.0",

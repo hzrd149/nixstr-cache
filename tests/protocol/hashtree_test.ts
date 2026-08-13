@@ -2,6 +2,7 @@ import { assertEquals, assertThrows } from "@std/assert";
 import { encode } from "@msgpack/msgpack";
 import {
   decodeManifest,
+  decodeValidatedManifest,
   ManifestDataError,
 } from "../../src/protocol/hashtree.ts";
 
@@ -25,6 +26,30 @@ Deno.test("pinned BUD-16/17 vectors decode into strict manifests", () => {
   );
   assertEquals(file.type, "file");
   assertEquals(file.links.map((x) => x.size), [100, 50]);
+});
+
+Deno.test("validated decoder reports and enforces exact decoded cost", () => {
+  const wire = encode({ l: [], t: 2 });
+  const decoded = decodeValidatedManifest(wire, {
+    maxWireBytes: wire.length,
+    maxDecodedBytes: 10,
+    maxLinks: 1,
+  });
+  assertEquals(decoded.decodedBytes, 10);
+  assertEquals(
+    decodeManifest(wire, {
+      maxWireBytes: wire.length,
+      maxDecodedBytes: decoded.decodedBytes,
+      maxLinks: 1,
+    }),
+    decoded.manifest,
+  );
+  assertThrows(() =>
+    decodeValidatedManifest(wire, {
+      maxWireBytes: wire.length,
+      maxDecodedBytes: decoded.decodedBytes - 1,
+      maxLinks: 1,
+    }), ManifestDataError);
 });
 
 Deno.test("directories reject duplicate, unsafe, and unsorted names", () => {

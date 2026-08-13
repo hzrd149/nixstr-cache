@@ -18,6 +18,8 @@ export interface Limits {
   readonly idleTimeoutMs: number;
   readonly totalTimeoutMs: number;
   readonly concurrentFetches: number;
+  readonly manifestCacheEntries: number;
+  readonly manifestCacheBytes: number;
 }
 
 export interface RawConfig {
@@ -208,6 +210,11 @@ const LIMIT_SPECS: {
   idleTimeoutMs: { defaultValue: 30_000, ceiling: 300_000 },
   totalTimeoutMs: { defaultValue: 300_000, ceiling: 1_800_000 },
   concurrentFetches: { defaultValue: 8, ceiling: 64 },
+  manifestCacheEntries: { defaultValue: 1024, ceiling: 16_384 },
+  manifestCacheBytes: {
+    defaultValue: 64 * 1024 * 1024,
+    ceiling: 512 * 1024 * 1024,
+  },
 };
 
 function parseUrl(

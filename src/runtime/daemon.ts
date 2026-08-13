@@ -20,6 +20,7 @@ import {
   VerifiedAbsent,
 } from "../hashtree/reader.ts";
 import { HashtreeWriter } from "../hashtree/writer.ts";
+import { VerifiedManifestCache } from "../hashtree/manifest_cache.ts";
 import {
   AddressPolicy,
   PinnedTransport,
@@ -395,6 +396,11 @@ export function createProductionDependencies(
         drains: new Set<() => Promise<void>>(),
       };
       supervisors.set(selection as object, supervisor);
+      const manifestCache = new VerifiedManifestCache(
+        config.limits.manifestCacheEntries,
+        config.limits.manifestCacheBytes,
+      );
+      supervisor.drains.add(() => manifestCache.close());
       const cacheSink = config.localBlossomUrl
         ? new BlobCacheSink({
           request: fetcher.request.bind(fetcher),
@@ -458,7 +464,7 @@ export function createProductionDependencies(
           maxWireBytes: config.limits.manifestWireBytes,
           maxDecodedBytes: config.limits.totalDecodedManifestBytes,
           maxLinks: config.limits.linksPerNode,
-        });
+        }, manifestCache);
       };
       let activatedOverlay: SignerOverlay | undefined;
       let writesActivated = false;

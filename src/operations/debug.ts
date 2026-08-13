@@ -26,6 +26,7 @@ function compactDebug(namespace: string): CompactDebug {
 export const debugHttpRequest = compactDebug("nixstr:http:request");
 export const debugHttpRoute = compactDebug("nixstr:http:route");
 export const debugHttpUpstream = compactDebug("nixstr:http:upstream");
+export const debugHashtreeCache = compactDebug("nixstr:hashtree:cache");
 
 let nextInboundId = 0;
 let nextOutboundId = 0;

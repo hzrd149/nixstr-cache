@@ -56,6 +56,11 @@ export class ManifestDataError extends Error {
   }
 }
 
+export interface ValidatedManifest {
+  readonly manifest: Manifest;
+  readonly decodedBytes: number;
+}
+
 const encoder = new TextEncoder();
 const ownKeys = (value: object) => Object.keys(value).sort();
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -129,6 +134,13 @@ export function decodeManifest(
   wire: Uint8Array,
   limits: ManifestLimits,
 ): Manifest {
+  return decodeValidatedManifest(wire, limits).manifest;
+}
+
+export function decodeValidatedManifest(
+  wire: Uint8Array,
+  limits: ManifestLimits,
+): ValidatedManifest {
   if (
     !Number.isSafeInteger(limits.maxWireBytes) ||
     wire.length > limits.maxWireBytes
@@ -150,7 +162,8 @@ export function decodeManifest(
   ) {
     throw new ManifestDataError("manifest is not canonically encoded");
   }
-  if (decodedCost(raw) > limits.maxDecodedBytes) {
+  const decodedBytes = decodedCost(raw);
+  if (decodedBytes > limits.maxDecodedBytes) {
     throw new ManifestDataError("decoded metadata limit exceeded");
   }
   if (!isRecord(raw)) {
@@ -205,7 +218,10 @@ export function decodeManifest(
         throw new ManifestDataError("invalid file-manifest link");
       }
     }
-    return Object.freeze({ type: "file", links: Object.freeze(links) });
+    return Object.freeze({
+      manifest: Object.freeze({ type: "file", links: Object.freeze(links) }),
+      decodedBytes,
+    });
   }
   if (raw.t === 2) {
     let previous: string | undefined;
@@ -222,7 +238,13 @@ export function decodeManifest(
       }
       previous = name;
     }
-    return Object.freeze({ type: "directory", links: Object.freeze(links) });
+    return Object.freeze({
+      manifest: Object.freeze({
+        type: "directory",
+        links: Object.freeze(links),
+      }),
+      decodedBytes,
+    });
   }
   let priorLast: string | undefined;
   for (const link of links) {
@@ -240,5 +262,8 @@ export function decodeManifest(
     ) throw new ManifestDataError("invalid or overlapping fanout bounds");
     priorLast = last;
   }
-  return Object.freeze({ type: "fanout", links: Object.freeze(links) });
+  return Object.freeze({
+    manifest: Object.freeze({ type: "fanout", links: Object.freeze(links) }),
+    decodedBytes,
+  });
 }

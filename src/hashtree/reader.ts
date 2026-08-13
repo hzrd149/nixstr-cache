@@ -5,11 +5,15 @@ import type {
 } from "../blossom/blob_fetcher.ts";
 import type { SourceCandidate } from "../blossom/source_plan.ts";
 import {
-  decodeManifest,
+  decodeValidatedManifest,
   type Manifest,
   type ManifestLimits,
   type ManifestLink,
 } from "../protocol/hashtree.ts";
+import {
+  type CachedManifest,
+  VerifiedManifestCache,
+} from "./manifest_cache.ts";
 
 export interface TraversalLimits {
   readonly maxDepth: number;
@@ -162,6 +166,7 @@ export class PathResolver {
     readonly blobs: BlobFetcher,
     readonly sources: readonly SourceCandidate[],
     readonly manifestLimits: ManifestLimits,
+    readonly manifestCache?: VerifiedManifestCache,
   ) {}
 
   async resolve(
@@ -290,22 +295,29 @@ export class PathResolver {
     const cached = cache.get(hash);
     if (cached) return cached;
     budget.visit(hash);
-    const blob = await this.#fetch(
-      hash,
-      budget,
-      signal,
-      undefined,
-      this.manifestLimits.maxWireBytes,
-    );
-    try {
-      const wire = await new Response(blob.open()).bytes();
-      budget.debitDecoded(wire.length);
-      const manifest = decodeManifest(wire, this.manifestLimits);
-      cache.set(hash, manifest);
-      return manifest;
-    } finally {
-      await blob.dispose();
-    }
+    const load = async (
+      loaderSignal?: AbortSignal,
+    ): Promise<CachedManifest> => {
+      const blob = await this.#fetch(
+        hash,
+        budget,
+        loaderSignal,
+        undefined,
+        this.manifestLimits.maxWireBytes,
+      );
+      try {
+        const wire = await new Response(blob.open()).bytes();
+        return decodeValidatedManifest(wire, this.manifestLimits);
+      } finally {
+        await blob.dispose();
+      }
+    };
+    const decoded = this.manifestCache
+      ? await this.manifestCache.load(hash, this.sources, signal, load)
+      : await load(signal);
+    budget.debitDecoded(decoded.decodedBytes);
+    cache.set(hash, decoded.manifest);
+    return decoded.manifest;
   }
   async #rawStream(
     hash: string,
