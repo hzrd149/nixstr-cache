@@ -2,9 +2,10 @@ import { assert, assertEquals } from "@std/assert";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools";
 import { filter, firstValueFrom } from "rxjs";
 import { parseConfig } from "../../src/config/config.ts";
-import { NostrRuntime } from "../../src/nostr/runtime.ts";
+import { createNostrService } from "../../src/nostr/runtime.ts";
+import { bech32 } from "@scure/base";
 
-Deno.test("shared Nostr runtime derives publisher outboxes plus extra relays", async () => {
+Deno.test("shared Nostr service derives publisher outboxes plus extra relays", async () => {
   const secret = generateSecretKey();
   const pubkey = getPublicKey(secret);
   const parsed = parseConfig({
@@ -15,7 +16,7 @@ Deno.test("shared Nostr runtime derives publisher outboxes plus extra relays", a
     spoolDirectory: "/tmp/nixstr-unused-spool",
   });
   assert(parsed.ok);
-  const runtime = new NostrRuntime(parsed.value);
+  const runtime = createNostrService(parsed.value);
   try {
     const relaySet = firstValueFrom(
       runtime.relaySetFor([pubkey]).pipe(
@@ -38,6 +39,41 @@ Deno.test("shared Nostr runtime derives publisher outboxes plus extra relays", a
     ]);
     assertEquals(runtime.currentRelaySet([pubkey]), relays);
   } finally {
-    runtime.dispose();
+    runtime.close();
+  }
+});
+
+Deno.test("cache publications require the guarded accepted-event gateway", () => {
+  const secret = generateSecretKey();
+  const pubkey = getPublicKey(secret);
+  const parsed = parseConfig({
+    caches: pubkey,
+    extraRelays: "wss://fallback.example",
+    databasePath: "/tmp/nixstr-unused.sqlite",
+    spoolDirectory: "/tmp/nixstr-unused-spool",
+  });
+  assert(parsed.ok);
+  const runtime = createNostrService(parsed.value);
+  const nhash = bech32.encode(
+    "nhash",
+    bech32.toWords(Uint8Array.from([0, 32, ...new Uint8Array(32)])),
+    200,
+  );
+  const publication = finalizeEvent({
+    kind: 17091,
+    created_at: 1,
+    content: "",
+    tags: [["htree", `htree://${nhash}`]],
+  }, secret);
+  try {
+    assertEquals(runtime.store.add(publication), null);
+    assertEquals(runtime.store.hasEvent(publication.id), false);
+    assertEquals(
+      runtime.addAcceptedPublication(publication).id,
+      publication.id,
+    );
+    assertEquals(runtime.store.hasEvent(publication.id), true);
+  } finally {
+    runtime.close();
   }
 });

@@ -225,7 +225,7 @@ Deno.test("invalid loaded config reaches no daemon startup side effects", async 
   const result = await launchDaemon(raw, {
     createEventStream: () => {
       calls.push("relay");
-      return { events: new Subject<RawPublication>(), dispose() {} };
+      return { events: new Subject<RawPublication>(), close() {} };
     },
     bind: () => {
       calls.push("listener");
@@ -744,7 +744,7 @@ Deno.test("invalid collected production limit stops before startup", async () =>
     {
       createEventStream: () => {
         calls.push("relay");
-        return { events: new Subject<RawPublication>(), dispose() {} };
+        return { events: new Subject<RawPublication>(), close() {} };
       },
       bind: () => {
         calls.push("listener");
@@ -779,7 +779,7 @@ Deno.test("partial environment write intent stops before startup side effects", 
   }, {
     createEventStream: () => {
       calls.push("relay");
-      return { events: new Subject<RawPublication>(), dispose() {} };
+      return { events: new Subject<RawPublication>(), close() {} };
     },
     bind: () => {
       calls.push("listener");
@@ -813,7 +813,7 @@ Deno.test("configured write intent stays disabled until ownership is ready", asy
       {
         createEventStream: () => ({
           events: new Subject<RawPublication>(),
-          dispose() {},
+          close() {},
         }),
         bind: (createdHandler) => {
           handler = createdHandler;

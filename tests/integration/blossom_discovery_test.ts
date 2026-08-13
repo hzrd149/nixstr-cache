@@ -11,7 +11,7 @@ import { parseConfig } from "../../src/config/config.ts";
 import { StateRepository } from "../../src/persistence/state_repository.ts";
 import type { RawPublication } from "../../src/protocol/publication.ts";
 import { createProductionDependencies } from "../../src/runtime/daemon.ts";
-import { createPublicationEventStream } from "../../src/runtime/daemon.ts";
+import { createPublicationEventStream } from "../../src/nostr/publications.ts";
 
 const secret = generateSecretKey();
 const publisher = getPublicKey(secret);
@@ -111,7 +111,7 @@ Deno.test("production BUD-03 wiring feeds configured, event, then server list so
     const dependencies = createProductionDependencies({
       createEventStream: () => ({
         events: eventStream,
-        dispose: () => streamDisposed++,
+        close: () => streamDisposed++,
       }),
     });
     const repository = dependencies.openRepository(
@@ -231,6 +231,6 @@ Deno.test("production event stream exposes dynamic signer BUD-03 follow", () => 
   const stream = createPublicationEventStream(parsed.value);
   stream.followBlossomPublisher?.(publisher);
   stream.followBlossomPublisher?.(getPublicKey(generateSecretKey()));
-  stream.dispose();
-  stream.dispose();
+  stream.close();
+  stream.close();
 });

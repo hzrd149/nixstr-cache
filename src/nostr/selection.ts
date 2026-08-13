@@ -104,6 +104,7 @@ export interface SelectionOptions {
   readonly publisherPubkeys: readonly string[];
   readonly identities: readonly string[];
   readonly eventStore?: EventStore;
+  readonly addAcceptedPublication?: (event: RawPublication) => unknown;
   readonly now?: () => number;
   readonly onReject?: (event: RawPublication, reason: string) => void;
   readonly onError?: (error: unknown) => void;
@@ -134,6 +135,7 @@ export function startPublicationSelection(
   });
   const add = (event: RawPublication) =>
     store.add({ ...event, tags: event.tags.map((tag) => [...tag]) });
+  const addPublication = options.addAcceptedPublication ?? add;
   const refresh = new Subject<void>();
   const selected$ = store.model(CacheSelectionModel, {
     publishers,
@@ -213,7 +215,7 @@ export function startPublicationSelection(
       if (!acceptance.accepted) {
         return void options.onReject?.(event, acceptance.reason ?? "rejected");
       }
-      add(result.value.event);
+      addPublication(result.value.event);
       options.onAdmit?.(result.value.event);
     } catch (error) {
       options.onError?.(error);
@@ -231,7 +233,7 @@ export function startPublicationSelection(
     if (
       result.ok && publishers.has(result.value.event.pubkey) &&
       identitySet.has(cacheIdentity(result.value))
-    ) add(result.value.event);
+    ) addPublication(result.value.event);
   }
   const sourceSubscription: Subscription = options.events.subscribe({
     next: accept,

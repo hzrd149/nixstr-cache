@@ -160,7 +160,7 @@ Deno.test("ncryptsec startup waits for unlock before binding", async () => {
       requestPassword: () => password,
       createEventStream: () => ({
         events: new Subject<RawPublication>(),
-        dispose() {},
+        close() {},
       }),
       bind: () => {
         binds++;
@@ -204,7 +204,7 @@ Deno.test("interactive ncryptsec retries before bind and failed piped input clea
       requestPassword,
       createEventStream: () => ({
         events: new Subject<RawPublication>(),
-        dispose() {},
+        close() {},
       }),
       bind: () => {
         binds++;
@@ -227,7 +227,7 @@ Deno.test("interactive ncryptsec retries before bind and failed piped input clea
         requestPassword: () => Promise.resolve("wrong"),
         createEventStream: () => ({
           events: new Subject<RawPublication>(),
-          dispose() {
+          close() {
             disposed = true;
           },
         }),

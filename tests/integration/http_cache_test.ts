@@ -323,7 +323,7 @@ Deno.test("production launcher validates before side effects and closes after li
     {
       createEventStream: () => {
         calls.push("relay");
-        return { events: new Subject<RawPublication>(), dispose() {} };
+        return { events: new Subject<RawPublication>(), close() {} };
       },
       bind: () => {
         calls.push("bind");
@@ -347,7 +347,7 @@ Deno.test("production launcher validates before side effects and closes after li
         calls.push("relay");
         return {
           events: new Subject<RawPublication>(),
-          dispose: () => calls.push("relay-close"),
+          close: () => calls.push("relay-close"),
         };
       },
       bind: () => {

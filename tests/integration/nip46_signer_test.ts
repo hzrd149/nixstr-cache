@@ -68,7 +68,7 @@ async function scenario(
     const daemon = await launchDaemon(raw, {
       createEventStream: () => ({
         events: new Subject<RawPublication>(),
-        dispose() {},
+        close() {},
       }),
       bind: (bound) => {
         handler = bound;
@@ -247,7 +247,7 @@ Deno.test("durable owner mismatch prints a prominent warning before closing nbun
     }, {
       createEventStream: () => ({
         events: new Subject<RawPublication>(),
-        dispose() {},
+        close() {},
       }),
       bind: () => ({ shutdown: () => Promise.resolve() }),
       signals: [],

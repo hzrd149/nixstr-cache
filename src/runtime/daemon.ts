@@ -1,5 +1,4 @@
 import { NostrConnectSigner } from "applesauce-signers/signers/nostr-connect-signer";
-import { type Observable, Subject } from "rxjs";
 import {
   type AppDependencies,
   type Bind,
@@ -33,7 +32,16 @@ import {
 import { WinnerRouteRegistry } from "../nix/merged_cache.ts";
 import { startPublicationSelection } from "../nostr/selection.ts";
 import { LocalRelayCache } from "../nostr/local_relay_cache.ts";
-import { NostrRuntime } from "../nostr/runtime.ts";
+import {
+  createPublicationEventStream,
+  type PublicationEventStream,
+} from "../nostr/publications.ts";
+import {
+  closeNostr,
+  createNostrService,
+  initializeNostr,
+  type NostrService,
+} from "../nostr/runtime.ts";
 import { StateRepository } from "../persistence/state_repository.ts";
 import {
   WriteIdentityMismatch,
@@ -95,55 +103,10 @@ function writeBlossomDestinations(
   }));
 }
 
-export interface PublicationEventStream {
-  readonly events: Observable<RawPublication>;
-  followBlossomPublisher?(pubkey: string): void;
-  dispose(): void;
-}
-
-export function createPublicationEventStream(
-  config: ValidatedConfig,
-  runtime = new NostrRuntime(config),
-): PublicationEventStream {
-  const ownsRuntime = arguments.length < 2;
-  runtime.followUserMetadata(config.publisherPubkeys);
-  const initial = runtime.pool.subscription(
-    runtime.relaySetFor(config.publisherPubkeys),
-    [
-      { kinds: [17091, 37091], authors: [...config.publisherPubkeys] },
-      { kinds: [10063], authors: [...config.publisherPubkeys] },
-    ],
-  ) as Observable<RawPublication>;
-  const events = new Subject<RawPublication>();
-  const subscriptions = [initial.subscribe(events)];
-  const followed = new Set(config.publisherPubkeys);
-  let disposed = false;
-  return {
-    events,
-    followBlossomPublisher(pubkey) {
-      if (disposed || followed.has(pubkey)) return;
-      followed.add(pubkey);
-      subscriptions.push(
-        (runtime.pool.subscription(runtime.relaySetFor([pubkey]), [{
-          kinds: [10063],
-          authors: [pubkey],
-        }]) as Observable<RawPublication>).subscribe(events),
-      );
-    },
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-      for (const subscription of subscriptions) subscription.unsubscribe();
-      events.complete();
-      if (ownsRuntime) runtime.dispose();
-    },
-  };
-}
-
 export interface ProductionHooks {
   readonly createEventStream?: (
     config: ValidatedConfig,
-    runtime: NostrRuntime,
+    service: NostrService,
   ) => PublicationEventStream;
   readonly bind?: Bind;
   readonly signals?: readonly ("SIGINT" | "SIGTERM")[];
@@ -160,6 +123,7 @@ export function createProductionDependencies(
     readonly tasks: Set<Promise<void>>;
     readonly drains: Set<() => Promise<void>>;
   }>();
+  const nostrServices = new WeakMap<object, NostrService>();
   return {
     openRepository(config) {
       Deno.mkdirSync(config.spoolDirectory, { recursive: true, mode: 0o700 });
@@ -172,7 +136,10 @@ export function createProductionDependencies(
       if (!(repository instanceof StateRepository)) {
         throw new TypeError("production repository has unexpected type");
       }
-      const nostr = new NostrRuntime(config);
+      const sharedNostr = hooks.createEventStream === undefined;
+      const nostr = sharedNostr
+        ? initializeNostr(config)
+        : createNostrService(config);
       const stream = (hooks.createEventStream ?? createPublicationEventStream)(
         config,
         nostr,
@@ -198,6 +165,7 @@ export function createProductionDependencies(
         publisherPubkeys: config.publisherPubkeys,
         identities: config.identities,
         eventStore: nostr.store,
+        addAcceptedPublication: nostr.addAcceptedPublication,
         onReject: (event, reason) =>
           diagnostics.emit({
             type: "event_rejection",
@@ -330,7 +298,6 @@ export function createProductionDependencies(
         signer,
         signerReady,
         followBlossomPublisher: stream.followBlossomPublisher,
-        nostr,
         localRelay,
         async readyBeforeBind() {
           if (config.writeIntent.mode !== "ncryptsec") return;
@@ -349,12 +316,13 @@ export function createProductionDependencies(
               cacheSelectionSubscription.unsubscribe();
               selector.dispose();
             } finally {
-              stream.dispose();
+              stream.close();
               try {
                 await signer?.close();
               } finally {
                 writeRepository?.close();
-                nostr.dispose();
+                if (sharedNostr) closeNostr();
+                else nostr.close();
               }
             }
           };
@@ -369,6 +337,7 @@ export function createProductionDependencies(
           await finish();
         },
       };
+      nostrServices.set(selectionHandle, nostr);
       return selectionHandle;
     },
     createHandler(selection, config) {
@@ -391,8 +360,7 @@ export function createProductionDependencies(
       const localRelay =
         (selection as typeof selection & { localRelay?: LocalRelayCache })
           .localRelay;
-      const nostr = (selection as typeof selection & { nostr?: NostrRuntime })
-        .nostr;
+      const nostr = nostrServices.get(selection as object);
       if (!nostr) {
         throw new TypeError("production selection omitted Nostr runtime");
       }
