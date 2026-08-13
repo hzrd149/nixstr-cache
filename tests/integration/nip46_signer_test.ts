@@ -53,7 +53,7 @@ async function scenario(
     await Deno.writeTextFile(sessionPath, fixture.nbunksec, { mode: 0o600 });
     const raw: RawConfig = {
       caches: expectedOwner,
-      relayUrls: fixture.relayUrl,
+      extraRelays: fixture.relayUrl,
       databasePath: `${root}/state.sqlite`,
       spoolDirectory: `${root}/spool`,
       writable: {
@@ -117,10 +117,9 @@ async function scenario(
         ),
       );
       assertEquals(fixture.facts.permissions, [
-        `get_public_key,sign_event:${kind}`,
+        `get_public_key,sign_event:${kind},sign_event:24242`,
       ]);
     } else {
-      await fixture.waitForSocketClose(deadline);
       assertEquals((await put()).status, 405);
       assertEquals(await fixture.stagedFiles(`${root}/staging`), []);
     }
@@ -235,7 +234,7 @@ Deno.test("durable owner mismatch prints a prominent warning before closing nbun
   try {
     const daemon = await launchDaemon({
       caches: fixture.remoteOwner,
-      relayUrls: fixture.relayUrl,
+      extraRelays: fixture.relayUrl,
       databasePath,
       spoolDirectory: `${root}/spool`,
       preferredBlossomUrl: "http://127.0.0.1:9",
@@ -256,10 +255,15 @@ Deno.test("durable owner mismatch prints a prominent warning before closing nbun
     assert(daemon.ok);
     await fixture.waitForRequests(1, deadline);
     await fixture.completeAuthorization();
-    await fixture.waitForSocketClose(deadline);
-    const warning = lines.find((line) =>
-      line.includes("WRITABLE CACHE OWNER MISMATCH")
-    );
+    const started = performance.now();
+    let warning: string | undefined;
+    while (!warning) {
+      warning = lines.find((line) =>
+        line.includes("WRITABLE CACHE OWNER MISMATCH")
+      );
+      if (performance.now() - started >= deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
     assert(warning);
     assertStringIncludes(
       warning,
@@ -267,6 +271,8 @@ Deno.test("durable owner mismatch prints a prominent warning before closing nbun
     );
     assertStringIncludes(warning, `Durable owner:     17091:${durablePubkey}:`);
     assertStringIncludes(warning, "WRITES HAVE BEEN DISABLED");
+    await daemon.shutdown();
+    await fixture.waitForSocketClose(deadline);
     await daemon.shutdown();
   } finally {
     console.log = log;

@@ -313,6 +313,15 @@ Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are co
     },
     { type: "batch_transition", code: "batch_pending", batchId: 3, count: 2 },
     {
+      type: "publication_stage",
+      code: "authorization_failed",
+      stage: "authorization",
+      status: "failed",
+      batchId: 3,
+      rootHash: "a".repeat(64),
+      count: 2,
+    },
+    {
       type: "replica_attempt",
       code: "replica_complete",
       endpoint: "https://example.test",
@@ -355,22 +364,32 @@ Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are co
   assertStringIncludes(lines[2], "upstream request failed: upstream_timeout");
   assertStringIncludes(lines[3], "signer ready: signer_ready");
   assertStringIncludes(lines[4], "publication batch: batch_pending");
-  assertStringIncludes(lines[5], "Blossom replica succeeded: replica_complete");
-  assertStringIncludes(lines[6], "relay publication acknowledged");
-  assertStringIncludes(lines[7], "cache publication promoted");
-  assertStringIncludes(lines[8], "write Blossom server list changed");
-  assertStringIncludes(lines[8], "endpoints=https://example.test/base");
-  assertEquals(lines[8].includes("secret"), false);
-  assertEquals(lines[8].includes("hidden"), false);
   assertStringIncludes(
-    lines[9],
+    lines[5],
+    "publication authorization failed: authorization_failed",
+  );
+  assertStringIncludes(lines[6], "Blossom replica succeeded: replica_complete");
+  assertStringIncludes(lines[7], "relay publication acknowledged");
+  assertStringIncludes(lines[8], "cache publication promoted");
+  assertStringIncludes(lines[9], "write Blossom server list changed");
+  assertStringIncludes(lines[9], "endpoints=https://example.test/base");
+  assertEquals(lines[9].includes("secret"), false);
+  assertEquals(lines[9].includes("hidden"), false);
+  assertStringIncludes(
+    lines[10],
     "WRITABLE CACHE OWNER MISMATCH — WRITES HAVE BEEN DISABLED",
   );
-  assertStringIncludes(lines[9], `Configured signer: 17091:${"a".repeat(64)}:`);
-  assertStringIncludes(lines[9], `Durable owner:     17091:${"b".repeat(64)}:`);
-  assertStringIncludes(lines[9], "writable.enabled was honored");
-  assertStringIncludes(lines[9], "PUT is disabled");
-  assertStringIncludes(lines[9], "Do not delete state casually");
+  assertStringIncludes(
+    lines[10],
+    `Configured signer: 17091:${"a".repeat(64)}:`,
+  );
+  assertStringIncludes(
+    lines[10],
+    `Durable owner:     17091:${"b".repeat(64)}:`,
+  );
+  assertStringIncludes(lines[10], "writable.enabled was honored");
+  assertStringIncludes(lines[10], "PUT is disabled");
+  assertStringIncludes(lines[10], "Do not delete state casually");
   const failing = createConsoleDiagnosticSink({
     write: () => {
       throw new Error("sink failed");

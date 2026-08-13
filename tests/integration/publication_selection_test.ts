@@ -239,7 +239,7 @@ Deno.test("transaction failure cannot emit an uncommitted selection", async () =
   }
 });
 
-Deno.test("EventStore admission follows repository commit and disposal is terminal", async () => {
+Deno.test("borrowed EventStore admission follows commit without transferring ownership", async () => {
   const path = await tempDb();
   try {
     const store = new EventStore({ keepExpired: true, keepOldVersions: true });
@@ -265,6 +265,8 @@ Deno.test("EventStore admission follows repository commit and disposal is termin
     assertEquals(selector.current()[0]?.event.id, candidate.id);
     selector.dispose();
     selector.dispose();
+    assertEquals(disposed, 0);
+    store.dispose();
     assertEquals(disposed, 1);
     repository.close();
   } finally {

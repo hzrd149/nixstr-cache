@@ -101,7 +101,7 @@ Deno.test("stock Nix uploads through production and substitutes from the newly p
         NIXSTR_BIND_HOST: "127.0.0.1",
         NIXSTR_BIND_PORT: String(daemonPort),
         NIXSTR_CACHES: `17091:${nostrPubkey}:`,
-        NIXSTR_RELAY_URLS: fixture.relayUrl,
+        NIXSTR_EXTRA_RELAYS: fixture.relayUrl,
         NIXSTR_PREFERRED_BLOSSOM_URL: fixture.blossomUrl,
         NIXSTR_DATABASE_PATH: `${root}/state.sqlite`,
         NIXSTR_SPOOL_DIRECTORY: `${root}/spool`,
@@ -137,6 +137,17 @@ Deno.test("stock Nix uploads through production and substitutes from the newly p
     assert(
       fixture.blobCount > 0,
       "publication must upload immutable tree blobs",
+    );
+    assertEquals(
+      fixture.uploadAuthorizations.map((authorization) => authorization.pubkey),
+      fixture.uploadedHashes.map(() => nostrPubkey),
+    );
+    assertEquals(
+      new Set(
+        fixture.uploadAuthorizations.map((authorization) => authorization.id),
+      ).size,
+      1,
+      "one bounded authorization should cover the first publication batch",
     );
     const secondInput = `${root}/second-input`;
     await Deno.mkdir(secondInput);

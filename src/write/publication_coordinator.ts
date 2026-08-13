@@ -30,10 +30,17 @@ export interface PublicationCoordinatorOptions {
   readonly authorize?: () => Promise<void>;
   readonly blossomServers: readonly string[] | (() => readonly string[]);
   readonly nixSigKeys: readonly string[];
-  readonly publicationRelays: readonly string[];
+  readonly publicationRelays:
+    | readonly string[]
+    | (() => readonly string[]);
   readonly lifetimeSeconds: number;
   readonly now: () => number;
   readonly replica: ReplicaPublisher;
+  readonly prepareReplicaAuthorization?: (
+    servers: readonly string[],
+    entries: readonly PendingInventoryEntry[],
+    signal?: AbortSignal,
+  ) => Promise<void>;
   readonly publishRelays: (
     event: RawPublication,
     relays: readonly string[],
@@ -137,13 +144,20 @@ export class PublicationCoordinator {
     const destinations = typeof o.blossomServers === "function"
       ? o.blossomServers()
       : o.blossomServers;
+    const activeBeforeClaim = o.repository.publicationSaga();
     let saga = o.repository.claimPublication(destinations);
     if (!saga) return;
+    const inventory = [...o.repository.publicationInventory(saga.batchId)];
+    const publicationRelays = typeof o.publicationRelays === "function"
+      ? o.publicationRelays()
+      : o.publicationRelays;
     o.diagnostics?.emit({
       type: "batch_transition",
-      code: "batch_claimed",
+      code: activeBeforeClaim?.batchId === saga.batchId
+        ? "batch_resumed"
+        : "batch_claimed",
       batchId: saga.batchId,
-      count: o.repository.publicationInventory(saga.batchId).length,
+      count: inventory.length,
       rootHash: saga.candidate.rootHex,
     });
     o.repository.ensureEndpointWork(
@@ -155,29 +169,70 @@ export class PublicationCoordinator {
     o.repository.ensureEndpointWork(
       saga.batchId,
       "relay",
-      o.publicationRelays,
+      publicationRelays,
       o.now(),
     );
     if (!saga.completeServer) {
-      const inventory = o.repository.publicationInventory(saga.batchId);
-      for (const server of saga.destinations) {
-        let complete = true;
-        for (const entry of inventory) {
-          if (await o.replica.prove(server, entry, this.#abort.signal)) {
-            o.repository.recordBlobProof(saga.batchId, server, entry.hash);
-          } else complete = false;
+      if (o.prepareReplicaAuthorization) {
+        this.#emitStage(saga, "authorization", "started", inventory.length);
+        try {
+          await this.#bounded((signal) =>
+            o.prepareReplicaAuthorization!(
+              saga!.destinations,
+              inventory,
+              signal,
+            )
+          );
+          this.#emitStage(
+            saga,
+            "authorization",
+            "complete",
+            inventory.length,
+          );
+        } catch (error) {
+          this.#emitStage(
+            saga,
+            "authorization",
+            "failed",
+            inventory.length,
+          );
+          for (const server of saga.destinations) {
+            this.#recordInitial("replica", server, false);
+          }
+          throw error;
         }
-        if (o.repository.serverComplete(saga.batchId, server)) {
-          o.repository.recordCompleteServer(saga.batchId, server);
+      }
+      this.#emitStage(saga, "replication", "started", inventory.length);
+      try {
+        for (const server of saga.destinations) {
+          let complete = true;
+          for (const entry of inventory) {
+            if (await o.replica.prove(server, entry, this.#abort.signal)) {
+              o.repository.recordBlobProof(saga.batchId, server, entry.hash);
+            } else complete = false;
+          }
+          if (o.repository.serverComplete(saga.batchId, server)) {
+            o.repository.recordCompleteServer(saga.batchId, server);
+          }
+          this.#recordInitial(
+            "replica",
+            server,
+            complete && o.repository.serverComplete(saga.batchId, server),
+          );
         }
-        this.#recordInitial(
-          "replica",
-          server,
-          complete && o.repository.serverComplete(saga.batchId, server),
-        );
+      } catch (error) {
+        this.#emitStage(saga, "replication", "failed", inventory.length);
+        for (const server of saga.destinations) {
+          this.#recordInitial("replica", server, false);
+        }
+        throw error;
       }
       saga = o.repository.publicationSaga()!;
-      if (!saga.completeServer) return;
+      if (!saga.completeServer) {
+        this.#emitStage(saga, "replication", "waiting", inventory.length);
+        return;
+      }
+      this.#emitStage(saga, "replication", "complete", inventory.length);
     }
     if (!saga.signedEvent) {
       const tags: string[][] = [];
@@ -197,15 +252,24 @@ export class PublicationCoordinator {
         tags,
         content: "",
       };
-      const event = await this.#bounded((signal) =>
-        o.signer.signEvent(template, signal)
-      ) as RawPublication;
+      this.#emitStage(saga, "root_signing", "started");
+      let event: RawPublication;
+      try {
+        event = await this.#bounded((signal) =>
+          o.signer.signEvent(template, signal)
+        ) as RawPublication;
+      } catch (error) {
+        this.#emitStage(saga, "root_signing", "failed");
+        throw error;
+      }
       this.#abort.signal.throwIfAborted();
       if (!exactTemplate(event, template, o.identity.pubkey)) {
+        this.#emitStage(saga, "root_signing", "failed");
         throw new Error("signer changed publication template");
       }
       const validation = validatePublication(event, o.now());
       if (!validation.ok) {
+        this.#emitStage(saga, "root_signing", "failed");
         throw new Error(
           `signed publication rejected: ${validation.error.code}`,
         );
@@ -216,17 +280,25 @@ export class PublicationCoordinator {
         event,
       );
       saga = o.repository.publicationSaga()!;
+      this.#emitStage(saga, "root_signing", "complete");
     }
     if (!saga.acknowledgedRelay) {
-      const configured = new Set(o.publicationRelays);
+      const configured = new Set(publicationRelays);
       const expectedBatch = saga.batchId;
       const signedEvent = saga.signedEvent!;
-      const outcomes = await this.#bounded((signal) =>
-        o.publishRelays(signedEvent, o.publicationRelays, signal)
-      );
+      this.#emitStage(saga, "relay_publication", "started");
+      let outcomes: readonly RelayOutcome[];
+      try {
+        outcomes = await this.#bounded((signal) =>
+          o.publishRelays(signedEvent, publicationRelays, signal)
+        );
+      } catch (error) {
+        this.#emitStage(saga, "relay_publication", "failed");
+        throw error;
+      }
       this.#abort.signal.throwIfAborted();
       if (o.repository.publicationSaga()?.batchId !== expectedBatch) return;
-      for (const relay of o.publicationRelays) {
+      for (const relay of publicationRelays) {
         this.#recordInitial(
           "relay",
           relay,
@@ -236,9 +308,13 @@ export class PublicationCoordinator {
       const acknowledged = outcomes.find((result) =>
         result.ok && configured.has(result.relay)
       );
-      if (!acknowledged) return;
+      if (!acknowledged) {
+        this.#emitStage(saga, "relay_publication", "waiting");
+        return;
+      }
       o.repository.recordRelayAcknowledgement(saga.batchId, acknowledged.relay);
       saga = o.repository.publicationSaga()!;
+      this.#emitStage(saga, "relay_publication", "complete");
     }
     if (!saga.committed) {
       o.repository.commitPublication(saga.batchId);
@@ -252,6 +328,7 @@ export class PublicationCoordinator {
       });
     }
     if (!saga.admitted) {
+      this.#emitStage(saga, "selection_admission", "started");
       const event = saga.signedEvent!;
       if (
         !o.selector.current().some((selected) => selected.event.id === event.id)
@@ -261,11 +338,35 @@ export class PublicationCoordinator {
       if (
         !o.selector.current().some((selected) => selected.event.id === event.id)
       ) {
+        this.#emitStage(saga, "selection_admission", "failed");
         throw new Error("committed publication was not admitted by selector");
       }
       o.repository.markPublicationAdmitted(saga.batchId);
+      this.#emitStage(saga, "selection_admission", "complete");
     }
     await this.#repair();
+  }
+
+  #emitStage(
+    saga: import("../persistence/write_repository.ts").PublicationSaga,
+    stage:
+      | "authorization"
+      | "replication"
+      | "root_signing"
+      | "relay_publication"
+      | "selection_admission",
+    status: "started" | "complete" | "waiting" | "failed",
+    count?: number,
+  ): void {
+    this.options.diagnostics?.emit({
+      type: "publication_stage",
+      code: `${stage}_${status}`,
+      stage,
+      status,
+      batchId: saga.batchId,
+      rootHash: saga.candidate.rootHex,
+      count,
+    });
   }
 
   #retryOptions() {

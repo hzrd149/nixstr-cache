@@ -50,6 +50,20 @@ export type OperationalDiagnostic =
     readonly rootHash?: string;
   }
   | {
+    readonly type: "publication_stage";
+    readonly code: string;
+    readonly stage:
+      | "authorization"
+      | "replication"
+      | "root_signing"
+      | "relay_publication"
+      | "selection_admission";
+    readonly status: "started" | "complete" | "waiting" | "failed";
+    readonly batchId: number;
+    readonly rootHash: string;
+    readonly count?: number;
+  }
+  | {
     readonly type: "replica_attempt";
     readonly code: string;
     readonly cacheIdentity?: string;
@@ -202,6 +216,16 @@ export function formatOperationalDiagnostic(
       fields.push(`batch=${item.batchId}`);
       if (item.count !== undefined) fields.push(`entries=${item.count}`);
       if (item.rootHash) fields.push(`root=${item.rootHash}`);
+      break;
+    case "publication_stage":
+      level = item.status === "failed"
+        ? "ERROR"
+        : item.status === "waiting"
+        ? "WARN"
+        : "INFO";
+      message = `publication ${item.stage} ${item.status}: ${item.code}`;
+      fields.push(`batch=${item.batchId}`, `root=${item.rootHash}`);
+      if (item.count !== undefined) fields.push(`entries=${item.count}`);
       break;
     case "replica_attempt":
       level = item.ok ? "INFO" : "WARN";

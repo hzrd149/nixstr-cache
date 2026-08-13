@@ -101,7 +101,7 @@ Deno.test("configuration aggregates diagnostics without performing I/O", () => {
   const parsed = parseConfig({
     bindPort: "0",
     caches: "bad,also-bad",
-    relayUrls: "ftp://relay.invalid,not-a-url",
+    extraRelays: "ftp://relay.invalid,not-a-url",
     preferredBlossomUrl: "http://user@example.test",
     limits: { maxRedirects: "99", connectTimeoutMs: "0" },
   }, { onSideEffect: () => effects++ });

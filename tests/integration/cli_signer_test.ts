@@ -14,7 +14,7 @@ import { createSignerCapability } from "../../src/signer/capability.ts";
 const PUBKEY = "a".repeat(64);
 const WRITABLE_JSON = {
   caches: [PUBKEY],
-  relayUrls: ["wss://relay.example"],
+  extraRelays: ["wss://relay.example"],
   databasePath: "/tmp/nixstr-cli-state.sqlite",
   spoolDirectory: "/tmp/nixstr-cli-spool",
   writable: {
@@ -123,7 +123,7 @@ Deno.test("inline nsec starts and signs without requesting a password", async ()
       readEnvironment: (name) =>
         ({
           NIXSTR_CACHES: PUBKEY,
-          NIXSTR_RELAY_URLS: "wss://relay.example",
+          NIXSTR_EXTRA_RELAYS: "wss://relay.example",
           NIXSTR_DATABASE_PATH: "/tmp/nixstr-cli-state.sqlite",
           NIXSTR_SPOOL_DIRECTORY: "/tmp/nixstr-cli-spool",
           NIXSTR_WRITABLE_ENABLED: "true",

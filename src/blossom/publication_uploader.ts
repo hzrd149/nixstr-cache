@@ -45,6 +45,7 @@ export class PublicationUploader {
       readonly authorization?: (
         server: string,
         entry: PendingInventoryEntry,
+        signal?: AbortSignal,
       ) => Promise<string>;
       readonly descriptorBytes?: number;
     },
@@ -62,7 +63,11 @@ export class PublicationUploader {
       "content-type": "application/octet-stream",
       "x-sha-256": entry.hash,
     });
-    const authorization = await this.options.authorization?.(server, entry);
+    const authorization = await this.options.authorization?.(
+      server,
+      entry,
+      signal,
+    );
     if (authorization) headers.set("authorization", authorization);
     const file = await Deno.open(entry.path, { read: true });
     let response: PinnedResponse;

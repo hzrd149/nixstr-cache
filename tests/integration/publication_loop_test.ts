@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { Subject } from "rxjs";
 import { bech32 } from "@scure/base";
@@ -16,6 +16,7 @@ import {
 } from "../../src/write/publication_coordinator.ts";
 import { startPublicationSelection } from "../../src/nostr/selection.ts";
 import { StateRepository } from "../../src/persistence/state_repository.ts";
+import type { OperationalDiagnostic } from "../../src/operations/diagnostics.ts";
 
 async function fixture() {
   const root = await Deno.makeTempDir({ prefix: "publication-loop-" });
@@ -72,6 +73,7 @@ async function fixture() {
 
 Deno.test("one complete replica publishes exact event through normal admission", async () => {
   const f = await fixture();
+  const diagnostics: OperationalDiagnostic[] = [];
   try {
     let signCalls = 0;
     const original = f.signer.signEvent.bind(f.signer);
@@ -98,6 +100,7 @@ Deno.test("one complete replica publishes exact event through normal admission",
       publishRelays: (
         _event,
       ) => Promise.resolve([{ relay: "ws://127.0.0.1:7447", ok: true }]),
+      diagnostics: { emit: (item) => diagnostics.push(item) },
     });
     await coordinator.tick();
     assertEquals(signCalls, 0, "split/partial replicas must not sign");
@@ -115,6 +118,91 @@ Deno.test("one complete replica publishes exact event through normal admission",
     ]);
     await coordinator.tick();
     assertEquals(signCalls, 1, "restart/retry must reuse exact signed event");
+    assertEquals(
+      diagnostics.filter((item) => item.type === "batch_transition").map((
+        item,
+      ) => item.code),
+      ["batch_claimed", "batch_resumed", "batch_resumed"],
+    );
+    assertEquals(
+      diagnostics.filter((item) => item.type === "publication_stage").map((
+        item,
+      ) => item.code),
+      [
+        "replication_started",
+        "replication_waiting",
+        "replication_started",
+        "replication_complete",
+        "root_signing_started",
+        "root_signing_complete",
+        "relay_publication_started",
+        "relay_publication_complete",
+        "selection_admission_started",
+        "selection_admission_complete",
+      ],
+    );
+  } finally {
+    f.selection.dispose();
+    f.state.close();
+    f.write.close();
+    await f.signer.close();
+    await Deno.remove(f.root, { recursive: true });
+  }
+});
+
+Deno.test("authorization failures are backoff-eligible and stage-visible", async () => {
+  const f = await fixture();
+  const diagnostics: OperationalDiagnostic[] = [];
+  try {
+    const coordinator = new PublicationCoordinator({
+      repository: f.write,
+      signer: f.signer,
+      selector: f.selection,
+      identity: { kind: 17091, pubkey: f.pubkey, identifier: "" },
+      blossomServers: ["http://127.0.0.1:9001"],
+      nixSigKeys: [],
+      publicationRelays: ["ws://127.0.0.1:7447"],
+      lifetimeSeconds: 3600,
+      now: () => 100,
+      prepareReplicaAuthorization: () =>
+        Promise.reject(new Error("remote detail must stay private")),
+      replica: { prove: () => Promise.resolve(true) },
+      publishRelays: () => Promise.resolve([]),
+      diagnostics: { emit: (item) => diagnostics.push(item) },
+      retry: {
+        baseSeconds: 30,
+        maxSeconds: 30,
+        maxAttempts: 3,
+        concurrency: 1,
+        jitter: () => 0,
+      },
+    });
+    await assertRejects(() => coordinator.tick());
+    assertEquals(
+      diagnostics.map((item) => item.code),
+      [
+        "batch_claimed",
+        "authorization_started",
+        "authorization_failed",
+        "replica_unavailable",
+      ],
+    );
+    assertEquals(
+      f.write.endpointWork().find((item) => item.kind === "replica"),
+      {
+        batchId: 7,
+        kind: "replica",
+        target: "http://127.0.0.1:9001",
+        status: "retry",
+        attempts: 1,
+        nextAttemptAt: 130,
+        code: "unavailable",
+      },
+    );
+    assertEquals(
+      JSON.stringify(diagnostics).includes("remote detail must stay private"),
+      false,
+    );
   } finally {
     f.selection.dispose();
     f.state.close();

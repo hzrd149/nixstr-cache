@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { sha256 } from "@noble/hashes/sha2.js";
+import { verifyEvent } from "nostr-tools";
 import type { RawPublication } from "../../src/protocol/publication.ts";
 import type { PinnedResponse } from "../../src/network/safe_fetcher.ts";
 
@@ -8,9 +9,28 @@ export interface PublicationFixture {
   readonly relayUrl: string;
   readonly blobCount: number;
   readonly uploadedHashes: readonly string[];
+  readonly uploadAuthorizations: readonly RawPublication[];
   readonly publishedEvents: readonly RawPublication[];
   waitForPublication(timeoutMs: number): Promise<RawPublication>;
   close(): Promise<void>;
+}
+
+function decodeNostrAuthorization(value: string | null):
+  | RawPublication
+  | undefined {
+  const encoded = /^Nostr ([A-Za-z0-9_-]+)$/.exec(value ?? "")?.[1];
+  if (!encoded) return undefined;
+  try {
+    const base64 = encoded.replaceAll("-", "+").replaceAll("_", "/");
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+    const bytes = Uint8Array.from(
+      atob(padded),
+      (character) => character.charCodeAt(0),
+    );
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    return undefined;
+  }
 }
 
 function waitUntil<T>(
@@ -35,6 +55,7 @@ function waitUntil<T>(
 export function createPublicationFixture(): PublicationFixture {
   const blobs = new Map<string, Uint8Array>();
   const uploadedHashes: string[] = [];
+  const uploadAuthorizations: RawPublication[] = [];
   const publishedEvents: RawPublication[] = [];
   const sockets = new Set<WebSocket>();
   const subscriptions = new Map<WebSocket, string>();
@@ -48,11 +69,35 @@ export function createPublicationFixture(): PublicationFixture {
         if (!expected || !/^[0-9a-f]{64}$/.test(expected)) {
           return new Response(null, { status: 400 });
         }
+        const authorization = decodeNostrAuthorization(
+          request.headers.get("authorization"),
+        );
+        const now = Math.floor(Date.now() / 1000);
+        if (
+          !authorization || !verifyEvent(authorization) ||
+          authorization.kind !== 24242 ||
+          authorization.created_at > now ||
+          authorization.content.trim().length === 0 ||
+          !authorization.tags.some((tag) =>
+            tag[0] === "t" && tag[1] === "upload"
+          ) ||
+          !authorization.tags.some((tag) =>
+            tag[0] === "expiration" && Number(tag[1]) > now
+          ) ||
+          !authorization.tags.some((tag) =>
+            tag[0] === "x" && tag[1] === expected
+          )
+        ) {
+          return new Response("invalid BUD-11 upload authorization", {
+            status: 401,
+          });
+        }
         const bytes = new Uint8Array(await request.arrayBuffer());
         assertEquals(bytes.length, declared);
         assertEquals(sha256(bytes).toHex(), expected);
         blobs.set(expected, bytes);
         uploadedHashes.push(expected);
+        uploadAuthorizations.push(authorization);
         const descriptor = JSON.stringify({
           sha256: expected,
           size: bytes.length,
@@ -123,6 +168,9 @@ export function createPublicationFixture(): PublicationFixture {
     },
     get uploadedHashes() {
       return Object.freeze([...uploadedHashes]);
+    },
+    get uploadAuthorizations() {
+      return Object.freeze([...uploadAuthorizations]);
     },
     get publishedEvents() {
       return Object.freeze([...publishedEvents]);

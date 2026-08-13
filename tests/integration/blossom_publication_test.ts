@@ -1,7 +1,186 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { sha256 } from "@noble/hashes/sha2.js";
+import { generateSecretKey, verifyEvent } from "nostr-tools";
+import { PrivateKeySigner } from "applesauce-signers/signers/private-key-signer";
 import { PublicationUploader } from "../../src/blossom/publication_uploader.ts";
+import {
+  createUploadAuthorizationBatch,
+  MAX_UPLOAD_AUTHORIZATION_HEADER_BYTES,
+} from "../../src/blossom/upload_authorization.ts";
 import { createControlledBlossomFixture } from "../fixtures/publication.ts";
+
+function decodeAuthorization(value: string) {
+  const encoded = value.slice("Nostr ".length);
+  const base64 = encoded.replaceAll("-", "+").replaceAll("_", "/");
+  const binary = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "="));
+  return JSON.parse(binary) as {
+    kind: number;
+    content: string;
+    created_at: number;
+    tags: string[][];
+  };
+}
+
+function authorizationFieldBytes(value: string): number {
+  return new TextEncoder().encode(`Authorization: ${value}\r\n`).length;
+}
+
+Deno.test("upload authorization batches hashes into bounded BUD-11 events", async () => {
+  const signer = PrivateKeySigner.fromKey(generateSecretKey());
+  const hashes = Array.from(
+    { length: 65 },
+    (_, index) => index.toString(16).padStart(64, "0"),
+  );
+  let signCalls = 0;
+  const batch = await createUploadAuthorizationBatch({
+    signer: {
+      signEvent: async (template) => {
+        signCalls++;
+        return await signer.signEvent(template);
+      },
+    },
+    hashes,
+    servers: [
+      "https://CDN.Example/base",
+      "https://cdn.example/other",
+      "http://127.0.0.1:3000/base",
+    ],
+    now: 100,
+    maxHeaderBytes: 100_000,
+  });
+  assertEquals(signCalls, 4);
+  assertEquals(batch.eventCount, 4);
+  const firstServer = "https://CDN.Example/base";
+  const sameDomainServer = "https://cdn.example/other";
+  const localServer = "http://127.0.0.1:3000/base";
+  const first = decodeAuthorization(batch.header(firstServer, hashes[0])!);
+  assert(verifyEvent(first as never));
+  assertEquals(first.kind, 24242);
+  assertEquals(first.content, "Upload Nix cache blobs");
+  assertEquals(first.created_at, 100);
+  assertEquals(first.tags.slice(0, 3), [
+    ["t", "upload"],
+    ["expiration", "3700"],
+    ["server", "cdn.example"],
+  ]);
+  assertEquals(
+    first.tags.filter((tag) => tag[0] === "x").map((tag) => tag[1]),
+    hashes.slice(0, 64),
+  );
+  assertEquals(
+    batch.header(firstServer, hashes[0]),
+    batch.header(firstServer, hashes[63]),
+  );
+  assert(
+    batch.header(firstServer, hashes[64]) !==
+      batch.header(firstServer, hashes[63]),
+  );
+  assertEquals(
+    batch.header(firstServer, hashes[0]),
+    batch.header(sameDomainServer, hashes[0]),
+  );
+  assert(
+    authorizationFieldBytes(batch.header(firstServer, hashes[0])!) >
+      MAX_UPLOAD_AUTHORIZATION_HEADER_BYTES,
+    "the independent count-boundary fixture must exceed the default byte ceiling",
+  );
+  const local = decodeAuthorization(batch.header(localServer, hashes[0])!);
+  assertEquals(local.tags.some((tag) => tag[0] === "server"), false);
+
+  const byteBounded = await createUploadAuthorizationBatch({
+    signer,
+    hashes,
+    servers: [firstServer],
+    now: 100,
+  });
+  assertEquals(byteBounded.eventCount, 2);
+  assert(
+    hashes.every((hash) =>
+      authorizationFieldBytes(byteBounded.header(firstServer, hash)!) <=
+        MAX_UPLOAD_AUTHORIZATION_HEADER_BYTES
+    ),
+  );
+});
+
+Deno.test("upload authorization splits before signing at the exact header-byte boundary", async () => {
+  const signer = PrivateKeySigner.fromKey(generateSecretKey());
+  const hashes = ["a".repeat(64), "b".repeat(64)];
+  const servers = ["https://cdn.example/base"];
+  const signed = async (maxHeaderBytes: number) => {
+    let signCalls = 0;
+    const batch = await createUploadAuthorizationBatch({
+      signer: {
+        signEvent: async (template) => {
+          signCalls++;
+          return await signer.signEvent(template);
+        },
+      },
+      hashes,
+      servers,
+      now: 100,
+      maxHeaderBytes,
+    });
+    return { batch, signCalls };
+  };
+
+  const reference = await signed(100_000);
+  const twoHashHeader = reference.batch.header(servers[0], hashes[0])!;
+  const exactBytes = authorizationFieldBytes(twoHashHeader);
+  assert(exactBytes < MAX_UPLOAD_AUTHORIZATION_HEADER_BYTES);
+
+  const atBoundary = await signed(exactBytes);
+  assertEquals(atBoundary.signCalls, 1);
+  assertEquals(atBoundary.batch.eventCount, 1);
+  assertEquals(
+    authorizationFieldBytes(atBoundary.batch.header(servers[0], hashes[0])!),
+    exactBytes,
+  );
+
+  const belowBoundary = await signed(exactBytes - 1);
+  assertEquals(belowBoundary.signCalls, 2);
+  assertEquals(belowBoundary.batch.eventCount, 2);
+  assert(
+    belowBoundary.batch.header(servers[0], hashes[0]) !==
+      belowBoundary.batch.header(servers[0], hashes[1]),
+  );
+  assert(
+    hashes.every((hash) =>
+      authorizationFieldBytes(
+        belowBoundary.batch.header(servers[0], hash)!,
+      ) <= exactBytes - 1
+    ),
+  );
+
+  const oneHash = await createUploadAuthorizationBatch({
+    signer,
+    hashes: hashes.slice(0, 1),
+    servers,
+    now: 100,
+    maxHeaderBytes: 100_000,
+  });
+  const oneHashBytes = authorizationFieldBytes(
+    oneHash.header(servers[0], hashes[0])!,
+  );
+  let undersizedSignCalls = 0;
+  await assertRejects(
+    () =>
+      createUploadAuthorizationBatch({
+        signer: {
+          signEvent: async (template) => {
+            undersizedSignCalls++;
+            return await signer.signEvent(template);
+          },
+        },
+        hashes: hashes.slice(0, 1),
+        servers,
+        now: 100,
+        maxHeaderBytes: oneHashBytes - 1,
+      }),
+    RangeError,
+    "cannot fit one hash",
+  );
+  assertEquals(undersizedSignCalls, 0);
+});
 
 Deno.test("hostile Blossom responses cannot establish false possession", async () => {
   const root = await Deno.makeTempDir({ prefix: "hostile-publication-" });

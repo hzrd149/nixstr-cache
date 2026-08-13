@@ -10,7 +10,8 @@ const SUPPORTED_ENVIRONMENT_NAMES = [
   "NIXSTR_BIND_HOST",
   "NIXSTR_BIND_PORT",
   "NIXSTR_CACHES",
-  "NIXSTR_RELAY_URLS",
+  "NIXSTR_EXTRA_RELAYS",
+  "NIXSTR_BOOTSTRAP_RELAYS",
   "NIXSTR_PREFERRED_BLOSSOM_URL",
   "NIXSTR_LOCAL_BLOSSOM_URL",
   "NIXSTR_DATABASE_PATH",
@@ -68,7 +69,8 @@ const JSON_CONFIG_FIELDS = new Set([
   "bindHost",
   "bindPort",
   "caches",
-  "relayUrls",
+  "extraRelays",
+  "bootstrapRelays",
   "preferredBlossomUrl",
   "localBlossomUrl",
   "databasePath",
@@ -113,7 +115,8 @@ export function rawConfigFromEnvironment(
     bindHost: environment.NIXSTR_BIND_HOST,
     bindPort: environment.NIXSTR_BIND_PORT,
     caches: environment.NIXSTR_CACHES,
-    relayUrls: environment.NIXSTR_RELAY_URLS,
+    extraRelays: environment.NIXSTR_EXTRA_RELAYS,
+    bootstrapRelays: environment.NIXSTR_BOOTSTRAP_RELAYS,
     preferredBlossomUrl: environment.NIXSTR_PREFERRED_BLOSSOM_URL,
     localBlossomUrl: environment.NIXSTR_LOCAL_BLOSSOM_URL,
     databasePath: environment.NIXSTR_DATABASE_PATH,
@@ -309,7 +312,8 @@ function validateJsonTopLevel(config: Record<string, unknown>): void {
   for (
     const field of [
       "caches",
-      "relayUrls",
+      "extraRelays",
+      "bootstrapRelays",
     ]
   ) {
     const value = config[field];

@@ -4,8 +4,12 @@
   "caches": [
     "0000000000000000000000000000000000000000000000000000000000000000"
   ],
-  "relayUrls": [
+  "extraRelays": [
     "wss://relay.example.com"
+  ],
+  "bootstrapRelays": [
+    "wss://purplepag.es/",
+    "wss://index.hzrd149.com/"
   ],
   "preferredBlossomUrl": "https://blossom.example.com",
   "databasePath": "data/state.sqlite",

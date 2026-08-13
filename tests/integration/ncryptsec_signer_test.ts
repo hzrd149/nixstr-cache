@@ -136,7 +136,7 @@ Deno.test("non-terminal password input requires a bounded newline-terminated val
 function ncryptsecRaw(root: string, encrypted: string): RawConfig {
   return {
     caches: "a".repeat(64),
-    relayUrls: "wss://relay.example",
+    extraRelays: "wss://relay.example",
     databasePath: `${root}/state.sqlite`,
     spoolDirectory: `${root}/spool`,
     writable: {

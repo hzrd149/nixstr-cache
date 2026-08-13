@@ -17,7 +17,7 @@ temporary read/write access, and (for the E2E only) execution of `nix`,
 `nix-store`, and the pinned Deno runtime.
 
 For a daemon assembled with the runtime dependencies from `src/app.ts`, set
-`NIXSTR_BIND_HOST`, `NIXSTR_BIND_PORT`, `NIXSTR_CACHES`, `NIXSTR_RELAY_URLS`,
+`NIXSTR_BIND_HOST`, `NIXSTR_BIND_PORT`, `NIXSTR_CACHES`, `NIXSTR_EXTRA_RELAYS`,
 and optionally `NIXSTR_PREFERRED_BLOSSOM_URL`. Configure stock Nix with only
 that endpoint and the publication's exact key:
 
@@ -49,7 +49,8 @@ a default cache, or a kind-37091 `naddr` for a named cache. Canonical
 `17091:<hex>:` and `37091:<hex>:<name>` strings remain compatible. Entries are
 normalized internally and retain their array order as cache priority; aliases of
 the same identity are rejected as duplicates. Relay hints embedded in an `naddr`
-are ignored because `relayUrls` is authoritative.
+are ignored. Publisher NIP-65 outboxes are discovered through `bootstrapRelays`
+and combined with operator-controlled `extraRelays`.
 
 Writes use one nested `writable` object. Missing configuration or
 `{"enabled":false}` is read-only and ignores every other writable member. An
@@ -133,7 +134,7 @@ services.nixstr-cache = {
   enable = true;
   settings = {
     NIXSTR_CACHES = "<64-lowercase-hex-pubkey-or-npub>";
-    NIXSTR_RELAY_URLS = "wss://relay.example.com";
+    NIXSTR_EXTRA_RELAYS = "wss://relay.example.com";
   };
 };
 ```

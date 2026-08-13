@@ -17,7 +17,7 @@ const SECOND_PUBKEY = "b".repeat(64);
 
 const JSON_CONFIG = {
   caches: [`17091:${PUBKEY}:`],
-  relayUrls: ["wss://relay.example"],
+  extraRelays: ["wss://relay.example"],
   databasePath: "state.sqlite",
   spoolDirectory: "spool",
   bindPort: 9876,
@@ -28,7 +28,7 @@ const JSON_CONFIG = {
 function validRaw(overrides: Partial<RawConfig> = {}): RawConfig {
   return {
     caches: PUBKEY,
-    relayUrls: "wss://relay.example",
+    extraRelays: "wss://relay.example",
     databasePath: "/tmp/nixstr-operator.sqlite",
     spoolDirectory: "/tmp/nixstr-operator-spool",
     ...overrides,
@@ -121,7 +121,7 @@ Deno.test("startup loader preserves commas inside native JSON list entries", asy
 Deno.test("startup loader retains environment-only operation and absolute env paths", async () => {
   const environment: Record<string, string> = {
     NIXSTR_CACHES: `17091:${PUBKEY}:`,
-    NIXSTR_RELAY_URLS: "wss://relay.example",
+    NIXSTR_EXTRA_RELAYS: "wss://relay.example",
     NIXSTR_DATABASE_PATH: "/env/state.sqlite",
     NIXSTR_SPOOL_DIRECTORY: "/env/spool",
   };
@@ -156,7 +156,7 @@ Deno.test("startup loader rejects malformed CLI files and native JSON types", as
 
   for (
     const [field, value] of [
-      ["relayUrls", ["wss://relay.example", 1]],
+      ["extraRelays", ["wss://relay.example", 1]],
       ["bindPort", "not-a-port"],
       ["writable", true],
       ["limits", { maxRedirects: "5" }],
@@ -269,10 +269,27 @@ Deno.test("operator config normalizes ordered read-cache identity forms", () => 
     SECOND_PUBKEY,
     "c".repeat(64),
   ]);
-  assertEquals(parsed.value.relayUrls.map((url) => url.href), [
+  assertEquals(parsed.value.extraRelays.map((url) => url.href), [
     "wss://relay.example/",
   ]);
+  assertEquals(parsed.value.bootstrapRelays.map((url) => url.href), [
+    "wss://purplepag.es/",
+    "wss://index.hzrd149.com/",
+  ]);
   assert(Object.isFrozen(parsed.value.identities));
+});
+
+Deno.test("operator can override bootstrap relays independently", () => {
+  const parsed = parseConfig(validRaw({
+    bootstrapRelays: ["wss://indexer.example"],
+  }));
+  assert(parsed.ok);
+  assertEquals(parsed.value.bootstrapRelays.map((url) => url.href), [
+    "wss://indexer.example/",
+  ]);
+  assertEquals(parsed.value.extraRelays.map((url) => url.href), [
+    "wss://relay.example/",
+  ]);
 });
 
 Deno.test("JSON and environment cache identities share normalization and priority", async () => {
@@ -289,7 +306,7 @@ Deno.test("JSON and environment cache identities share normalization and priorit
     readEnvironment: (name) =>
       name === "NIXSTR_CACHES"
         ? `${npub},${PUBKEY}`
-        : name === "NIXSTR_RELAY_URLS"
+        : name === "NIXSTR_EXTRA_RELAYS"
         ? "wss://relay.example"
         : name === "NIXSTR_DATABASE_PATH"
         ? "/tmp/state.sqlite"
@@ -563,7 +580,7 @@ Deno.test("write-intent diagnostics aggregate without side effects", () => {
   const parsed = parseConfig({
     ...validRaw({ writable: { enabled: true, type: "root" } }),
     bindPort: "0",
-    relayUrls: "invalid",
+    extraRelays: "invalid",
   }, { onSideEffect: () => sideEffects++ });
   assert(!parsed.ok);
   assertEquals(sideEffects, 0);
@@ -572,7 +589,7 @@ Deno.test("write-intent diagnostics aggregate without side effects", () => {
   );
   assert(
     parsed.diagnostics.some((diagnostic) =>
-      diagnostic.field === "relayUrls[0]"
+      diagnostic.field === "extraRelays[0]"
     ),
   );
   assert(
@@ -666,7 +683,7 @@ Deno.test("enabled signer requires exactly its protected source and staging limi
 Deno.test("production environment collector maps every supported limit", () => {
   const environment = {
     NIXSTR_CACHES: PUBKEY,
-    NIXSTR_RELAY_URLS: "wss://relay.example",
+    NIXSTR_EXTRA_RELAYS: "wss://relay.example",
     NIXSTR_DATABASE_PATH: "/tmp/nixstr-limit-state.sqlite",
     NIXSTR_SPOOL_DIRECTORY: "/tmp/nixstr-limit-spool",
     NIXSTR_LIMIT_MANIFEST_WIRE_BYTES: "1000001",
@@ -716,7 +733,7 @@ Deno.test("invalid collected production limit stops before startup", async () =>
   const root = `/tmp/nixstr-limit-invalid-${crypto.randomUUID()}`;
   const environment: Record<string, string> = {
     NIXSTR_CACHES: PUBKEY,
-    NIXSTR_RELAY_URLS: "wss://relay.example",
+    NIXSTR_EXTRA_RELAYS: "wss://relay.example",
     NIXSTR_DATABASE_PATH: `${root}/state.sqlite`,
     NIXSTR_SPOOL_DIRECTORY: `${root}/spool`,
     NIXSTR_LIMIT_MAX_REDIRECTS: "not-an-integer",

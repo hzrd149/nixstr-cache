@@ -125,6 +125,7 @@ export function startPublicationSelection(
   const identitySet = new Set(options.identities);
   const identityOrder = [...options.identities];
   const blossomEvents = new Map<string, RawPublication>();
+  const ownsStore = options.eventStore === undefined;
   const store = options.eventStore ?? new EventStore({
     keepExpired: true,
     keepOldVersions: true,
@@ -274,7 +275,7 @@ export function startPublicationSelection(
       modelSubscription.unsubscribe();
       refresh.complete();
       blossomWatchers.clear();
-      store.dispose();
+      if (ownsStore) store.dispose();
     },
   };
 }

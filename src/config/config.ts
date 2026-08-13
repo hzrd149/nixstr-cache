@@ -24,7 +24,8 @@ export interface RawConfig {
   readonly bindHost?: string;
   readonly bindPort?: string | number;
   readonly caches?: string | readonly string[];
-  readonly relayUrls?: string | readonly string[];
+  readonly extraRelays?: string | readonly string[];
+  readonly bootstrapRelays?: string | readonly string[];
   readonly preferredBlossomUrl?: string;
   readonly localBlossomUrl?: string;
   readonly databasePath?: string;
@@ -67,7 +68,8 @@ export interface RawWritableConfig {
 interface NormalizedRawConfig extends Omit<RawConfig, "bindPort" | "limits"> {
   readonly bindPort?: string;
   readonly caches?: string | readonly string[];
-  readonly relayUrls?: string | readonly string[];
+  readonly extraRelays?: string | readonly string[];
+  readonly bootstrapRelays?: string | readonly string[];
   readonly limits?: Partial<Record<keyof Limits, string>>;
 }
 
@@ -83,6 +85,10 @@ export interface WritableIdentity {
 }
 
 export const MAX_CACHE_IDENTITIES = 32;
+export const DEFAULT_BOOTSTRAP_RELAYS = Object.freeze([
+  "wss://purplepag.es/",
+  "wss://index.hzrd149.com/",
+]);
 
 export type WriteIntent =
   | { readonly mode: "disabled" }
@@ -135,7 +141,8 @@ export interface ValidatedConfig {
   readonly bindHost: string;
   readonly bindPort: number;
   readonly publisherPubkeys: readonly string[];
-  readonly relayUrls: readonly URL[];
+  readonly extraRelays: readonly URL[];
+  readonly bootstrapRelays: readonly URL[];
   readonly preferredBlossomUrl?: URL;
   readonly localBlossomUrl?: URL;
   readonly databasePath: string;
@@ -285,40 +292,60 @@ export function parseConfig(
     ...new Set(parsedIdentities.map((item) => item.pubkey)),
   ];
 
-  const relayValues = listValues(raw.relayUrls);
-  if (relayValues.length === 0) {
+  const extraRelayValues = listValues(raw.extraRelays);
+  if (extraRelayValues.length === 0) {
     diagnostics.push({
-      field: "relayUrls",
+      field: "extraRelays",
       code: "required",
       message: "at least one relay URL is required",
     });
   }
-  const relayUrls: URL[] = [];
-  const seenRelays = new Set<string>();
-  if (relayValues.length > 32) {
-    diagnostics.push({
-      field: "relayUrls",
-      code: "out_of_range",
-      message: "relay URLs must not exceed 32",
-    });
-  }
-  for (const [index, value] of relayValues.entries()) {
-    try {
-      const url = new URL(value);
-      if (
-        !(url.protocol === "ws:" || url.protocol === "wss:") || url.username ||
-        url.password
-      ) throw new TypeError();
-      if (seenRelays.has(url.href)) throw new TypeError();
-      seenRelays.add(url.href);
-      relayUrls.push(url);
-    } catch {
+  const parseRelayUrls = (
+    field: "extraRelays" | "bootstrapRelays",
+    values: readonly string[],
+  ): URL[] => {
+    const urls: URL[] = [];
+    const seen = new Set<string>();
+    if (values.length > 32) {
       diagnostics.push({
-        field: `relayUrls[${index}]`,
-        code: "invalid",
-        message: "relay URLs must be absolute WS(S) URLs without userinfo",
+        field,
+        code: "out_of_range",
+        message: "relay URLs must not exceed 32",
       });
     }
+    for (const [index, value] of values.entries()) {
+      try {
+        const url = new URL(value);
+        if (
+          !(url.protocol === "ws:" || url.protocol === "wss:") ||
+          url.username || url.password || seen.has(url.href)
+        ) throw new TypeError();
+        seen.add(url.href);
+        urls.push(url);
+      } catch {
+        diagnostics.push({
+          field: `${field}[${index}]`,
+          code: "invalid",
+          message:
+            "relay URLs must be unique absolute WS(S) URLs without userinfo",
+        });
+      }
+    }
+    return urls;
+  };
+  const extraRelays = parseRelayUrls("extraRelays", extraRelayValues);
+  const bootstrapRelays = parseRelayUrls(
+    "bootstrapRelays",
+    raw.bootstrapRelays === undefined
+      ? DEFAULT_BOOTSTRAP_RELAYS
+      : listValues(raw.bootstrapRelays),
+  );
+  if (bootstrapRelays.length === 0) {
+    diagnostics.push({
+      field: "bootstrapRelays",
+      code: "required",
+      message: "at least one bootstrap relay URL is required",
+    });
   }
 
   const preferredBlossomUrl = raw.preferredBlossomUrl
@@ -671,7 +698,8 @@ export function parseConfig(
       bindHost,
       bindPort,
       publisherPubkeys: Object.freeze(publisherValues),
-      relayUrls: Object.freeze(relayUrls),
+      extraRelays: Object.freeze(extraRelays),
+      bootstrapRelays: Object.freeze(bootstrapRelays),
       preferredBlossomUrl,
       localBlossomUrl,
       databasePath: databasePath!,
@@ -743,7 +771,8 @@ function normalizeRawConfig(
   for (
     const field of [
       "caches",
-      "relayUrls",
+      "extraRelays",
+      "bootstrapRelays",
     ]
   ) {
     const value = normalized[field];

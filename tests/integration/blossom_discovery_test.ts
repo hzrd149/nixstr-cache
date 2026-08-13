@@ -102,7 +102,7 @@ Deno.test("production BUD-03 wiring feeds configured, event, then server list so
   try {
     const parsed = parseConfig({
       caches: publisher,
-      relayUrls: "ws://127.0.0.1:9000",
+      extraRelays: "ws://127.0.0.1:9000",
       preferredBlossomUrl: "http://127.0.0.1:8000",
       databasePath: `${root}/state.sqlite`,
       spoolDirectory: `${root}/spool`,
@@ -223,7 +223,7 @@ Deno.test("signer BUD-03 list is authorized independently of read publications",
 Deno.test("production event stream exposes dynamic signer BUD-03 follow", () => {
   const parsed = parseConfig({
     caches: publisher,
-    relayUrls: "ws://127.0.0.1:9000",
+    extraRelays: "ws://127.0.0.1:9000",
     databasePath: "/tmp/nixstr-unused.sqlite",
     spoolDirectory: "/tmp/nixstr-unused-spool",
   });

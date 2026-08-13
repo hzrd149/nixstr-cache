@@ -246,7 +246,7 @@ Deno.test("metadata bound|GET/HEAD: streamed overflow cancels before parsing", a
 Deno.test("startup|shutdown invalid startup has no durable or network side effects", async () => {
   const calls: string[] = [];
   const result = await createApp(
-    { caches: "bad", relayUrls: "bad" },
+    { caches: "bad", extraRelays: "bad" },
     {
       openRepository: () => {
         calls.push("db");
@@ -284,7 +284,7 @@ Deno.test("startup|shutdown restores before binding and releases lifecycle resou
   const calls: string[] = [];
   const app = await createApp({
     caches: "a".repeat(64),
-    relayUrls: "wss://relay.example",
+    extraRelays: "wss://relay.example",
     databasePath: "/tmp/nixstr-test.sqlite",
     spoolDirectory: "/tmp/nixstr-test-spool",
   }, {
@@ -319,7 +319,7 @@ Deno.test("startup|shutdown restores before binding and releases lifecycle resou
 Deno.test("production launcher validates before side effects and closes after listener failure", async () => {
   const calls: string[] = [];
   const invalid = await launchDaemon(
-    { caches: "bad", relayUrls: "bad" },
+    { caches: "bad", extraRelays: "bad" },
     {
       createEventStream: () => {
         calls.push("relay");
@@ -339,7 +339,7 @@ Deno.test("production launcher validates before side effects and closes after li
   try {
     const running = await launchDaemon({
       caches: "a".repeat(64),
-      relayUrls: "ws://127.0.0.1:1",
+      extraRelays: "ws://127.0.0.1:1",
       databasePath: `${root}/state.sqlite`,
       spoolDirectory: `${root}/spool`,
     }, {

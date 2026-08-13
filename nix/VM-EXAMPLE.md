@@ -74,7 +74,7 @@ other machines need to substitute from it. A minimal consumer looks like this:
             enable = true;
             settings = {
               NIXSTR_CACHES = "<64-lowercase-hex-pubkey-or-npub>";
-              NIXSTR_RELAY_URLS = "wss://relay.example.com";
+              NIXSTR_EXTRA_RELAYS = "wss://relay.example.com";
               NIXSTR_PREFERRED_BLOSSOM_URL = "https://blossom.example.com";
             };
           };

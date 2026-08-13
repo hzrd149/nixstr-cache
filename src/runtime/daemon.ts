@@ -1,4 +1,3 @@
-import { RelayPool } from "applesauce-relay";
 import { NostrConnectSigner } from "applesauce-signers/signers/nostr-connect-signer";
 import { type Observable, Subject } from "rxjs";
 import {
@@ -10,6 +9,10 @@ import {
 import { BlobFetcher } from "../blossom/blob_fetcher.ts";
 import { BlobCacheSink } from "../blossom/cache_sink.ts";
 import { PublicationUploader } from "../blossom/publication_uploader.ts";
+import {
+  createUploadAuthorizationBatch,
+  type UploadAuthorizationBatch,
+} from "../blossom/upload_authorization.ts";
 import { buildSourcePlan } from "../blossom/source_plan.ts";
 import { type RawConfig, type ValidatedConfig } from "../config/config.ts";
 import {
@@ -30,6 +33,7 @@ import {
 import { WinnerRouteRegistry } from "../nix/merged_cache.ts";
 import { startPublicationSelection } from "../nostr/selection.ts";
 import { LocalRelayCache } from "../nostr/local_relay_cache.ts";
+import { NostrRuntime } from "../nostr/runtime.ts";
 import { StateRepository } from "../persistence/state_repository.ts";
 import {
   WriteIdentityMismatch,
@@ -98,10 +102,12 @@ export interface PublicationEventStream {
 
 export function createPublicationEventStream(
   config: ValidatedConfig,
+  runtime = new NostrRuntime(config),
 ): PublicationEventStream {
-  const pool = new RelayPool();
-  const initial = pool.subscription(
-    config.relayUrls.map(String),
+  const ownsRuntime = arguments.length < 2;
+  runtime.followUserMetadata(config.publisherPubkeys);
+  const initial = runtime.pool.subscription(
+    runtime.relaySetFor(config.publisherPubkeys),
     [
       { kinds: [17091, 37091], authors: [...config.publisherPubkeys] },
       { kinds: [10063], authors: [...config.publisherPubkeys] },
@@ -117,7 +123,7 @@ export function createPublicationEventStream(
       if (disposed || followed.has(pubkey)) return;
       followed.add(pubkey);
       subscriptions.push(
-        (pool.subscription(config.relayUrls.map(String), [{
+        (runtime.pool.subscription(runtime.relaySetFor([pubkey]), [{
           kinds: [10063],
           authors: [pubkey],
         }]) as Observable<RawPublication>).subscribe(events),
@@ -128,7 +134,7 @@ export function createPublicationEventStream(
       disposed = true;
       for (const subscription of subscriptions) subscription.unsubscribe();
       events.complete();
-      pool.close();
+      if (ownsRuntime) runtime.dispose();
     },
   };
 }
@@ -136,6 +142,7 @@ export function createPublicationEventStream(
 export interface ProductionHooks {
   readonly createEventStream?: (
     config: ValidatedConfig,
+    runtime: NostrRuntime,
   ) => PublicationEventStream;
   readonly bind?: Bind;
   readonly signals?: readonly ("SIGINT" | "SIGTERM")[];
@@ -164,19 +171,18 @@ export function createProductionDependencies(
       if (!(repository instanceof StateRepository)) {
         throw new TypeError("production repository has unexpected type");
       }
+      const nostr = new NostrRuntime(config);
       const stream = (hooks.createEventStream ?? createPublicationEventStream)(
         config,
+        nostr,
       );
       const writable = config.writable.enabled ? config.writable : undefined;
-      const localRelayPool = writable?.publication.localRelayUrl
-        ? new RelayPool()
-        : undefined;
-      const localRelay = writable?.publication.localRelayUrl && localRelayPool
+      const localRelay = writable?.publication.localRelayUrl
         ? new LocalRelayCache(
           writable.publication.localRelayUrl,
           async (relay, event) => {
             try {
-              return (await localRelayPool.publish([relay], event)).some((
+              return (await nostr.pool.publish([relay], event)).some((
                 outcome,
               ) => outcome.ok);
             } catch {
@@ -190,6 +196,7 @@ export function createProductionDependencies(
         repository,
         publisherPubkeys: config.publisherPubkeys,
         identities: config.identities,
+        eventStore: nostr.store,
         onReject: (event, reason) =>
           diagnostics.emit({
             type: "event_rejection",
@@ -225,14 +232,15 @@ export function createProductionDependencies(
           intent: config.writeIntent,
           requestPassword: hooks.requestPassword ?? createPasswordRequest(),
           createNip46Signer: async (session, permissionKind) => {
-            const pool = new RelayPool();
             const remote = await NostrConnectSigner.fromNbunksec(session, {
               permissions: NostrConnectSigner.buildSigningPermissions([
                 permissionKind,
+                24242,
               ]),
               subscriptionMethod: (relays, filters) =>
-                pool.subscription(relays, filters),
-              publishMethod: (relays, event) => pool.publish(relays, event),
+                nostr.pool.subscription(relays, filters),
+              publishMethod: (relays, event) =>
+                nostr.pool.publish(relays, event),
               onAuth: () => {
                 console.warn("nip46 authorization required");
                 return Promise.resolve();
@@ -241,13 +249,7 @@ export function createProductionDependencies(
             return {
               getPublicKey: () => remote.getPublicKey(),
               signEvent: (template) => remote.signEvent(template),
-              async close() {
-                try {
-                  await remote.close();
-                } finally {
-                  pool.close();
-                }
-              },
+              close: () => remote.close(),
             };
           },
         });
@@ -313,6 +315,7 @@ export function createProductionDependencies(
         signer,
         signerReady,
         followBlossomPublisher: stream.followBlossomPublisher,
+        nostr,
         localRelay,
         async readyBeforeBind() {
           if (config.writeIntent.mode !== "ncryptsec") return;
@@ -331,11 +334,11 @@ export function createProductionDependencies(
               selector.dispose();
             } finally {
               stream.dispose();
-              localRelayPool?.close();
               try {
                 await signer?.close();
               } finally {
                 writeRepository?.close();
+                nostr.dispose();
               }
             }
           };
@@ -372,6 +375,11 @@ export function createProductionDependencies(
       const localRelay =
         (selection as typeof selection & { localRelay?: LocalRelayCache })
           .localRelay;
+      const nostr = (selection as typeof selection & { nostr?: NostrRuntime })
+        .nostr;
+      if (!nostr) {
+        throw new TypeError("production selection omitted Nostr runtime");
+      }
       const signerReady = (selection as typeof selection & {
         signerReady?: Promise<
           { readonly ok: boolean; readonly pubkey?: string }
@@ -572,9 +580,60 @@ export function createProductionDependencies(
           ...config.writeIntent.identity,
           pubkey,
         });
-        const publishPool = new RelayPool();
+        let uploadAuthorization:
+          | (UploadAuthorizationBatch & { readonly key: string })
+          | undefined;
+        let pendingUploadAuthorization:
+          | {
+            readonly key: string;
+            readonly promise: Promise<UploadAuthorizationBatch>;
+          }
+          | undefined;
+        const prepareUploadAuthorization = async (
+          servers: readonly string[],
+          entries:
+            readonly import("../persistence/write_repository.ts").PendingInventoryEntry[],
+          signal?: AbortSignal,
+        ) => {
+          const hashes = entries.map((entry) => entry.hash);
+          const key = JSON.stringify([servers, hashes]);
+          const now = Math.floor(Date.now() / 1000);
+          if (
+            uploadAuthorization?.key === key &&
+            uploadAuthorization.expiration > now + 30
+          ) return;
+          if (pendingUploadAuthorization?.key !== key) {
+            const promise = createUploadAuthorizationBatch({
+              signer: signer!,
+              hashes,
+              servers,
+              now,
+              signal,
+            });
+            pendingUploadAuthorization = { key, promise };
+          }
+          const prepared = pendingUploadAuthorization;
+          try {
+            uploadAuthorization = Object.freeze({
+              ...await prepared.promise,
+              key,
+            });
+          } finally {
+            if (pendingUploadAuthorization === prepared) {
+              pendingUploadAuthorization = undefined;
+            }
+          }
+        };
         const uploader = new PublicationUploader({
           request: fetcher.request.bind(fetcher),
+          authorization: (server, entry, signal) => {
+            signal?.throwIfAborted();
+            const header = uploadAuthorization?.header(server, entry.hash);
+            if (!header) {
+              throw new Error("Blossom upload authorization was not prepared");
+            }
+            return Promise.resolve(header);
+          },
         });
         const coordinator = new PublicationCoordinator({
           repository: writeRepository,
@@ -588,7 +647,7 @@ export function createProductionDependencies(
             return Object.freeze(writeDestinations.map((item) => item.url));
           },
           nixSigKeys: writable!.publication.nixSigKeys,
-          publicationRelays: config.relayUrls.map(String),
+          publicationRelays: () => nostr.currentRelaySet([pubkey]),
           lifetimeSeconds: writable!.publication.lifetimeSeconds,
           now: () => Math.floor(Date.now() / 1000),
           replica: {
@@ -605,6 +664,7 @@ export function createProductionDependencies(
               );
             },
           },
+          prepareReplicaAuthorization: prepareUploadAuthorization,
           publishRelays: async (event, relays, signal) => {
             const abort = <T>(promise: Promise<T>): Promise<T> => {
               signal?.throwIfAborted();
@@ -630,7 +690,7 @@ export function createProductionDependencies(
               }
               try {
                 const response = await abort(
-                  publishPool.publish([relay], event),
+                  nostr.pool.publish([relay], event),
                 );
                 return { relay, ok: response.some((item) => item.ok) };
               } catch {
@@ -674,15 +734,11 @@ export function createProductionDependencies(
           });
           supervisor.drains.add(async () => {
             await coordinator.close();
-            publishPool.close();
           });
         } catch (error) {
           try {
             subscription?.unsubscribe();
             stopWatchingServers();
-          } catch { /* cleanup continues below */ }
-          try {
-            publishPool.close();
           } catch { /* cleanup continues below */ }
           await Promise.allSettled([
             coordinator.close(),
@@ -791,7 +847,7 @@ export function createProductionDependencies(
                     signerState.code !== "identity_changed"),
                 activationStatus: writeActivationStatus,
                 destinations,
-                relays: config.relayUrls.length,
+                relays: config.extraRelays.length,
                 publication,
               },
           };
@@ -807,7 +863,7 @@ export function createProductionDependencies(
                   config.writeIntent.mode !== "disabled" &&
                   writeRepository.boundIdentity() ===
                     `${config.writeIntent.identity.kind}:${state.pubkey}:${config.writeIntent.identity.identifier}` &&
-                  config.relayUrls.length > 0 && hasDestination,
+                  config.extraRelays.length > 0 && hasDestination,
                 repository: writeRepository,
                 authorize: () => signer.assertIdentity().then(() => {}),
                 onStaged: async (route) => {
