@@ -205,7 +205,7 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
           NIXSTR_BIND_PORT: String(daemonPort),
           NIXSTR_CACHES: `17091:${event.pubkey}:,17091:${secondEvent.pubkey}:`,
           NIXSTR_EXTRA_RELAYS: `ws://127.0.0.1:${relayAddress.port}`,
-          NIXSTR_PREFERRED_BLOSSOM_URL: blossomUrl,
+          NIXSTR_EXTRA_SERVERS: blossomUrl,
           NIXSTR_LOCAL_BLOSSOM_URL: localUrl,
           NIXSTR_DATABASE_PATH: `${root}/state.sqlite`,
           NIXSTR_SPOOL_DIRECTORY: spool,

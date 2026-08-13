@@ -63,7 +63,7 @@ async function scenario(
         signer: { type: "nip46", path: sessionPath },
         staging: { directory: `${root}/staging` },
       },
-      preferredBlossomUrl: "http://127.0.0.1:9",
+      localBlossomUrl: "http://127.0.0.1:9",
     };
     const daemon = await launchDaemon(raw, {
       createEventStream: () => ({
@@ -237,7 +237,7 @@ Deno.test("durable owner mismatch prints a prominent warning before closing nbun
       extraRelays: fixture.relayUrl,
       databasePath,
       spoolDirectory: `${root}/spool`,
-      preferredBlossomUrl: "http://127.0.0.1:9",
+      localBlossomUrl: "http://127.0.0.1:9",
       writable: {
         enabled: true,
         type: "root",

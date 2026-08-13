@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { parseConfig, type RawConfig } from "../../src/config/config.ts";
 import {
   collectRawConfigFromEnvironment,
@@ -104,7 +104,7 @@ Deno.test("startup loader preserves commas inside native JSON list entries", asy
       Promise.resolve(JSON.stringify({
         ...JSON_CONFIG,
         caches: [identity],
-        preferredBlossomUrl: "https://blossom.example/path,segment",
+        extraServers: ["https://blossom.example/path,segment"],
       })),
     readEnvironment: () => undefined,
   });
@@ -113,8 +113,62 @@ Deno.test("startup loader preserves commas inside native JSON list entries", asy
   assert(parsed.ok);
   assertEquals(parsed.value.identities, [identity]);
   assertEquals(
-    parsed.value.preferredBlossomUrl?.href,
-    "https://blossom.example/path,segment",
+    parsed.value.extraServers.map((url) => url.href),
+    ["https://blossom.example/path,segment"],
+  );
+});
+
+Deno.test("extra Blossom servers preserve order and reject invalid entries", () => {
+  const parsed = parseConfig(validRaw({
+    extraServers: [
+      "https://one.example/base/",
+      "http://127.0.0.1:24242",
+    ],
+  }));
+  assert(parsed.ok);
+  assertEquals(parsed.value.extraServers.map(String), [
+    "https://one.example/base",
+    "http://127.0.0.1:24242/",
+  ]);
+
+  for (
+    const extraServers of [
+      ["https://one.example", "https://one.example/"],
+      ["ftp://one.example"],
+      ["https://user@one.example"],
+      ["https://one.example/?query=yes"],
+      ["https://one.example/#fragment"],
+    ]
+  ) {
+    const invalid = parseConfig(validRaw({ extraServers }));
+    assert(!invalid.ok);
+    assert(
+      invalid.diagnostics.some((item) => item.field.startsWith("extraServers")),
+    );
+  }
+});
+
+Deno.test("legacy preferred Blossom configuration is rejected", async () => {
+  await assertRejects(
+    () =>
+      loadStartupConfig(["--config", "/tmp/config.json"], {
+        readTextFile: () =>
+          Promise.resolve(JSON.stringify({
+            ...JSON_CONFIG,
+            preferredBlossomUrl: "https://blossom.example",
+          })),
+        readEnvironment: () => undefined,
+      }),
+    Error,
+    "unknown config field preferredBlossomUrl",
+  );
+  assertThrows(
+    () =>
+      rawConfigFromEnvironment({
+        NIXSTR_PREFERRED_BLOSSOM_URL: "https://blossom.example",
+      }),
+    Error,
+    "use NIXSTR_EXTRA_SERVERS",
   );
 });
 
@@ -796,7 +850,7 @@ Deno.test("partial environment write intent stops before startup side effects", 
   assertThrows(() => Deno.statSync(root), Deno.errors.NotFound);
 });
 
-Deno.test("configured write intent stays disabled until ownership is ready", async () => {
+Deno.test("extra Blossom servers do not make configured writes ready", async () => {
   const root = await Deno.makeTempDir({ prefix: "nixstr-write-intent-" });
   let handler: ((request: Request) => Response | Promise<Response>) | undefined;
   try {
@@ -807,6 +861,7 @@ Deno.test("configured write intent stays disabled until ownership is ready", asy
       validRaw({
         databasePath: `${root}/state.sqlite`,
         spoolDirectory: `${root}/spool`,
+        extraServers: ["http://127.0.0.1:9"],
         writable: {
           enabled: true,
           type: "root",

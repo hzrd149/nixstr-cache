@@ -18,8 +18,8 @@ temporary read/write access, and (for the E2E only) execution of `nix`,
 
 For a daemon assembled with the runtime dependencies from `src/app.ts`, set
 `NIXSTR_BIND_HOST`, `NIXSTR_BIND_PORT`, `NIXSTR_CACHES`, `NIXSTR_EXTRA_RELAYS`,
-and optionally `NIXSTR_PREFERRED_BLOSSOM_URL`. Configure stock Nix with only
-that endpoint and the publication's exact key:
+and optionally `NIXSTR_EXTRA_SERVERS`. Configure stock Nix with only that
+endpoint and the publication's exact key:
 
 ```sh
 nix-store --realise /nix/store/<hash>-<name> \
@@ -29,6 +29,13 @@ nix-store --realise /nix/store/<hash>-<name> \
 ```
 
 ## Configuration
+
+`NIXSTR_EXTRA_SERVERS` is an ordered comma-separated list of read-only Blossom
+fallbacks. Reads try the local Blossom cache first, then publication `blossom`
+tags, the publisher's BUD-03 list, and finally these configured servers. Exact
+configured origins may resolve to private addresses, but redirects are still
+revalidated. Extra servers are not upload destinations and are not advertised in
+newly published cache-root events.
 
 The daemon can load an explicitly selected JSON configuration file. For local
 development, copy the example and start the watched task:

@@ -12,6 +12,7 @@ const SUPPORTED_ENVIRONMENT_NAMES = [
   "NIXSTR_CACHES",
   "NIXSTR_EXTRA_RELAYS",
   "NIXSTR_BOOTSTRAP_RELAYS",
+  "NIXSTR_EXTRA_SERVERS",
   "NIXSTR_PREFERRED_BLOSSOM_URL",
   "NIXSTR_LOCAL_BLOSSOM_URL",
   "NIXSTR_DATABASE_PATH",
@@ -73,7 +74,7 @@ const JSON_CONFIG_FIELDS = new Set([
   "caches",
   "extraRelays",
   "bootstrapRelays",
-  "preferredBlossomUrl",
+  "extraServers",
   "localBlossomUrl",
   "databasePath",
   "spoolDirectory",
@@ -115,13 +116,18 @@ export function collectRawConfigFromEnvironment(
 export function rawConfigFromEnvironment(
   environment: Record<string, string>,
 ): RawConfig {
+  if (environment.NIXSTR_PREFERRED_BLOSSOM_URL !== undefined) {
+    throw new Error(
+      "NIXSTR_PREFERRED_BLOSSOM_URL is no longer supported; use NIXSTR_EXTRA_SERVERS",
+    );
+  }
   return {
     bindHost: environment.NIXSTR_BIND_HOST,
     bindPort: environment.NIXSTR_BIND_PORT,
     caches: environment.NIXSTR_CACHES,
     extraRelays: environment.NIXSTR_EXTRA_RELAYS,
     bootstrapRelays: environment.NIXSTR_BOOTSTRAP_RELAYS,
-    preferredBlossomUrl: environment.NIXSTR_PREFERRED_BLOSSOM_URL,
+    extraServers: environment.NIXSTR_EXTRA_SERVERS,
     localBlossomUrl: environment.NIXSTR_LOCAL_BLOSSOM_URL,
     databasePath: environment.NIXSTR_DATABASE_PATH,
     spoolDirectory: environment.NIXSTR_SPOOL_DIRECTORY,
@@ -296,7 +302,6 @@ function validateJsonTopLevel(config: Record<string, unknown>): void {
   for (
     const field of [
       "bindHost",
-      "preferredBlossomUrl",
       "localBlossomUrl",
       "databasePath",
       "spoolDirectory",
@@ -320,6 +325,7 @@ function validateJsonTopLevel(config: Record<string, unknown>): void {
       "caches",
       "extraRelays",
       "bootstrapRelays",
+      "extraServers",
     ]
   ) {
     const value = config[field];

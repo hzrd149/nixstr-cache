@@ -28,7 +28,7 @@ export interface RawConfig {
   readonly caches?: string | readonly string[];
   readonly extraRelays?: string | readonly string[];
   readonly bootstrapRelays?: string | readonly string[];
-  readonly preferredBlossomUrl?: string;
+  readonly extraServers?: string | readonly string[];
   readonly localBlossomUrl?: string;
   readonly databasePath?: string;
   readonly spoolDirectory?: string;
@@ -145,7 +145,7 @@ export interface ValidatedConfig {
   readonly publisherPubkeys: readonly string[];
   readonly extraRelays: readonly URL[];
   readonly bootstrapRelays: readonly URL[];
-  readonly preferredBlossomUrl?: URL;
+  readonly extraServers: readonly URL[];
   readonly localBlossomUrl?: URL;
   readonly databasePath: string;
   readonly spoolDirectory: string;
@@ -355,9 +355,41 @@ export function parseConfig(
     });
   }
 
-  const preferredBlossomUrl = raw.preferredBlossomUrl
-    ? parseUrl(raw.preferredBlossomUrl, "preferredBlossomUrl", diagnostics)
-    : undefined;
+  const extraServerValues = listValues(raw.extraServers);
+  const extraServers: URL[] = [];
+  const seenExtraServers = new Set<string>();
+  if (extraServerValues.length > 32) {
+    diagnostics.push({
+      field: "extraServers",
+      code: "out_of_range",
+      message: "extra Blossom servers must not exceed 32",
+    });
+  }
+  for (const [index, value] of extraServerValues.entries()) {
+    const field = `extraServers[${index}]`;
+    const url = parseUrl(value, field, diagnostics);
+    if (!url) continue;
+    if (url.search || url.hash) {
+      diagnostics.push({
+        field,
+        code: "invalid",
+        message: `${field} must not contain a query string or fragment`,
+      });
+      continue;
+    }
+    url.pathname = url.pathname.replace(/\/+$/, "");
+    const canonical = url.href.replace(/\/$/, "");
+    if (seenExtraServers.has(canonical)) {
+      diagnostics.push({
+        field,
+        code: "invalid",
+        message: "extra Blossom servers must be unique",
+      });
+      continue;
+    }
+    seenExtraServers.add(canonical);
+    extraServers.push(url);
+  }
   const localBlossomUrl = raw.localBlossomUrl
     ? parseUrl(raw.localBlossomUrl, "localBlossomUrl", diagnostics)
     : undefined;
@@ -707,7 +739,7 @@ export function parseConfig(
       publisherPubkeys: Object.freeze(publisherValues),
       extraRelays: Object.freeze(extraRelays),
       bootstrapRelays: Object.freeze(bootstrapRelays),
-      preferredBlossomUrl,
+      extraServers: Object.freeze(extraServers),
       localBlossomUrl,
       databasePath: databasePath!,
       spoolDirectory: spoolDirectory!,
@@ -749,7 +781,6 @@ function normalizeRawConfig(
   for (
     const field of [
       "bindHost",
-      "preferredBlossomUrl",
       "localBlossomUrl",
       "databasePath",
       "spoolDirectory",
@@ -780,6 +811,7 @@ function normalizeRawConfig(
       "caches",
       "extraRelays",
       "bootstrapRelays",
+      "extraServers",
     ]
   ) {
     const value = normalized[field];

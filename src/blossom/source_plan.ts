@@ -8,7 +8,7 @@ export interface SourceCandidate {
 }
 
 export interface SourcePlanInput {
-  readonly configured?: string | URL;
+  readonly extras?: readonly (string | URL)[];
   readonly localCache?: string | URL;
   readonly event?: readonly string[];
   readonly bud03?: readonly string[];
@@ -46,23 +46,32 @@ export function buildSourcePlan(
   if (input.localCache) {
     ordered.push([input.localCache, "configured", "local-cache"]);
   }
-  if (input.configured) {
-    ordered.push([input.configured, "configured", "publisher"]);
-  }
   for (const value of input.event ?? []) {
     ordered.push([value, "publisher", "publisher"]);
   }
   for (const value of input.bud03 ?? []) {
     ordered.push([value, "publisher", "publisher"]);
   }
-  const seen = new Set<string>();
+  for (const value of input.extras ?? []) {
+    ordered.push([value, "configured", "publisher"]);
+  }
+  const seen = new Map<string, number>();
   const result: SourceCandidate[] = [];
   for (const [value, trust, role] of ordered) {
     const item = candidate(value, trust, role);
-    if (!item || seen.has(item.baseUrl) || input.isQuarantined?.(item.origin)) {
+    if (!item || input.isQuarantined?.(item.origin)) {
       continue;
     }
-    seen.add(item.baseUrl);
+    const existing = seen.get(item.baseUrl);
+    if (existing !== undefined) {
+      if (
+        item.trust === "configured" && result[existing].trust !== "configured"
+      ) {
+        result[existing] = item;
+      }
+      continue;
+    }
+    seen.set(item.baseUrl, result.length);
     result.push(item);
   }
   return Object.freeze(result);

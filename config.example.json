@@ -11,7 +11,10 @@
     "wss://purplepag.es/",
     "wss://index.hzrd149.com/"
   ],
-  "preferredBlossomUrl": "https://blossom.example.com",
+  "extraServers": [
+    "https://blossom-one.example.com",
+    "https://blossom-two.example.com"
+  ],
   "databasePath": "data/state.sqlite",
   "spoolDirectory": "data/spool",
   "writable": {

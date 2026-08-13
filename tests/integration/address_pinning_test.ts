@@ -102,7 +102,7 @@ Deno.test("configuration aggregates diagnostics without performing I/O", () => {
     bindPort: "0",
     caches: "bad,also-bad",
     extraRelays: "ftp://relay.invalid,not-a-url",
-    preferredBlossomUrl: "http://user@example.test",
+    extraServers: "http://user@example.test",
     limits: { maxRedirects: "99", connectTimeoutMs: "0" },
   }, { onSideEffect: () => effects++ });
 

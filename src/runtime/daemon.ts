@@ -1,4 +1,5 @@
 import { NostrConnectSigner } from "applesauce-signers/signers/nostr-connect-signer";
+import { blossomServers } from "applesauce-common/helpers";
 import {
   type AppDependencies,
   type Bind,
@@ -6,6 +7,7 @@ import {
   startApp,
 } from "../app.ts";
 import { BlobFetcher } from "../blossom/blob_fetcher.ts";
+import { BlobStore } from "../persistence/blob_store.ts";
 import { BlobCacheSink } from "../blossom/cache_sink.ts";
 import { PublicationUploader } from "../blossom/publication_uploader.ts";
 import {
@@ -79,9 +81,6 @@ function writeBlossomDestinations(
   bud03: readonly string[],
 ): readonly WriteBlossomDestination[] {
   const ordered: Array<[string | URL, WriteBlossomDestination["trust"]]> = [];
-  if (config.preferredBlossomUrl) {
-    ordered.push([config.preferredBlossomUrl, "configured"]);
-  }
   if (config.localBlossomUrl) {
     ordered.push([config.localBlossomUrl, "configured"]);
   }
@@ -405,12 +404,14 @@ export function createProductionDependencies(
         followBlossomPublisher?: (pubkey: string) => void;
       }).followBlossomPublisher;
       const writable = config.writable.enabled ? config.writable : undefined;
+      const configuredBlossomOrigins = blossomServers(
+        config.localBlossomUrl ? [config.localBlossomUrl] : [],
+        [...config.extraServers],
+      ).map(String);
       const fetcher = new SafeFetcher(
         new AddressPolicy(
           undefined,
-          [config.localBlossomUrl, config.preferredBlossomUrl]
-            .filter((url): url is URL => url !== undefined)
-            .map((url) => url.href),
+          configuredBlossomOrigins,
         ),
         new PinnedTransport(),
         {
@@ -426,6 +427,13 @@ export function createProductionDependencies(
         drains: new Set<() => Promise<void>>(),
       };
       supervisors.set(selection as object, supervisor);
+      const blobStore = writeRepository
+        ? writeRepository.openBlobStore(`${config.databasePath}.blobs`)
+        : new BlobStore(
+          `${config.databasePath}.writes`,
+          `${config.databasePath}.blobs`,
+        );
+      supervisor.drains.add(() => Promise.resolve(blobStore.close()));
       const manifestCache = new VerifiedManifestCache(
         config.limits.manifestCacheEntries,
         config.limits.manifestCacheBytes,
@@ -441,7 +449,7 @@ export function createProductionDependencies(
       const blobs = new BlobFetcher({
         fetcher,
         quarantine: repository,
-        spoolDirectory: config.spoolDirectory,
+        store: blobStore,
         onLocalDiagnostic: (item) =>
           diagnostics.emit({
             type: "upstream_failure",
@@ -485,9 +493,9 @@ export function createProductionDependencies(
       ) => {
         const sources = buildSourcePlan({
           localCache: config.localBlossomUrl,
-          configured: config.preferredBlossomUrl,
           event: snapshot.blossomServers,
           bud03: snapshot.bud03Servers,
+          extras: config.extraServers,
           isQuarantined: (origin) => repository.isQuarantined(origin),
         });
         return new PathResolver(blobs, sources, {

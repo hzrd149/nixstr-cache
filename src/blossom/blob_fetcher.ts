@@ -5,6 +5,7 @@ import type {
   SourceTrust,
 } from "../network/safe_fetcher.ts";
 import type { SourceCandidate } from "./source_plan.ts";
+import { BlobLease, BlobStore } from "../persistence/blob_store.ts";
 
 export class BlobAttemptError extends Error {
   constructor(
@@ -74,12 +75,16 @@ export class VerifiedBlob {
   #ownerReleased = false;
   #references = 1;
   #removal?: Promise<void>;
+  readonly #lease?: BlobLease;
   constructor(
     readonly hash: string,
     readonly size: number,
     readonly path: string,
     readonly sourceRole: SourceCandidate["role"] = "publisher",
-  ) {}
+    lease?: BlobLease,
+  ) {
+    this.#lease = lease;
+  }
   open(): ReadableStream<Uint8Array> {
     if (this.#ownerReleased) throw new Error("verified blob has been disposed");
     this.#references++;
@@ -131,7 +136,9 @@ export class VerifiedBlob {
   async #release(): Promise<void> {
     this.#references--;
     if (this.#references === 0) {
-      this.#removal ??= removeIfPresent(this.path);
+      this.#removal ??= this.#lease
+        ? Promise.resolve(this.#lease.release())
+        : removeIfPresent(this.path);
       await this.#removal;
     }
   }
@@ -140,21 +147,27 @@ export class VerifiedBlob {
 export class BlobFetcher {
   readonly #fetcher: FetchBoundary;
   readonly #quarantine: QuarantineRepository;
-  readonly #spoolDirectory: string;
+  readonly #store: BlobStore;
   readonly #onLocalDiagnostic?: (diagnostic: LocalCacheDiagnostic) => void;
   readonly #onVerifiedRemote?: (blob: VerifiedBlob) => void;
   constructor(
     options: {
       readonly fetcher: SafeFetcher | FetchBoundary;
       readonly quarantine: QuarantineRepository;
-      readonly spoolDirectory: string;
+      readonly store?: BlobStore;
+      /** @deprecated Compatibility for callers migrated in later plans. */
+      readonly spoolDirectory?: string;
       readonly onLocalDiagnostic?: (diagnostic: LocalCacheDiagnostic) => void;
       readonly onVerifiedRemote?: (blob: VerifiedBlob) => void;
     },
   ) {
     this.#fetcher = options.fetcher;
     this.#quarantine = options.quarantine;
-    this.#spoolDirectory = options.spoolDirectory;
+    this.#store = options.store ?? new BlobStore(
+      ":memory:",
+      options.spoolDirectory ??
+        Deno.makeTempDirSync({ prefix: "nixstr-blobs-" }),
+    );
     this.#onLocalDiagnostic = options.onLocalDiagnostic;
     this.#onVerifiedRemote = options.onVerifiedRemote;
   }
@@ -170,6 +183,16 @@ export class BlobFetcher {
   ): Promise<VerifiedBlob> {
     if (!/^[0-9a-f]{64}$/.test(expectedHash)) {
       throw new TypeError("expected hash must be lowercase SHA-256 hex");
+    }
+    const cached = this.#store.lookup(expectedHash);
+    if (cached) {
+      return new VerifiedBlob(
+        cached.hash,
+        cached.size,
+        cached.path,
+        "publisher",
+        cached,
+      );
     }
     const failures: unknown[] = [];
     let attempts = 0;
@@ -220,8 +243,6 @@ export class BlobFetcher {
   ): Promise<VerifiedBlob> {
     const url = `${source.baseUrl}/${expectedHash}`;
     let response: PinnedResponse | undefined;
-    let path: string | undefined;
-    let file: Deno.FsFile | undefined;
     try {
       response = await this.#fetcher.fetch(url, source.trust, signal);
       if (response.status !== 200) {
@@ -246,45 +267,54 @@ export class BlobFetcher {
           );
         }
       }
-      path = await Deno.makeTempFile({
-        dir: this.#spoolDirectory,
-        prefix: ".nixstr-spool-",
-      });
-      await Deno.chmod(path, 0o600);
-      file = await Deno.open(path, { write: true, truncate: true });
       const hash = sha256.create();
       const reader = response.body.getReader();
       let size = 0;
       let completed = false;
       const abort = () => reader.cancel(signal?.reason).catch(() => {});
       signal?.addEventListener("abort", abort, { once: true });
-      try {
-        while (true) {
-          if (signal?.aborted) {
-            throw signal.reason ?? new DOMException("aborted", "AbortError");
-          }
-          const { value, done } = await reader.read();
-          if (done) {
-            completed = true;
-            break;
-          }
-          limits.onTransfer?.(value.byteLength);
-          size += value.byteLength;
-          if (
-            size > limits.maxTransferBytes ||
-            (limits.declaredSize !== undefined && size > limits.declaredSize)
-          ) throw new BlobSizeError("blob transfer limit exceeded", source);
-          hash.update(value);
-          let offset = 0;
-          while (offset < value.byteLength) {
-            offset += await file.write(value.subarray(offset));
-          }
-        }
-      } catch (error) {
-        if (!completed) {
+      const stream = new ReadableStream<Uint8Array>({
+        async pull(controller) {
           try {
-            await reader.cancel(error);
-          } catch { /* preserve original error */ }
+            if (signal?.aborted) {
+              throw signal.reason ?? new DOMException("aborted", "AbortError");
+            }
+            const { value, done } = await reader.read();
+            if (done) {
+              completed = true;
+              controller.close();
+              return;
+            }
+            limits.onTransfer?.(value.byteLength);
+            size += value.byteLength;
+            if (
+              size > limits.maxTransferBytes ||
+              (limits.declaredSize !== undefined && size > limits.declaredSize)
+            ) throw new BlobSizeError("blob transfer limit exceeded", source);
+            hash.update(value);
+            controller.enqueue(value);
+          } catch (error) {
+            try {
+              await reader.cancel(error);
+            } catch { /* preserve original error */ }
+            controller.error(error);
+          }
+        },
+        async cancel(reason) {
+          await reader.cancel(reason);
+        },
+      });
+      let admitted;
+      try {
+        admitted = await this.#store.admit(stream, {
+          origin: "remote",
+          reserveBytes: limits.declaredSize ?? limits.maxTransferBytes,
+          expectedHash,
+        });
+      } catch (error) {
+        const actual = hash.digest().toHex();
+        if (completed && actual !== expectedHash) {
+          throw new HashMismatch(expectedHash, actual, source);
         }
         throw error;
       } finally {
@@ -297,21 +327,19 @@ export class BlobFetcher {
           source,
         );
       }
-      file.close();
-      file = undefined;
-      const actual = hash.digest().toHex();
-      if (actual !== expectedHash) {
-        throw new HashMismatch(expectedHash, actual, source);
-      }
-      const result = new VerifiedBlob(expectedHash, size, path, source.role);
-      path = undefined;
+      const lease = this.#store.lookup(admitted.hash);
+      if (!lease) throw new Error("admitted blob is unavailable");
+      const result = new VerifiedBlob(
+        admitted.hash,
+        admitted.size,
+        lease.path,
+        source.role,
+        lease,
+      );
       if (source.role === "publisher") this.#onVerifiedRemote?.(result);
       return result;
     } finally {
-      try {
-        file?.close();
-      } catch { /* already closed */ }
-      if (path) await removeIfPresent(path);
+      // PinnedResponse owns transport cleanup through body terminal state.
     }
   }
 }

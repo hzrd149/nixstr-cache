@@ -48,7 +48,7 @@ in
           NIXSTR_BIND_HOST = "0.0.0.0";
           NIXSTR_CACHES = "<64-lowercase-hex-pubkey-or-npub>";
           NIXSTR_RELAY_URLS = "wss://relay.example.com,wss://nos.lol";
-          NIXSTR_PREFERRED_BLOSSOM_URL = "https://blossom.example.com";
+          NIXSTR_EXTRA_SERVERS = "https://one.example.com,https://two.example.com";
         }
       '';
       description = ''

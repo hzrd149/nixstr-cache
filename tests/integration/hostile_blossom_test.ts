@@ -38,16 +38,17 @@ const response = (body: Uint8Array, status = 200): PinnedResponse => ({
   cancel: (reason?: unknown) => new Response(body.slice()).body!.cancel(reason),
 });
 
-Deno.test("source plan|verified spool|quarantine: preserves configured, event, BUD-03 order and canonical dedup", () => {
+Deno.test("source plan|verified spool|quarantine: preserves event, BUD-03, extra order and canonical dedup", () => {
   const plan = buildSourcePlan({
-    configured: "https://cache.test/prefix/",
     event: ["https://ONE.test/", "bad", "https://cache.test/prefix"],
     bud03: ["https://one.test", "https://two.test/base/"],
+    extras: ["https://cache.test/prefix/", "https://extra.test/"],
     isQuarantined: (origin) => origin === "https://one.test",
   });
   assertEquals(plan.map((x) => [x.baseUrl, x.trust]), [
     ["https://cache.test/prefix", "configured"],
     ["https://two.test/base", "publisher"],
+    ["https://extra.test", "configured"],
   ]);
 });
 
@@ -77,8 +78,8 @@ Deno.test("local Blossom is first and corrupt local cache falls back without qua
   });
   const plan = buildSourcePlan({
     localCache: "http://127.0.0.1:24242",
-    configured: "https://preferred.example/base",
     event: ["https://publisher.example"],
+    extras: ["https://preferred.example/base"],
   });
   assertEquals(plan.map((candidate) => candidate.role), [
     "local-cache",
@@ -247,7 +248,7 @@ Deno.test("source plan|verified spool|quarantine: oversize removes partial spool
     )
   );
   assertEquals(quarantined, 0);
-  assertEquals([...Deno.readDirSync(dir)].length, 0);
+  assertEquals([...Deno.readDirSync(`${dir}/tmp`)].length, 0);
 });
 
 const manifest = (value: unknown) => encode(value);
@@ -722,7 +723,7 @@ Deno.test("deadline|chunked|cancel: split chunk framing is decoded before spooli
     });
     const blob = await blobs.fetch(
       hex(sha256(payload)),
-      buildSourcePlan({ configured: `http://chunks.test:${port}` }),
+      buildSourcePlan({ extras: [`http://chunks.test:${port}`] }),
       { maxAttempts: 1, maxTransferBytes: 100 },
     );
     assertEquals(await new Response(blob.open()).text(), "Wikipedia");
@@ -791,5 +792,5 @@ Deno.test("deadline|chunked|cancel: exceptional spool cancels reader and removes
     )
   );
   assertEquals(cancelled, true);
-  assertEquals([...Deno.readDirSync(dir)].length, 0);
+  assertEquals([...Deno.readDirSync(`${dir}/tmp`)].length, 0);
 });

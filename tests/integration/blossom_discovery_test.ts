@@ -95,7 +95,7 @@ Deno.test("BUD-03 server list is authenticated, ordered, reactive, and immutable
   }
 });
 
-Deno.test("production BUD-03 wiring feeds configured, event, then server list sources", async () => {
+Deno.test("production BUD-03 wiring feeds event, server list, then extra sources", async () => {
   const root = await Deno.makeTempDir();
   const eventStream = new Subject<RawPublication>();
   let streamDisposed = 0;
@@ -103,7 +103,10 @@ Deno.test("production BUD-03 wiring feeds configured, event, then server list so
     const parsed = parseConfig({
       caches: publisher,
       extraRelays: "ws://127.0.0.1:9000",
-      preferredBlossomUrl: "http://127.0.0.1:8000",
+      extraServers: [
+        "http://127.0.0.1:8000",
+        "https://fallback.example/base",
+      ],
       databasePath: `${root}/state.sqlite`,
       spoolDirectory: `${root}/spool`,
     });
@@ -140,16 +143,17 @@ Deno.test("production BUD-03 wiring feeds configured, event, then server list so
     ]));
     const snapshot = selection.current()[0];
     const plan = buildSourcePlan({
-      configured: parsed.value.preferredBlossomUrl,
       event: snapshot.blossomServers,
       bud03: snapshot.bud03Servers,
+      extras: parsed.value.extraServers,
     });
     assertEquals(
       plan.map((candidate) => [candidate.baseUrl, candidate.trust]),
       [
-        ["http://127.0.0.1:8000", "configured"],
         ["https://event.example", "publisher"],
         ["https://bud.example", "publisher"],
+        ["http://127.0.0.1:8000", "configured"],
+        ["https://fallback.example/base", "configured"],
       ],
     );
     eventStream.next(servers(92, [["server", "https://replacement.example"]]));
