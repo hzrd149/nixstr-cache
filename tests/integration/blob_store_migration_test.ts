@@ -15,7 +15,9 @@ Deno.test("legacy migration rehashes routes, is idempotent, and quarantines unkn
     await Deno.writeTextFile(`${spool}/operator-note`, "keep me");
     const database = `${root}/state.sqlite`;
     const db = new DatabaseSync(database);
-    db.exec("CREATE TABLE staged_blobs(route TEXT PRIMARY KEY,digest TEXT NOT NULL,size INTEGER NOT NULL,path TEXT NOT NULL)");
+    db.exec(
+      "CREATE TABLE staged_blobs(route TEXT PRIMARY KEY,digest TEXT NOT NULL,size INTEGER NOT NULL,path TEXT NOT NULL)",
+    );
     db.prepare("INSERT INTO staged_blobs VALUES(?,?,?,?)").run(
       "nix-cache-info",
       "legacy",
@@ -24,9 +26,17 @@ Deno.test("legacy migration rehashes routes, is idempotent, and quarantines unkn
     );
     db.close();
 
-    const store = new BlobStore(database, `${root}/store`, { capacityBytes: 1024 });
-    const first = await store.migrateLegacy({ stagingDirectory: staging, spoolDirectory: spool });
-    const second = await store.migrateLegacy({ stagingDirectory: staging, spoolDirectory: spool });
+    const store = new BlobStore(database, `${root}/store`, {
+      capacityBytes: 1024,
+    });
+    const first = await store.migrateLegacy({
+      stagingDirectory: staging,
+      spoolDirectory: spool,
+    });
+    const second = await store.migrateLegacy({
+      stagingDirectory: staging,
+      spoolDirectory: spool,
+    });
     assertEquals(first.routesMigrated, 1);
     assertEquals(second.routesMigrated, 0);
     assertEquals(store.routeComponents("nix-cache-info").length, 1);
