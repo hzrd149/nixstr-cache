@@ -3,29 +3,38 @@
   "specifiers": {
     "jsr:@std/assert@1.0.19": "1.0.19",
     "jsr:@std/cli@1.0.32": "1.0.32",
+    "jsr:@std/fmt@^1.0.10": "1.0.10",
     "jsr:@std/internal@^1.0.12": "1.0.14",
+    "jsr:@std/internal@^1.0.14": "1.0.14",
     "npm:@msgpack/msgpack@3.1.3": "3.1.3",
     "npm:@noble/curves@2.3.0": "2.3.0",
     "npm:@noble/hashes@2.3.0": "2.3.0",
     "npm:@scure/base@2.3.0": "2.3.0",
-    "npm:applesauce-common@6.2.0": "6.2.0",
-    "npm:applesauce-core@6.2.0": "6.2.0",
-    "npm:applesauce-loaders@6.2.0": "6.2.0",
-    "npm:applesauce-relay@6.2.1": "6.2.1",
-    "npm:applesauce-signers@6.2.2": "6.2.2_@capacitor+core@7.6.8",
+    "npm:applesauce-common@0.0.0-next-20260813160224": "0.0.0-next-20260813160224",
+    "npm:applesauce-core@0.0.0-next-20260813160224": "0.0.0-next-20260813160224",
+    "npm:applesauce-loaders@0.0.0-next-20260813160224": "0.0.0-next-20260813160224",
+    "npm:applesauce-relay@0.0.0-next-20260813160224": "0.0.0-next-20260813160224",
+    "npm:applesauce-signers@0.0.0-next-20260813160224": "0.0.0-next-20260813160224_@capacitor+core@7.6.8",
     "npm:fast-check@4.9.0": "4.9.0",
-    "npm:nostr-tools@2.19.4": "2.19.4",
+    "npm:nostr-tools@2.24.1": "2.24.1",
     "npm:rxjs@7.8.2": "7.8.2"
   },
   "jsr": {
     "@std/assert@1.0.19": {
       "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
       "dependencies": [
-        "jsr:@std/internal"
+        "jsr:@std/internal@^1.0.12"
       ]
     },
     "@std/cli@1.0.32": {
-      "integrity": "188b3a100d6202d64e3f5bd3d799c7fa4f6d77f92cc65eb7f641c1fa0aa92a66"
+      "integrity": "188b3a100d6202d64e3f5bd3d799c7fa4f6d77f92cc65eb7f641c1fa0aa92a66",
+      "dependencies": [
+        "jsr:@std/fmt",
+        "jsr:@std/internal@^1.0.14"
+      ]
+    },
+    "@std/fmt@1.0.10": {
+      "integrity": "90dfba288802ac6de82fb31d0917eb9e4450b9925b954d5e51fc29ac07419db5"
     },
     "@std/internal@1.0.14": {
       "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
@@ -41,19 +50,13 @@
     "@msgpack/msgpack@3.1.3": {
       "integrity": "sha512-47XIizs9XZXvuJgoaJUIE2lFoID8ugvc0jzSHP+Ptfk8nTbnR8g788wv48N03Kx0UkAv559HWRQ3yzOgzlRNUA=="
     },
-    "@noble/ciphers@0.5.3": {
-      "integrity": "sha512-B0+6IIHiqEs3BPMT0hcRmHvEj2QHOLu+uwt+tqDDeVd0oyVzh7BPrDcPjRnV1PV/5LaknXJJQvOuRGR0zQJz+w=="
+    "@noble/ciphers@2.1.1": {
+      "integrity": "sha512-bysYuiVfhxNJuldNXlFEitTVdNnYUc+XNJZd7Qm2a5j1vZHgY+fazadNFWFaMK/2vye0JVlxV3gHmC0WDfAOQw=="
     },
-    "@noble/curves@1.1.0": {
-      "integrity": "sha512-091oBExgENk/kGj3AZmtBDMpxQPDtxQABR2B9lb1JbVTs6ytdzZNwvhxQ4MWasRNEzlbEH8jCWFCwhF/Obj5AA==",
+    "@noble/curves@2.0.1": {
+      "integrity": "sha512-vs1Az2OOTBiP4q0pwjW5aF0xp9n4MxVrmkFBxc6EKZc6ddYx5gaZiAsZoq0uRRXWbi3AT/sBqn05eRPtn1JCPw==",
       "dependencies": [
-        "@noble/hashes@1.3.1"
-      ]
-    },
-    "@noble/curves@1.2.0": {
-      "integrity": "sha512-oYclrNgRaM9SsBUBVbb8M6DTV7ZHRTKugureoYEncY5c65HOmRzvSiTE3y5CYaPYJA/GVkrhXEoF0M3Ya9PMnw==",
-      "dependencies": [
-        "@noble/hashes@1.3.2"
+        "@noble/hashes@2.0.1"
       ]
     },
     "@noble/curves@2.3.0": {
@@ -62,11 +65,8 @@
         "@noble/hashes@2.3.0"
       ]
     },
-    "@noble/hashes@1.3.1": {
-      "integrity": "sha512-EbqwksQwz9xDRGfDST86whPBgM65E0OH/pCgqW0GBVzO22bNE+NuIbeTb714+IfSjU3aRk47EUvXIb5bTsenKA=="
-    },
-    "@noble/hashes@1.3.2": {
-      "integrity": "sha512-MVC8EAQp7MvEcm30KWENFjgR+Mkmf+D189XJTkFIlwohU5hcBbn1ZkKq7KVTi2Hme3PMGF390DaL52beVrIihQ=="
+    "@noble/hashes@2.0.1": {
+      "integrity": "sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw=="
     },
     "@noble/hashes@2.3.0": {
       "integrity": "sha512-oN+QwyX7VSHotibwubG3kpzbwKrfnyR6OOO+3Nk/53ADL7FmgHHz4TgrbaYKvvOw09u6QTx0oiH1cNCIOuN0CQ=="
@@ -77,26 +77,29 @@
     "@scure/base@1.1.1": {
       "integrity": "sha512-ZxOhsSyxYwLJj3pLZCefNitxsj093tb2vq90mp2txoYeBqbcjDjqFhyM8eUjq/uFm6zJ+mUuqxlS2FkuSY1MTA=="
     },
+    "@scure/base@2.0.0": {
+      "integrity": "sha512-3E1kpuZginKkek01ovG8krQ0Z44E3DHPjc5S2rjJw9lZn3KSQOs8S7wqikF/AH7iRanHypj85uGyxk0XAyC37w=="
+    },
     "@scure/base@2.3.0": {
       "integrity": "sha512-NsG6Y03tY6R5BUis4FdVtHVkur0U6FOzskgs9ZXNl78CUc9fkZ78HmENUle1nSOkCasDmbubmWD9qwB7mm4PZA=="
     },
-    "@scure/bip32@1.3.1": {
-      "integrity": "sha512-osvveYtyzdEVbt3OfwwXFr4P2iVBL5u1Q3q4ONBfDY/UpOuXmOlbgwc1xECEboY8wIays8Yt6onaWMUdUbfl0A==",
+    "@scure/bip32@2.0.1": {
+      "integrity": "sha512-4Md1NI5BzoVP+bhyJaY3K6yMesEFzNS1sE/cP+9nuvE7p/b0kx9XbpDHHFl8dHtufcbdHRUUQdRqLIPHN/s7yA==",
       "dependencies": [
-        "@noble/curves@1.1.0",
-        "@noble/hashes@1.3.2",
-        "@scure/base@1.1.1"
+        "@noble/curves@2.0.1",
+        "@noble/hashes@2.0.1",
+        "@scure/base@2.0.0"
       ]
     },
-    "@scure/bip39@1.2.1": {
-      "integrity": "sha512-Z3/Fsz1yr904dduJD0NpiyRHhRYHdcnyh73FZWiV+/qhWi83wNJ3NWolYqCEN+ZWsUz2TWwajJggcRE9r1zUYg==",
+    "@scure/bip39@2.0.1": {
+      "integrity": "sha512-PsxdFj/d2AcJcZDX1FXN3dDgitDDTmwf78rKZq1a6c1P1Nan1X/Sxc7667zU3U+AN60g7SxxP0YCVw2H/hBycg==",
       "dependencies": [
-        "@noble/hashes@1.3.2",
-        "@scure/base@1.1.1"
+        "@noble/hashes@2.0.1",
+        "@scure/base@2.0.0"
       ]
     },
-    "applesauce-common@6.2.0": {
-      "integrity": "sha512-meXbDCdqA1LKy1tr04BW7wMfnBBkHetLv+wlXYjAj5iR4Sji5KMxLFdAjUe6cSvrxrk9LxFcP+0P9BcZQxjpaA==",
+    "applesauce-common@0.0.0-next-20260813160224": {
+      "integrity": "sha512-88Oww0TT26XSjNo2Z5C6xaSrA7rKyNfEzgMnYaJHYgjU90kVK5sGUd02QuVwBKqNwVtR+pO0Q8igEYteEsCT4Q==",
       "dependencies": [
         "@scure/base@2.3.0",
         "applesauce-core",
@@ -106,8 +109,8 @@
         "rxjs"
       ]
     },
-    "applesauce-core@6.2.0": {
-      "integrity": "sha512-O6AlVyzqcuIhTOIuexm6UWmx7mRIa2D98gJP7K7vFGf90YdtvSH78AsKQWZXJ0Pk/K14at+9zkwfCkFr7ghgNw==",
+    "applesauce-core@0.0.0-next-20260813160224": {
+      "integrity": "sha512-TU3lbpq/rUOgGQTkzt9JJadObOiLxKYW88Qu2W9zi2HaGvAX9S1QTTia58mllt5GI5gZ+x8cprugUMq3ujAuvQ==",
       "dependencies": [
         "debug",
         "fast-deep-equal",
@@ -117,16 +120,16 @@
         "rxjs"
       ]
     },
-    "applesauce-loaders@6.2.0": {
-      "integrity": "sha512-isU2BuoVFhugv4WxdbUFrqm7mCNgsGrMU4BYcNqMm8qAVpVb3L7K3I1hlkIZWwOvNTkhoYO/u0utgwnkQj4Hrg==",
+    "applesauce-loaders@0.0.0-next-20260813160224": {
+      "integrity": "sha512-xvOndgw4dTUXeTWZCNsThxEwqIoGnWjArzzKQOU/18d6sUQap36Dn2pt5vlbKuN1dsQIJCcLVv2YCNS/jQO8SQ==",
       "dependencies": [
         "applesauce-core",
         "nanoid",
         "rxjs"
       ]
     },
-    "applesauce-relay@6.2.1": {
-      "integrity": "sha512-YIUHEtL2Fl5FZjeKYe/IuwL3OnMUNP2j4ydSr3iZDeHEZSEda4d1PoChefiNhtjE/U/F5OBHEbAX1zCHRZoxpg==",
+    "applesauce-relay@0.0.0-next-20260813160224": {
+      "integrity": "sha512-mmtq5xzpl7C1cH7z9W64fWcG/hnuV4bkX9ZxoI2DHc5nrIhkFqQa1HKMnHNGvlaDhh7C0WC/Qg6dgopa9p9b7Q==",
       "dependencies": [
         "@noble/hashes@2.3.0",
         "applesauce-core",
@@ -135,8 +138,8 @@
         "rxjs"
       ]
     },
-    "applesauce-signers@6.2.2_@capacitor+core@7.6.8": {
-      "integrity": "sha512-UIJCFIqSdA+rI5DE4SHrFmJf7CkkBbgALGdxgtvScFf1IaOvrT+ntR5D4fbuZREyPnrVuEIwuCTZ7b31WbQ7yQ==",
+    "applesauce-signers@0.0.0-next-20260813160224_@capacitor+core@7.6.8": {
+      "integrity": "sha512-X7ZyXZ0nOOVXj4DH+GXZMQqQMuCRZwre8IAjV4MZRD++iVI0rAIDje/Q2KCfINizFKFZ/w+81wQ93nQpyvDcwQ==",
       "dependencies": [
         "@noble/secp256k1",
         "@scure/base@2.3.0",
@@ -186,13 +189,13 @@
         "@capacitor/core"
       ]
     },
-    "nostr-tools@2.19.4": {
-      "integrity": "sha512-qVLfoTpZegNYRJo5j+Oi6RPu0AwLP6jcvzcB3ySMnIT5DrAGNXfs5HNBspB/2HiGfH3GY+v6yXkTtcKSBQZwSg==",
+    "nostr-tools@2.24.1": {
+      "integrity": "sha512-KdrKjC74n/rr6J3eCSfZj8dcbZFvolHYe4S22SefNZ5YWbhHiB0KL/mmJjEZ0u6B9mZK0YcQtl+WQ46KzwapeQ==",
       "dependencies": [
         "@noble/ciphers",
-        "@noble/curves@1.2.0",
-        "@noble/hashes@1.3.1",
-        "@scure/base@1.1.1",
+        "@noble/curves@2.0.1",
+        "@noble/hashes@2.0.1",
+        "@scure/base@2.0.0",
         "@scure/bip32",
         "@scure/bip39",
         "nostr-wasm"
@@ -222,13 +225,13 @@
       "npm:@noble/curves@2.3.0",
       "npm:@noble/hashes@2.3.0",
       "npm:@scure/base@2.3.0",
-      "npm:applesauce-common@6.2.0",
-      "npm:applesauce-core@6.2.0",
-      "npm:applesauce-loaders@6.2.0",
-      "npm:applesauce-relay@6.2.1",
-      "npm:applesauce-signers@6.2.2",
+      "npm:applesauce-common@0.0.0-next-20260813160224",
+      "npm:applesauce-core@0.0.0-next-20260813160224",
+      "npm:applesauce-loaders@0.0.0-next-20260813160224",
+      "npm:applesauce-relay@0.0.0-next-20260813160224",
+      "npm:applesauce-signers@0.0.0-next-20260813160224",
       "npm:fast-check@4.9.0",
-      "npm:nostr-tools@2.19.4",
+      "npm:nostr-tools@2.24.1",
       "npm:rxjs@7.8.2"
     ]
   }

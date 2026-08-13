@@ -24,13 +24,13 @@
     "@scure/base": "npm:@scure/base@2.3.0",
     "@std/assert": "jsr:@std/assert@1.0.19",
     "@std/cli": "jsr:@std/cli@1.0.32",
-    "applesauce-core": "npm:applesauce-core@6.2.0",
-    "applesauce-common": "npm:applesauce-common@6.2.0",
-    "applesauce-loaders": "npm:applesauce-loaders@6.2.0",
-    "applesauce-relay": "npm:applesauce-relay@6.2.1",
-    "applesauce-signers": "npm:applesauce-signers@6.2.2",
+    "applesauce-core": "npm:applesauce-core@0.0.0-next-20260813160224",
+    "applesauce-common": "npm:applesauce-common@0.0.0-next-20260813160224",
+    "applesauce-loaders": "npm:applesauce-loaders@0.0.0-next-20260813160224",
+    "applesauce-relay": "npm:applesauce-relay@0.0.0-next-20260813160224",
+    "applesauce-signers": "npm:applesauce-signers@0.0.0-next-20260813160224",
     "fast-check": "npm:fast-check@4.9.0",
-    "nostr-tools": "npm:nostr-tools@2.19.4",
+    "nostr-tools": "npm:nostr-tools@2.24.1",
     "rxjs": "npm:rxjs@7.8.2"
   }
 }
