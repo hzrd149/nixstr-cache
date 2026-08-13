@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@grammyjs/debug@0.3.1": "0.3.1",
     "jsr:@std/assert@1.0.19": "1.0.19",
     "jsr:@std/cli@1.0.32": "1.0.32",
     "jsr:@std/fmt@^1.0.10": "1.0.10",
@@ -20,6 +21,9 @@
     "npm:rxjs@7.8.2": "7.8.2"
   },
   "jsr": {
+    "@grammyjs/debug@0.3.1": {
+      "integrity": "99e6269421782881829771082362dde8c732f3201e64fea7f92d648f53baff2d"
+    },
     "@std/assert@1.0.19": {
       "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
       "dependencies": [
@@ -219,6 +223,7 @@
   },
   "workspace": {
     "dependencies": [
+      "jsr:@grammyjs/debug@0.3.1",
       "jsr:@std/assert@1.0.19",
       "jsr:@std/cli@1.0.32",
       "npm:@msgpack/msgpack@3.1.3",

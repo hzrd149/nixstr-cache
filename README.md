@@ -112,6 +112,23 @@ must remain absolute; they are not resolved relative to the JSON file.
 Omitting `--config` retains environment-only startup. This remains the intended
 mode for the NixOS module described below; no `config.json` is auto-discovered.
 
+## Debug logging
+
+Detailed HTTP tracing is disabled by default. Enable every debug namespace with
+`DEBUG=*`, or restrict output to this daemon's HTTP traces:
+
+```sh
+DEBUG=nixstr:http:* deno task start -- --config /path/to/config.json
+```
+
+The available namespaces are `nixstr:http:request` for correlated inbound
+request start/completion, `nixstr:http:route` for cache routing and staging
+decisions, and `nixstr:http:upstream` for SSRF-approved outbound attempts,
+responses, failures, and redirects. Debug output excludes request and response
+bodies, headers, URL credentials, query strings, and fragments. Normal
+operational diagnostics remain enabled independently of `DEBUG`. Each debug
+entry is one compact `key=value` line rather than a serialized object.
+
 ## Nix packaging
 
 The flake packages the daemon with

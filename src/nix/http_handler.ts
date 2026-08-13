@@ -10,6 +10,12 @@ import { classifyEndorsements, parseNarInfo } from "../protocol/narinfo.ts";
 import type { SignerOverlay, SignerOverlaySnapshot } from "../write/overlay.ts";
 import type { HealthSnapshotProvider } from "../operations/health.ts";
 import type { OperationalDiagnosticSink } from "../operations/diagnostics.ts";
+import {
+  debugHttpRequest,
+  debugHttpRoute,
+  debugPath,
+  requestId,
+} from "../operations/debug.ts";
 import { cacheIdentity } from "../protocol/publication.ts";
 import {
   WriteConflict,
@@ -104,16 +110,24 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       dependencies.operationalDiagnostics?.emit(item);
     } catch { /* diagnostics are non-authoritative */ }
   };
-  const handleRequest = async (request: Request): Promise<Response> => {
-    if (closed) return new Response("service unavailable\n", { status: 503 });
+  const handleRequest = async (
+    request: Request,
+    trace: number,
+  ): Promise<Response> => {
+    if (closed) {
+      debugHttpRoute("handler closed", { requestId: trace });
+      return new Response("service unavailable\n", { status: 503 });
+    }
     const pathname = new URL(request.url).pathname;
     if (
       pathname === "/health" &&
       (request.method === "GET" || request.method === "HEAD")
     ) {
       if (!dependencies.health) {
+        debugHttpRoute("health route unavailable", { requestId: trace });
         return new Response("not found\n", { status: 404 });
       }
+      debugHttpRoute("serving health snapshot", { requestId: trace });
       const bytes = new TextEncoder().encode(
         JSON.stringify(dependencies.health.current()),
       );
@@ -130,6 +144,9 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
     if (request.method === "PUT") {
       const readiness = dependencies.write?.current();
       if (!readiness?.ready || !readiness.repository) {
+        debugHttpRoute("PUT rejected: write capability unavailable", {
+          requestId: trace,
+        });
         return new Response("method not allowed\n", {
           status: 405,
           headers: { allow: "GET, HEAD" },
@@ -138,6 +155,9 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       try {
         await readiness.authorize?.();
       } catch {
+        debugHttpRoute("PUT rejected: signer authorization failed", {
+          requestId: trace,
+        });
         return new Response("method not allowed\n", {
           status: 405,
           headers: { allow: "GET, HEAD" },
@@ -155,10 +175,19 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       const narinfoMatch = /^\/([0-9a-z]{32})\.narinfo$/.exec(url.pathname);
       const narMatch = /^\/(nar\/[A-Za-z0-9._+-]+)$/.exec(url.pathname);
       if (!narinfoMatch && !narMatch) {
+        debugHttpRoute("PUT rejected: unsupported route", {
+          requestId: trace,
+          path: debugPath(url.pathname),
+        });
         return new Response("not found\n", { status: 404 });
       }
       const route = narinfoMatch ? `${narinfoMatch[1]}.narinfo` : narMatch![1];
       try {
+        debugHttpRoute("staging upload", {
+          requestId: trace,
+          route,
+          kind: narinfoMatch ? "narinfo" : "nar",
+        });
         const staged = await readiness.repository.stage(
           route,
           request.body,
@@ -182,6 +211,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           }
         }
         await readiness.onStaged?.(route);
+        debugHttpRoute("upload staged", { requestId: trace, route });
         return new Response(null, { status: 200 });
       } catch (error) {
         const routeClass = narinfoMatch ? "narinfo" as const : "nar" as const;
@@ -240,6 +270,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       // writable empty cache must report an absent route, not an unavailable
       // cache, or Nix aborts before issuing the first PUT.
       if (dependencies.write?.current().ready) {
+        debugHttpRoute("empty writable cache miss", { requestId: trace });
         return new Response("not found\n", { status: 404 });
       }
       return new Response("cache unavailable\n", { status: 503 });
@@ -250,6 +281,10 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       if (narinfoMatch) {
         const signerEntry = overlaySnapshot?.entries.get(path);
         if (signerEntry && overlaySnapshot) {
+          debugHttpRoute("loading Narinfo from writable overlay", {
+            requestId: trace,
+            path,
+          });
           const lease = dependencies.overlay!.acquire(
             overlaySnapshot.generation,
           );
@@ -281,6 +316,13 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           endorsements.filter((value) => value.endorsed).length,
         );
         routes.set(merged.record.url, merged.winner);
+        debugHttpRoute("loaded merged Narinfo", {
+          requestId: trace,
+          path,
+          nar: debugPath(merged.record.url),
+          providers: merged.providers.length,
+          winner: cacheIdentity(merged.winner),
+        });
         emitOperational({
           type: "cache_package",
           code: "narinfo_loaded",
@@ -295,6 +337,10 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       let resolved;
       const pinnedSigner = signerRoutes.take(path);
       if (pinnedSigner) {
+        debugHttpRoute("serving NAR from pinned writable overlay", {
+          requestId: trace,
+          path,
+        });
         releaseOverlay = pinnedSigner.release;
         resolved = await dependencies.overlay!.resolver(pinnedSigner.snapshot)
           .resolve(
@@ -303,6 +349,10 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
             request.method,
           );
       } else if (overlaySnapshot?.entries.has(path)) {
+        debugHttpRoute("serving NAR from current writable overlay", {
+          requestId: trace,
+          path,
+        });
         const leased = dependencies.overlay!.acquire();
         releaseOverlay = leased.release;
         resolved = await dependencies.overlay!.resolver(leased.snapshot)
@@ -312,6 +362,11 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       let servingPublication: SelectedPublication | undefined;
       let servingRoute: "pinned" | "fallback" = "fallback";
       if (!resolved && pinned) {
+        debugHttpRoute("resolving NAR from pinned Hashtree cache", {
+          requestId: trace,
+          path,
+          cache: cacheIdentity(pinned),
+        });
         resolved = await dependencies.resolverFor(pinned).resolve(
           pinned.root.hex,
           path,
@@ -324,6 +379,11 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       } else if (!resolved) {
         for (const publication of snapshot) {
           try {
+            debugHttpRoute("trying Hashtree cache", {
+              requestId: trace,
+              path,
+              cache: cacheIdentity(publication),
+            });
             resolved = await dependencies.resolverFor(publication).resolve(
               publication.root.hex,
               path,
@@ -335,6 +395,11 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
             break;
           } catch (error) {
             if (!(error instanceof VerifiedAbsent)) throw error;
+            debugHttpRoute("Hashtree cache miss", {
+              requestId: trace,
+              path,
+              cache: cacheIdentity(publication),
+            });
           }
         }
         if (!resolved) throw new VerifiedAbsent(path);
@@ -371,15 +436,30 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       });
     } catch (error) {
       releaseOverlay?.();
+      debugHttpRoute("request resolution failed", {
+        requestId: trace,
+        path,
+        error: error instanceof VerifiedAbsent
+          ? "not_found"
+          : error instanceof BudgetExceeded
+          ? "budget_exceeded"
+          : "upstream_failure",
+      });
       return mapped(error);
     }
   };
   const handler = async (request: Request): Promise<Response> => {
+    const trace = requestId();
     const started = Date.now();
     let status = 500;
     let reasons: readonly string[] | undefined;
     try {
-      const response = await handleRequest(request);
+      debugHttpRequest("started", {
+        requestId: trace,
+        method: request.method,
+        path: debugPath(new URL(request.url).pathname),
+      });
+      const response = await handleRequest(request, trace);
       status = response.status;
       if (status === 503 && dependencies.health) {
         const health = dependencies.health.current();
@@ -391,6 +471,14 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       }
       return response;
     } finally {
+      debugHttpRequest("completed", {
+        requestId: trace,
+        method: request.method,
+        path: debugPath(new URL(request.url).pathname),
+        status,
+        durationMs: Math.max(0, Date.now() - started),
+        ...(reasons?.length ? { reasons } : {}),
+      });
       emitOperational({
         type: "http_request",
         code: "request_completed",
