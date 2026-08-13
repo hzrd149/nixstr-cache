@@ -524,6 +524,25 @@ export function createProductionDependencies(
         );
         publicationSelector.authorizeBlossomPublisher(pubkey);
         followBlossomPublisher?.(pubkey);
+        const configuredWriteRelays = new Set(config.extraRelays.map(String));
+        let writeRelayListSeen = false;
+        const writeRelaySubscription = nostr.relaySetFor([pubkey]).subscribe(
+          (relays) => {
+            const configuredCount =
+              relays.filter((relay) => configuredWriteRelays.has(relay)).length;
+            diagnostics.emit({
+              type: "write_relay_list",
+              code: writeRelayListSeen
+                ? "write_relay_list_changed"
+                : "write_relay_list_found",
+              count: relays.length,
+              configuredCount,
+              outboxCount: relays.length - configuredCount,
+              endpoints: relays,
+            });
+            writeRelayListSeen = true;
+          },
+        );
         refreshWriteBlossomServers(pubkey);
         const stopWatchingServers = publicationSelector.watchBlossomServers(
           pubkey,
@@ -729,6 +748,7 @@ export function createProductionDependencies(
           supervisor.drains.add(() => nextBatchScheduler.close());
           supervisor.drains.add(() => {
             subscription!.unsubscribe();
+            writeRelaySubscription.unsubscribe();
             stopWatchingServers();
             return Promise.resolve();
           });
@@ -738,6 +758,7 @@ export function createProductionDependencies(
         } catch (error) {
           try {
             subscription?.unsubscribe();
+            writeRelaySubscription.unsubscribe();
             stopWatchingServers();
           } catch { /* cleanup continues below */ }
           await Promise.allSettled([

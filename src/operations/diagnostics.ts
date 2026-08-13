@@ -118,6 +118,14 @@ export type OperationalDiagnostic =
     readonly code: "write_server_list_changed";
     readonly count: number;
     readonly endpoints: readonly string[];
+  }
+  | {
+    readonly type: "write_relay_list";
+    readonly code: "write_relay_list_found" | "write_relay_list_changed";
+    readonly count: number;
+    readonly configuredCount: number;
+    readonly outboxCount: number;
+    readonly endpoints: readonly string[];
   };
 
 export interface OperationalDiagnosticSink {
@@ -295,6 +303,25 @@ export function formatOperationalDiagnostic(
     case "blossom_server_list":
       message = "write Blossom server list changed";
       fields.push(`servers=${item.count}`);
+      if (item.endpoints.length) {
+        fields.push(
+          `endpoints=${
+            item.endpoints.map((value) => endpoint(value) ?? "invalid").join(
+              ",",
+            )
+          }`,
+        );
+      }
+      break;
+    case "write_relay_list":
+      message = item.code === "write_relay_list_found"
+        ? "write relay list found"
+        : "write relay list changed";
+      fields.push(
+        `relays=${item.count}`,
+        `configured=${item.configuredCount}`,
+        `outboxes=${item.outboxCount}`,
+      );
       if (item.endpoints.length) {
         fields.push(
           `endpoints=${

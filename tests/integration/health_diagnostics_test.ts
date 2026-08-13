@@ -351,6 +351,17 @@ Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are co
       endpoints: ["https://user:secret@example.test/base?token=hidden#part"],
     },
     {
+      type: "write_relay_list",
+      code: "write_relay_list_found",
+      count: 2,
+      configuredCount: 1,
+      outboxCount: 1,
+      endpoints: [
+        "wss://user:secret@relay.test/path?token=hidden#part",
+        "wss://outbox.test",
+      ],
+    },
+    {
       type: "writable_identity_mismatch",
       code: "durable_writable_identity_mismatch",
       configuredIdentity: `17091:${"a".repeat(64)}:`,
@@ -375,21 +386,30 @@ Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are co
   assertStringIncludes(lines[9], "endpoints=https://example.test/base");
   assertEquals(lines[9].includes("secret"), false);
   assertEquals(lines[9].includes("hidden"), false);
+  assertStringIncludes(lines[10], "write relay list found");
+  assertStringIncludes(lines[10], "configured=1");
+  assertStringIncludes(lines[10], "outboxes=1");
   assertStringIncludes(
     lines[10],
+    "endpoints=wss://relay.test/path,wss://outbox.test",
+  );
+  assertEquals(lines[10].includes("secret"), false);
+  assertEquals(lines[10].includes("hidden"), false);
+  assertStringIncludes(
+    lines[11],
     "WRITABLE CACHE OWNER MISMATCH — WRITES HAVE BEEN DISABLED",
   );
   assertStringIncludes(
-    lines[10],
+    lines[11],
     `Configured signer: 17091:${"a".repeat(64)}:`,
   );
   assertStringIncludes(
-    lines[10],
+    lines[11],
     `Durable owner:     17091:${"b".repeat(64)}:`,
   );
-  assertStringIncludes(lines[10], "writable.enabled was honored");
-  assertStringIncludes(lines[10], "PUT is disabled");
-  assertStringIncludes(lines[10], "Do not delete state casually");
+  assertStringIncludes(lines[11], "writable.enabled was honored");
+  assertStringIncludes(lines[11], "PUT is disabled");
+  assertStringIncludes(lines[11], "Do not delete state casually");
   const failing = createConsoleDiagnosticSink({
     write: () => {
       throw new Error("sink failed");
