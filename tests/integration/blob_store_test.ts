@@ -3,6 +3,9 @@ import {
   BlobStore,
   DEFAULT_BLOB_STORE_BYTES,
 } from "../../src/persistence/blob_store.ts";
+import { BlobFetcher } from "../../src/blossom/blob_fetcher.ts";
+import { buildSourcePlan } from "../../src/blossom/source_plan.ts";
+import { sha256 } from "@noble/hashes/sha2.js";
 
 const bytes = (value: string) => new TextEncoder().encode(value);
 
@@ -72,6 +75,57 @@ Deno.test("blob store leases exclude eviction and write ownership controls delet
     });
     store.releaseOwner("route:write", written.hash);
     assertEquals(store.has(written.hash), false);
+    store.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("verified remote fetches remain cached and warm reads avoid the network", async () => {
+  const root = await Deno.makeTempDir({ prefix: "nixstr-blob-fetch-" });
+  try {
+    const store = new BlobStore(`${root}/state.sqlite`, `${root}/store`, {
+      capacityBytes: 64,
+    });
+    const payload = bytes("remote payload");
+    const hash = sha256(payload).toHex();
+    let requests = 0;
+    const fetcher = new BlobFetcher({
+      store,
+      fetcher: {
+        fetch: () => {
+          requests++;
+          return Promise.resolve({
+            status: 200,
+            headers: new Headers({ "content-length": String(payload.length) }),
+            body: new Response(payload.slice()).body!,
+            peerAddress: "127.0.0.1",
+            text: () => Promise.resolve(""),
+            cancel: () => Promise.resolve(),
+          });
+        },
+      },
+      quarantine: {
+        isQuarantined: () => false,
+        quarantine: () => {},
+        releaseQuarantine: () => {},
+      },
+    });
+    const sources = buildSourcePlan({ event: ["https://cache.example"] });
+    const first = await fetcher.fetch(hash, sources, {
+      maxAttempts: 1,
+      maxTransferBytes: 64,
+    });
+    assertEquals(await new Response(first.open()).bytes(), payload);
+    await first.dispose();
+    const warm = await fetcher.fetch(hash, sources, {
+      maxAttempts: 1,
+      maxTransferBytes: 64,
+    });
+    assertEquals(await new Response(warm.open()).bytes(), payload);
+    await warm.dispose();
+    assertEquals(requests, 1);
+    assertEquals(store.has(hash), true);
     store.close();
   } finally {
     await Deno.remove(root, { recursive: true });
