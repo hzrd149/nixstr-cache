@@ -76,7 +76,7 @@ Deno.test("local Blossom is first and corrupt local cache falls back without qua
     onLocalDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
   });
   const plan = buildSourcePlan({
-    localCache: "http://127.0.0.1:3000",
+    localCache: "http://127.0.0.1:24242",
     configured: "https://preferred.example/base",
     event: ["https://publisher.example"],
   });
@@ -94,7 +94,7 @@ Deno.test("local Blossom is first and corrupt local cache falls back without qua
   assertEquals(quarantined, []);
   assertEquals(diagnostics, [{
     code: "local_hash_mismatch",
-    origin: "http://127.0.0.1:3000",
+    origin: "http://127.0.0.1:24242",
     hash: hex(sha256(good)),
     retryable: true,
   }]);
@@ -123,7 +123,7 @@ Deno.test("populate uses a verified lease and owner disposal waits for upload", 
         201,
       );
     },
-    localOrigin: "http://127.0.0.1:3000",
+    localOrigin: "http://127.0.0.1:24242",
     maxDescriptorBytes: 1024,
   });
   assertEquals((await sink.populate(blob)).ok, true);
@@ -141,7 +141,7 @@ Deno.test("populate failure is typed retryable and does not invalidate verified 
   const blob = new VerifiedBlob(hash, bytes.length, path, "publisher");
   const sink = new BlobCacheSink({
     request: () => Promise.resolve(response(new Uint8Array(2048), 500)),
-    localOrigin: "http://127.0.0.1:3000",
+    localOrigin: "http://127.0.0.1:24242",
     maxDescriptorBytes: 1024,
   });
   const result = await sink.populate(blob);
@@ -149,7 +149,7 @@ Deno.test("populate failure is typed retryable and does not invalidate verified 
     ok: false,
     diagnostic: {
       code: "local_population_rejected",
-      origin: "http://127.0.0.1:3000",
+      origin: "http://127.0.0.1:24242",
       hash,
       retryable: true,
     },

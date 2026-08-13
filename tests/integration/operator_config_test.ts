@@ -83,18 +83,18 @@ Deno.test("local cache configuration is optional exact and side-effect free", ()
   assertEquals(absent.value.localBlossomUrl, undefined);
 
   const mapped = rawConfigFromEnvironment({
-    NIXSTR_LOCAL_BLOSSOM_URL: "http://127.0.0.1:3000",
+    NIXSTR_LOCAL_BLOSSOM_URL: "http://127.0.0.1:24242",
   });
-  assertEquals(mapped.localBlossomUrl, "http://127.0.0.1:3000");
+  assertEquals(mapped.localBlossomUrl, "http://127.0.0.1:24242");
   const present = parseConfig(validRaw({
     localBlossomUrl: mapped.localBlossomUrl,
   }));
   assert(present.ok);
-  assertEquals(present.value.localBlossomUrl?.origin, "http://127.0.0.1:3000");
+  assertEquals(present.value.localBlossomUrl?.origin, "http://127.0.0.1:24242");
 
   let sideEffects = 0;
   const invalid = parseConfig(
-    validRaw({ localBlossomUrl: "http://secret@127.0.0.1:3000" }),
+    validRaw({ localBlossomUrl: "http://secret@127.0.0.1:24242" }),
     { onSideEffect: () => sideEffects++ },
   );
   assert(!invalid.ok);
