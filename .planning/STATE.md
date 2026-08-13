@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Awaiting next milestone
-stopped_at: Completed quick task 260813-lgb
-last_updated: "2026-08-13T14:37:00.000Z"
+status: Executing quick task 260813-tzo
+stopped_at: Completed 260813-tzo-02 Task 1
+last_updated: "2026-08-13T21:45:00.000Z"
 last_activity: 2026-08-13
 last_activity_desc: "Completed quick task 260813-lgb: Add CLI signer overrides with pre-bind ncryptsec unlocking"
 progress:
@@ -23,14 +23,14 @@ current_phase_name: Availability-Gated Publication Loop
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** An unmodified Nix client can reliably read and publish a decentralized binary cache while preserving NIP.md trust, integrity, freshness, and bounded-resource guarantees.
-**Current focus:** v1.0 MVP shipped; awaiting the next milestone. Human-readable console logging remains in the backlog.
+**Current focus:** Finish quick task 260813-tzo, consolidating verified remote reads, writable data, Hashtree construction, and publication recovery on one bounded ownership-aware BlobStore.
 
 ## Current Position
 
-Phase: Milestone v1.0 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-08-13 - Completed quick task 260813-p2w: implement bounded daemon-wide verified Hashtree manifest cache
+Phase: Quick task 260813-tzo — Unified bounded content-addressed blob storage
+Plan: 02 of 04 — Persistent remote read cache and resolver leases
+Status: Task 1 complete; Task 2 ready
+Last activity: 2026-08-13 - Finalized persistent remote blob admission in c7d9b71
 
 ## Performance Metrics
 
@@ -189,9 +189,9 @@ None for the shipped v1.0 milestone.
 
 ## Session Continuity
 
-Last session: 2026-08-13T16:50:00.000Z
-Stopped at: Completed quick task 260813-oq1
-Resume file: None
+Last session: 2026-08-13T21:45:00.000Z
+Stopped at: Completed 260813-tzo-02 Task 1; Task 2 is next
+Resume file: .planning/.continue-here.md
 
 ## Operator Next Steps
 
