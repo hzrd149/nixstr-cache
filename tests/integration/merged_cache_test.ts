@@ -73,10 +73,12 @@ Deno.test("agreement preserves duplicate signature occurrence order and exact HE
     record(["System: x86_64-linux", sig, sig]),
   ]]);
   const budgets = new Set<RequestBudget>();
+  const operational: unknown[] = [];
   const handler = createNixHttpHandler({
     decodedMetadataBytes: 4096,
     selection: { current: () => layers },
     budgetFor: budget,
+    operationalDiagnostics: { emit: (item) => operational.push(item) },
     resolverFor: (p) => ({
       resolve: (_r, path, method, b) => {
         budgets.add(b);
@@ -96,6 +98,17 @@ Deno.test("agreement preserves duplicate signature occurrence order and exact HE
   const response = await handler(new Request(`http://cache/${hash}.narinfo`));
   const expected = record([sig, "System: x86_64-linux", sig, sig]);
   assertEquals(await response.text(), expected);
+  assertEquals(operational[0], {
+    type: "cache_package",
+    code: "narinfo_loaded",
+    storePathHash: hash,
+    narPath: "nar/winner.nar",
+    winnerIdentity: `17091:${"a".repeat(64)}:`,
+    providerIdentities: [
+      `17091:${"a".repeat(64)}:`,
+      `17091:${"b".repeat(64)}:`,
+    ],
+  });
   assertEquals(budgets.size, 1);
   const head = await handler(
     new Request(`http://cache/${hash}.narinfo`, { method: "HEAD" }),
@@ -194,11 +207,13 @@ Deno.test("winner route remains pinned across selection update and registry evic
   const fresh = publication("fresh", "b".repeat(64));
   let current: MergedSelectionSnapshot = [old];
   const registry = new WinnerRouteRegistry(1, 1000, () => 100);
+  const operational: unknown[] = [];
   const handler = createNixHttpHandler({
     decodedMetadataBytes: 4096,
     selection: { current: () => current },
     routes: registry,
     budgetFor: budget,
+    operationalDiagnostics: { emit: (item) => operational.push(item) },
     resolverFor: (p) => ({
       resolve: (_r, path, method) => {
         if (path.endsWith(".narinfo")) {
@@ -228,6 +243,21 @@ Deno.test("winner route remains pinned across selection update and registry evic
   assertEquals(
     await (await handler(new Request("http://cache/nar/winner.nar"))).text(),
     "old",
+  );
+  assertEquals(
+    operational.find((item) =>
+      (item as { type?: string }).type === "hashtree_nar"
+    ),
+    {
+      type: "hashtree_nar",
+      code: "nar_served",
+      method: "GET",
+      path: "nar/winner.nar",
+      cacheIdentity: `17091:${"a".repeat(64)}:`,
+      rootHash: old.root.hex,
+      eventId: "old",
+      route: "pinned",
+    },
   );
   assertExists(registry.get("nar/winner.nar"));
   registry.set("nar/other.nar", fresh);

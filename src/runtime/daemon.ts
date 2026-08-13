@@ -48,6 +48,7 @@ import {
   type SignerCapability,
 } from "../signer/capability.ts";
 import type { RawPublication } from "../protocol/publication.ts";
+import { cacheIdentity } from "../protocol/publication.ts";
 import {
   createConsoleDiagnosticSink,
   type OperationalDiagnosticSink,
@@ -212,6 +213,20 @@ export function createProductionDependencies(
           ? (event) => void localRelay.acceptObserved(event)
           : undefined,
       });
+      let cacheSelectionSeen = false;
+      const cacheSelectionSubscription = selector.selected$.subscribe(
+        (selected) => {
+          diagnostics.emit({
+            type: "cache_selection",
+            code: cacheSelectionSeen
+              ? "cache_selection_changed"
+              : "cache_selection_found",
+            count: selected.length,
+            caches: selected.map(cacheIdentity),
+          });
+          cacheSelectionSeen = true;
+        },
+      );
       const writeRepository = config.writeIntent.mode === "disabled"
         ? undefined
         : new WriteRepository(
@@ -331,6 +346,7 @@ export function createProductionDependencies(
           supervisor?.abort.abort("daemon shutdown");
           const finish = async () => {
             try {
+              cacheSelectionSubscription.unsubscribe();
               selector.dispose();
             } finally {
               stream.dispose();

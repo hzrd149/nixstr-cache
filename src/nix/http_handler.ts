@@ -10,6 +10,7 @@ import { classifyEndorsements, parseNarInfo } from "../protocol/narinfo.ts";
 import type { SignerOverlay, SignerOverlaySnapshot } from "../write/overlay.ts";
 import type { HealthSnapshotProvider } from "../operations/health.ts";
 import type { OperationalDiagnosticSink } from "../operations/diagnostics.ts";
+import { cacheIdentity } from "../protocol/publication.ts";
 import {
   WriteConflict,
   type WriteRepository,
@@ -280,6 +281,14 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           endorsements.filter((value) => value.endorsed).length,
         );
         routes.set(merged.record.url, merged.winner);
+        emitOperational({
+          type: "cache_package",
+          code: "narinfo_loaded",
+          storePathHash: narinfoMatch[1],
+          narPath: merged.record.url,
+          winnerIdentity: cacheIdentity(merged.winner),
+          providerIdentities: merged.providers.map(cacheIdentity),
+        });
         return text(merged.text, request.method);
       }
       const budget = (dependencies.budgetFor ?? defaultBudget)();
@@ -300,6 +309,8 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           .resolve("", path, request.method);
       }
       const pinned = routes.get(path);
+      let servingPublication: SelectedPublication | undefined;
+      let servingRoute: "pinned" | "fallback" = "fallback";
       if (!resolved && pinned) {
         resolved = await dependencies.resolverFor(pinned).resolve(
           pinned.root.hex,
@@ -308,6 +319,8 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           budget,
           request.signal,
         );
+        servingPublication = pinned;
+        servingRoute = "pinned";
       } else if (!resolved) {
         for (const publication of snapshot) {
           try {
@@ -318,12 +331,25 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
               budget,
               request.signal,
             );
+            servingPublication = publication;
             break;
           } catch (error) {
             if (!(error instanceof VerifiedAbsent)) throw error;
           }
         }
         if (!resolved) throw new VerifiedAbsent(path);
+      }
+      if (servingPublication) {
+        emitOperational({
+          type: "hashtree_nar",
+          code: "nar_served",
+          method: request.method,
+          path,
+          cacheIdentity: cacheIdentity(servingPublication),
+          rootHash: servingPublication.root.hex,
+          eventId: servingPublication.event.id,
+          route: servingRoute,
+        });
       }
       if (request.method === "HEAD") {
         releaseOverlay?.();

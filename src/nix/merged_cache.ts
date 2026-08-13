@@ -34,6 +34,7 @@ export interface DiagnosticSink {
 
 export interface MergedNarInfoResult {
   readonly winner: SelectedPublication;
+  readonly providers: readonly SelectedPublication[];
   readonly record: NarInfo;
   readonly text: string;
 }
@@ -137,6 +138,7 @@ export async function resolveMergedNarInfo(options: {
     }
     return Object.freeze({
       winner: first.publication,
+      providers: Object.freeze(found.map((item) => item.publication)),
       record: first.record,
       text: first.record.rawText,
     });
@@ -146,6 +148,7 @@ export async function resolveMergedNarInfo(options: {
   );
   return Object.freeze({
     winner: first.publication,
+    providers: Object.freeze(found.map((item) => item.publication)),
     record: first.record,
     text: appendNarInfoSignatures(first.record, appended),
   });

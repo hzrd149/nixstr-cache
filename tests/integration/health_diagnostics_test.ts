@@ -362,6 +362,30 @@ Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are co
       ],
     },
     {
+      type: "cache_selection",
+      code: "cache_selection_changed",
+      count: 1,
+      caches: [`17091:${"a".repeat(64)}:`],
+    },
+    {
+      type: "cache_package",
+      code: "narinfo_loaded",
+      storePathHash: "0123456789abcdfghijklmnpqrsvwxyz",
+      narPath: "nar/demo.nar?secret=hidden",
+      winnerIdentity: `17091:${"a".repeat(64)}:`,
+      providerIdentities: [`17091:${"a".repeat(64)}:`],
+    },
+    {
+      type: "hashtree_nar",
+      code: "nar_served",
+      method: "GET",
+      path: "nar/demo.nar?secret=hidden",
+      cacheIdentity: `17091:${"a".repeat(64)}:`,
+      rootHash: "b".repeat(64),
+      eventId: "c".repeat(64),
+      route: "pinned",
+    },
+    {
       type: "writable_identity_mismatch",
       code: "durable_writable_identity_mismatch",
       configuredIdentity: `17091:${"a".repeat(64)}:`,
@@ -396,20 +420,26 @@ Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are co
   assertEquals(lines[10].includes("secret"), false);
   assertEquals(lines[10].includes("hidden"), false);
   assertStringIncludes(
-    lines[11],
+    lines[14],
     "WRITABLE CACHE OWNER MISMATCH — WRITES HAVE BEEN DISABLED",
   );
   assertStringIncludes(
-    lines[11],
+    lines[14],
     `Configured signer: 17091:${"a".repeat(64)}:`,
   );
   assertStringIncludes(
-    lines[11],
+    lines[14],
     `Durable owner:     17091:${"b".repeat(64)}:`,
   );
-  assertStringIncludes(lines[11], "writable.enabled was honored");
-  assertStringIncludes(lines[11], "PUT is disabled");
-  assertStringIncludes(lines[11], "Do not delete state casually");
+  assertStringIncludes(lines[11], "cache selection changed");
+  assertStringIncludes(lines[12], "package metadata loaded from cache");
+  assertEquals(lines[12].includes("secret"), false);
+  assertStringIncludes(lines[13], "NAR served from Hashtree cache");
+  assertStringIncludes(lines[13], "route=pinned");
+  assertEquals(lines[13].includes("secret"), false);
+  assertStringIncludes(lines[14], "writable.enabled was honored");
+  assertStringIncludes(lines[14], "PUT is disabled");
+  assertStringIncludes(lines[14], "Do not delete state casually");
   const failing = createConsoleDiagnosticSink({
     write: () => {
       throw new Error("sink failed");

@@ -126,6 +126,30 @@ export type OperationalDiagnostic =
     readonly configuredCount: number;
     readonly outboxCount: number;
     readonly endpoints: readonly string[];
+  }
+  | {
+    readonly type: "cache_selection";
+    readonly code: "cache_selection_found" | "cache_selection_changed";
+    readonly count: number;
+    readonly caches: readonly string[];
+  }
+  | {
+    readonly type: "cache_package";
+    readonly code: "narinfo_loaded";
+    readonly storePathHash: string;
+    readonly narPath: string;
+    readonly winnerIdentity: string;
+    readonly providerIdentities: readonly string[];
+  }
+  | {
+    readonly type: "hashtree_nar";
+    readonly code: "nar_served";
+    readonly method: "GET" | "HEAD";
+    readonly path: string;
+    readonly cacheIdentity: string;
+    readonly rootHash: string;
+    readonly eventId: string;
+    readonly route: "pinned" | "fallback";
   };
 
 export interface OperationalDiagnosticSink {
@@ -331,6 +355,35 @@ export function formatOperationalDiagnostic(
           }`,
         );
       }
+      break;
+    case "cache_selection":
+      message = item.code === "cache_selection_found"
+        ? "cache selection found"
+        : "cache selection changed";
+      fields.push(`caches=${item.count}`);
+      if (item.caches.length) {
+        fields.push(`identities=${item.caches.map(safeIdentity).join(",")}`);
+      }
+      break;
+    case "cache_package":
+      message = "package metadata loaded from cache";
+      fields.push(
+        `store=${item.storePathHash}`,
+        `nar=${safePath(item.narPath)}`,
+        `winner=${safeIdentity(item.winnerIdentity)}`,
+        `providers=${item.providerIdentities.map(safeIdentity).join(",")}`,
+      );
+      break;
+    case "hashtree_nar":
+      message = "NAR served from Hashtree cache";
+      fields.push(
+        `method=${item.method}`,
+        `path=${safePath(item.path)}`,
+        `cache=${safeIdentity(item.cacheIdentity)}`,
+        `root=${item.rootHash}`,
+        `event=${item.eventId}`,
+        `route=${item.route}`,
+      );
       break;
   }
   return `${timestamp} ${level.padEnd(5)} ${message}${
