@@ -27,6 +27,10 @@ export const debugHttpRequest = compactDebug("nixstr:http:request");
 export const debugHttpRoute = compactDebug("nixstr:http:route");
 export const debugHttpUpstream = compactDebug("nixstr:http:upstream");
 export const debugHashtreeCache = compactDebug("nixstr:hashtree:cache");
+export const debugCacheState = compactDebug("nixstr:cache:state");
+export const debugWriteHashtreeState = compactDebug(
+  "nixstr:write:hashtree",
+);
 
 let nextInboundId = 0;
 let nextOutboundId = 0;
