@@ -148,26 +148,24 @@ export class BlobFetcher {
   readonly #fetcher: FetchBoundary;
   readonly #quarantine: QuarantineRepository;
   readonly #store: BlobStore;
+  readonly #inflight = new Map<
+    string,
+    Promise<SourceCandidate["role"]>
+  >();
   readonly #onLocalDiagnostic?: (diagnostic: LocalCacheDiagnostic) => void;
   readonly #onVerifiedRemote?: (blob: VerifiedBlob) => void;
   constructor(
     options: {
       readonly fetcher: SafeFetcher | FetchBoundary;
       readonly quarantine: QuarantineRepository;
-      readonly store?: BlobStore;
-      /** @deprecated Compatibility for callers migrated in later plans. */
-      readonly spoolDirectory?: string;
+      readonly store: BlobStore;
       readonly onLocalDiagnostic?: (diagnostic: LocalCacheDiagnostic) => void;
       readonly onVerifiedRemote?: (blob: VerifiedBlob) => void;
     },
   ) {
     this.#fetcher = options.fetcher;
     this.#quarantine = options.quarantine;
-    this.#store = options.store ?? new BlobStore(
-      ":memory:",
-      options.spoolDirectory ??
-        Deno.makeTempDirSync({ prefix: "nixstr-blobs-" }),
-    );
+    this.#store = options.store;
     this.#onLocalDiagnostic = options.onLocalDiagnostic;
     this.#onVerifiedRemote = options.onVerifiedRemote;
   }
@@ -194,6 +192,32 @@ export class BlobFetcher {
         cached,
       );
     }
+    let pending = this.#inflight.get(expectedHash);
+    if (!pending) {
+      pending = this.#populate(expectedHash, sources, limits, signal);
+      this.#inflight.set(expectedHash, pending);
+      pending.finally(() => this.#inflight.delete(expectedHash)).catch(
+        () => {},
+      );
+    }
+    const sourceRole = await pending;
+    const lease = this.#store.lookup(expectedHash);
+    if (!lease) throw new Error("verified blob disappeared after admission");
+    return new VerifiedBlob(
+      lease.hash,
+      lease.size,
+      lease.path,
+      sourceRole,
+      lease,
+    );
+  }
+
+  async #populate(
+    expectedHash: string,
+    sources: readonly SourceCandidate[],
+    limits: BlobFetchLimits,
+    signal?: AbortSignal,
+  ): Promise<SourceCandidate["role"]> {
     const failures: unknown[] = [];
     let attempts = 0;
     for (const source of sources) {
@@ -202,7 +226,13 @@ export class BlobFetcher {
       limits.beforeAttempt?.();
       attempts++;
       try {
-        return await this.#attempt(expectedHash, source, limits, signal);
+        const blob = await this.#attempt(expectedHash, source, limits, signal);
+        try {
+          if (source.role === "publisher") this.#onVerifiedRemote?.(blob);
+          return blob.sourceRole;
+        } finally {
+          await blob.dispose();
+        }
       } catch (error) {
         failures.push(
           error instanceof BlobAttemptError
@@ -336,7 +366,6 @@ export class BlobFetcher {
         source.role,
         lease,
       );
-      if (source.role === "publisher") this.#onVerifiedRemote?.(result);
       return result;
     } finally {
       // PinnedResponse owns transport cleanup through body terminal state.

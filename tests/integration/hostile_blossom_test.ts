@@ -13,6 +13,7 @@ import {
 import { BlobCacheSink } from "../../src/blossom/cache_sink.ts";
 import { buildSourcePlan } from "../../src/blossom/source_plan.ts";
 import { StateRepository } from "../../src/persistence/state_repository.ts";
+import { BlobStore } from "../../src/persistence/blob_store.ts";
 import type { PinnedResponse } from "../../src/network/safe_fetcher.ts";
 import {
   AddressPolicy,
@@ -37,6 +38,10 @@ const response = (body: Uint8Array, status = 200): PinnedResponse => ({
   text: () => Promise.resolve(new TextDecoder().decode(body)),
   cancel: (reason?: unknown) => new Response(body.slice()).body!.cancel(reason),
 });
+
+function testBlobStore(root: string): BlobStore {
+  return new BlobStore(":memory:", root, { capacityBytes: 1024 * 1024 });
+}
 
 Deno.test("source plan|verified spool|quarantine: preserves event, BUD-03, extra order and canonical dedup", () => {
   const plan = buildSourcePlan({
@@ -73,7 +78,7 @@ Deno.test("local Blossom is first and corrupt local cache falls back without qua
       quarantine: (origin) => quarantined.push(origin),
       releaseQuarantine: () => {},
     },
-    spoolDirectory: await Deno.makeTempDir(),
+    store: testBlobStore(await Deno.makeTempDir()),
     onLocalDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
   });
   const plan = buildSourcePlan({
@@ -188,7 +193,7 @@ Deno.test("source plan|verified spool|quarantine: falls back and exposes bytes o
       quarantine: () => {},
       releaseQuarantine: () => {},
     },
-    spoolDirectory: await Deno.makeTempDir(),
+    store: testBlobStore(await Deno.makeTempDir()),
   });
   const blob = await fetcher.fetch(
     hex(sha256(bytes)),
@@ -209,7 +214,7 @@ Deno.test("source plan|verified spool|quarantine: hash mismatch persists across 
       fetch: () => Promise.resolve(response(new TextEncoder().encode("bad"))),
     },
     quarantine: repository,
-    spoolDirectory: dir,
+    store: testBlobStore(dir),
   });
   await assertRejects(
     () =>
@@ -238,7 +243,7 @@ Deno.test("source plan|verified spool|quarantine: oversize removes partial spool
       quarantine: () => quarantined++,
       releaseQuarantine: () => {},
     },
-    spoolDirectory: dir,
+    store: testBlobStore(dir),
   });
   await assertRejects(() =>
     fetcher.fetch(
@@ -301,7 +306,7 @@ Deno.test("traversal|backpressure|HEAD: lazy lookup ignores unrelated missing br
       quarantine: () => {},
       releaseQuarantine: () => {},
     },
-    spoolDirectory: spool,
+    store: testBlobStore(spool),
   });
   const resolver = new PathResolver(
     blobFetcher,
@@ -337,7 +342,7 @@ Deno.test("traversal|backpressure|HEAD: authenticates final link without fetchin
       quarantine: () => {},
       releaseQuarantine: () => {},
     },
-    spoolDirectory: await Deno.makeTempDir(),
+    store: testBlobStore(await Deno.makeTempDir()),
   });
   const resolver = new PathResolver(
     blobFetcher,
@@ -363,7 +368,7 @@ Deno.test("traversal|backpressure|HEAD: absence and budget overflow remain typed
       quarantine: () => {},
       releaseQuarantine: () => {},
     },
-    spoolDirectory: await Deno.makeTempDir(),
+    store: testBlobStore(await Deno.makeTempDir()),
   });
   const resolver = new PathResolver(
     blobFetcher,
@@ -435,7 +440,7 @@ Deno.test("ordered|transfer budget|output budget: nested file manifests preserve
         quarantine: () => {},
         releaseQuarantine: () => {},
       },
-      spoolDirectory: await Deno.makeTempDir(),
+      store: testBlobStore(await Deno.makeTempDir()),
     }),
     buildSourcePlan({ event: ["http://tree.test"] }),
     { maxWireBytes: 4096, maxDecodedBytes: 4096, maxLinks: 10 },
@@ -511,7 +516,7 @@ Deno.test("legacy file-link wire sizes derive bounded authenticated plaintext si
           quarantine: () => {},
           releaseQuarantine: () => {},
         },
-        spoolDirectory: spool,
+        store: testBlobStore(spool),
       }),
       buildSourcePlan({ event: ["http://tree.test"] }),
       { maxWireBytes: 4096, maxDecodedBytes: 4096, maxLinks: 10 },
@@ -588,7 +593,7 @@ Deno.test("ordered|transfer budget|output budget: policy bounds declarations and
         quarantine: () => {},
         releaseQuarantine: () => {},
       },
-      spoolDirectory: await Deno.makeTempDir(),
+      store: testBlobStore(await Deno.makeTempDir()),
     }),
     buildSourcePlan({ event: ["http://tree.test"] }),
     { maxWireBytes: 4096, maxDecodedBytes: 4096, maxLinks: 10 },
@@ -719,7 +724,7 @@ Deno.test("deadline|chunked|cancel: split chunk framing is decoded before spooli
         quarantine: () => {},
         releaseQuarantine: () => {},
       },
-      spoolDirectory: spool,
+      store: testBlobStore(spool),
     });
     const blob = await blobs.fetch(
       hex(sha256(payload)),
@@ -782,7 +787,7 @@ Deno.test("deadline|chunked|cancel: exceptional spool cancels reader and removes
       quarantine: () => {},
       releaseQuarantine: () => {},
     },
-    spoolDirectory: dir,
+    store: testBlobStore(dir),
   });
   await assertRejects(() =>
     fetcher.fetch(
