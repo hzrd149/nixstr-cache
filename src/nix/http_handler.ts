@@ -92,6 +92,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
   const routes = dependencies.routes ??
     new WinnerRouteRegistry(1024, 5 * 60_000);
   const signerRoutes = new SignerRouteRegistry(1024, 5 * 60_000);
+  let closed = false;
   const emitOperational = (
     item: Parameters<OperationalDiagnosticSink["emit"]>[0],
   ) => {
@@ -99,7 +100,8 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       dependencies.operationalDiagnostics?.emit(item);
     } catch { /* diagnostics are non-authoritative */ }
   };
-  return async (request: Request): Promise<Response> => {
+  const handler = async (request: Request): Promise<Response> => {
+    if (closed) return new Response("service unavailable\n", { status: 503 });
     const pathname = new URL(request.url).pathname;
     if (
       pathname === "/health" &&
@@ -236,12 +238,15 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       if (narinfoMatch) {
         const signerEntry = overlaySnapshot?.entries.get(path);
         if (signerEntry && overlaySnapshot) {
-          const resolved = await dependencies.overlay!.resolver(overlaySnapshot)
+          const lease = dependencies.overlay!.acquire(
+            overlaySnapshot.generation,
+          );
+          const resolved = await dependencies.overlay!.resolver(lease.snapshot)
             .resolve("", path, "GET");
           if (!resolved.body) throw new Error("GET resolution omitted body");
           const raw = await new Response(resolved.body).text();
           const record = parseNarInfo(raw);
-          signerRoutes.set(record.url, overlaySnapshot);
+          signerRoutes.set(record.url, lease);
           return text(raw, request.method);
         }
         const merged = await resolveMergedNarInfo({
@@ -268,13 +273,15 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       }
       const budget = (dependencies.budgetFor ?? defaultBudget)();
       let resolved;
-      const pinnedSigner = signerRoutes.get(path);
+      const pinnedSigner = signerRoutes.take(path);
       if (pinnedSigner) {
-        resolved = await dependencies.overlay!.resolver(pinnedSigner).resolve(
-          "",
-          path,
-          request.method,
-        );
+        releaseOverlay = pinnedSigner.release;
+        resolved = await dependencies.overlay!.resolver(pinnedSigner.snapshot)
+          .resolve(
+            "",
+            path,
+            request.method,
+          );
       } else if (overlaySnapshot?.entries.has(path)) {
         const leased = dependencies.overlay!.acquire();
         releaseOverlay = leased.release;
@@ -330,6 +337,17 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       return mapped(error);
     }
   };
+  return Object.assign(handler, {
+    close() {
+      if (closed) return;
+      closed = true;
+      signerRoutes.close();
+      routes.close();
+    },
+    [Symbol.dispose]() {
+      this.close();
+    },
+  });
 }
 
 function releaseOnTerminal(

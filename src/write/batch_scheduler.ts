@@ -11,6 +11,7 @@ export interface BatchWriter {
     base?: HashtreeBuild,
     signal?: AbortSignal,
   ): Promise<HashtreeBuild>;
+  close?(): Promise<void>;
 }
 
 export interface BatchClock {
@@ -88,15 +89,19 @@ export class PublicationBatchScheduler {
           undefined,
           this.#abort.signal,
         );
-        this.repository.recordPending(batch, {
-          batchId: batch.id,
-          generation: batch.generation,
-          rootHex: candidate.rootHex,
-          nhash: candidate.rootNhash,
-          blobCount: candidate.inventory.length,
-          totalBytes: candidate.totalBytes,
-        }, candidate.inventory);
-        candidate.transferOwnership(`batch:${batch.id}`);
+        this.repository.recordPending(
+          batch,
+          {
+            batchId: batch.id,
+            generation: batch.generation,
+            rootHex: candidate.rootHex,
+            nhash: candidate.rootNhash,
+            blobCount: candidate.inventory.length,
+            totalBytes: candidate.totalBytes,
+          },
+          candidate.inventory,
+          candidate.runId,
+        );
       } catch (error) {
         this.repository.markBatchFailed(batch.id);
         try {
@@ -122,5 +127,6 @@ export class PublicationBatchScheduler {
     if (this.#quiet !== undefined) this.clock.clearTimer(this.#quiet);
     if (this.#maximum !== undefined) this.clock.clearTimer(this.#maximum);
     await this.#serial;
+    await this.writer.close?.();
   }
 }

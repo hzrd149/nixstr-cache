@@ -399,3 +399,29 @@ Deno.test("atomic promotion is create-new complete and retry-idempotent", async 
     await Deno.remove(root, { recursive: true });
   }
 });
+
+Deno.test("distinct live quota charges current overlay and shared blobs once", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const repository = new WriteRepository(
+      `${root}/write.db`,
+      `${root}/spool`,
+      {
+        perBodyBytes: 10,
+        aggregateBytes: 20,
+      },
+    );
+    await repository.stage("nar/current", new Blob(["1234567890"]).stream());
+    repository.commitOverlayRoutes(["nar/current"]);
+    await repository.stage("nar/shared", new Blob(["1234567890"]).stream());
+    await repository.stage("nar/second", new Blob(["abcdefghij"]).stream());
+    await assertRejects(
+      () => repository.stage("nar/overflow", new Blob(["x"]).stream()),
+      RangeError,
+      "aggregate staging reservation unavailable",
+    );
+    repository.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});

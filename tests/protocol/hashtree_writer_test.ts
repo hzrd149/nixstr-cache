@@ -1,6 +1,8 @@
-import { assertEquals, assertGreater } from "@std/assert";
+import { assertEquals, assertGreater, assertRejects } from "@std/assert";
 import { FILE_CHUNK_BYTES, HashtreeWriter } from "../../src/hashtree/writer.ts";
 import { decodeManifest } from "../../src/protocol/hashtree.ts";
+import { WriteRepository } from "../../src/persistence/write_repository.ts";
+import { DatabaseSync } from "node:sqlite";
 
 Deno.test("canonical writer is deterministic, reader-compatible, and reuses blobs", async () => {
   const root = await Deno.makeTempDir();
@@ -45,6 +47,15 @@ Deno.test("canonical writer is deterministic, reader-compatible, and reuses blob
       false,
       "the final run owner must reclaim zero-owner content",
     );
+    await writer.close();
+    await writer.close();
+    await writer.build(input).then(
+      () => {
+        throw new Error("closed writer accepted a build");
+      },
+      (error) =>
+        assertEquals((error as Error).message, "hashtree writer is closed"),
+    );
     const artifacts = [...Deno.readDirSync(`${root}/trees`)].map((entry) =>
       entry.name
     );
@@ -52,6 +63,90 @@ Deno.test("canonical writer is deterministic, reader-compatible, and reuses blob
       artifacts.some((name) => name.startsWith("inventory-")),
       false,
     );
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("close build race drains active operation and rejects after closing", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const source = `${root}/source`;
+    await Deno.writeTextFile(source, "x");
+    const writer = new HashtreeWriter(`${root}/trees`, {
+      maxLinks: 2,
+      maxInventoryBlobs: 32,
+      maxInventoryBytes: 4096,
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => release = resolve);
+    const active = writer.build({
+      async *[Symbol.asyncIterator]() {
+        await gate;
+        yield { route: "a", path: source, size: 1 };
+      },
+    });
+    let closed = false;
+    const closing = writer.close().then(() => closed = true);
+    await Promise.resolve();
+    assertEquals(closed, false);
+    await assertRejects(
+      () => writer.build([]),
+      Error,
+      "hashtree writer is closed",
+    );
+    release();
+    await active;
+    await closing;
+    assertEquals(closed, true);
+    await writer.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("cleanup tombstone survives deletion failure and clears on retry", async () => {
+  const root = await Deno.makeTempDir();
+  const dbPath = `${root}/write.db`;
+  try {
+    const source = `${root}/source`;
+    await Deno.writeTextFile(source, "x");
+    let repository = new WriteRepository(
+      dbPath,
+      `${root}/spool`,
+      { perBodyBytes: 64, aggregateBytes: 1024 },
+      () => {
+        throw new Deno.errors.PermissionDenied("injected");
+      },
+    );
+    const writer = new HashtreeWriter(`${root}/trees`, {
+      maxLinks: 2,
+      maxInventoryBlobs: 32,
+      maxInventoryBytes: 4096,
+    }, repository);
+    const build = await writer.build([{ route: "a", path: source, size: 1 }]);
+    await build.dispose();
+    await writer.close();
+    repository.close();
+    let inspect = new DatabaseSync(dbPath, { readOnly: true });
+    assertEquals(
+      (inspect.prepare("SELECT COUNT(*) count FROM writer_run_cleanup")
+        .get() as { count: number }).count,
+      1,
+    );
+    inspect.close();
+    repository = new WriteRepository(dbPath, `${root}/spool`, {
+      perBodyBytes: 64,
+      aggregateBytes: 1024,
+    });
+    repository.close();
+    inspect = new DatabaseSync(dbPath, { readOnly: true });
+    assertEquals(
+      (inspect.prepare("SELECT COUNT(*) count FROM writer_run_cleanup")
+        .get() as { count: number }).count,
+      0,
+    );
+    inspect.close();
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -82,6 +177,8 @@ Deno.test("directory ordering is UTF-8 bytewise and fanout stays bounded", async
       manifest.links.every((link) => link.type === 2 || link.type === 3),
       true,
     );
+    await result.dispose();
+    await writer.close();
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -115,6 +212,9 @@ Deno.test("one-path updates reuse unchanged persistent blobs", async () => {
       ),
       true,
     );
+    await first.dispose();
+    await second.dispose();
+    await writer.close();
   } finally {
     await Deno.remove(root, { recursive: true });
   }

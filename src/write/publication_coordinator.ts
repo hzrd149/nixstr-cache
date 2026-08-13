@@ -249,7 +249,17 @@ export class PublicationCoordinator {
       });
     }
     if (!saga.admitted) {
-      o.selector.accept(saga.signedEvent!);
+      const event = saga.signedEvent!;
+      if (
+        !o.selector.current().some((selected) => selected.event.id === event.id)
+      ) {
+        o.selector.accept(event);
+      }
+      if (
+        !o.selector.current().some((selected) => selected.event.id === event.id)
+      ) {
+        throw new Error("committed publication was not admitted by selector");
+      }
       o.repository.markPublicationAdmitted(saga.batchId);
     }
     await this.#repair();

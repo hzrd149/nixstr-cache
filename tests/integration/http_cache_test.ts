@@ -266,6 +266,20 @@ Deno.test("startup|shutdown invalid startup has no durable or network side effec
   assertEquals(calls, []);
 });
 
+Deno.test("handler close is idempotent and rejects later lease acquisition", async () => {
+  const handler = createNixHttpHandler({
+    decodedMetadataBytes: 4096,
+    selection: { current: () => [] },
+    resolverFor: () => ({ resolve: () => Promise.reject(new Error("unused")) }),
+  });
+  handler.close();
+  handler.close();
+  assertEquals(
+    (await handler(new Request("http://cache/nix-cache-info"))).status,
+    503,
+  );
+});
+
 Deno.test("startup|shutdown restores before binding and releases lifecycle resources", async () => {
   const calls: string[] = [];
   const app = await createApp({

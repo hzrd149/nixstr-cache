@@ -1,7 +1,10 @@
 import { assertEquals, assertExists } from "@std/assert";
 import { RequestBudget, VerifiedAbsent } from "../../src/hashtree/reader.ts";
 import { createNixHttpHandler } from "../../src/nix/http_handler.ts";
-import { WinnerRouteRegistry } from "../../src/nix/merged_cache.ts";
+import {
+  SignerRouteRegistry,
+  WinnerRouteRegistry,
+} from "../../src/nix/merged_cache.ts";
 import type {
   MergedSelectionSnapshot,
   SelectedPublication,
@@ -102,6 +105,42 @@ Deno.test("agreement preserves duplicate signature occurrence order and exact HE
     String(encoder.encode(expected).length),
   );
   assertEquals(await head.text(), "");
+});
+
+Deno.test("pinned signer registry releases generation leases exactly once", () => {
+  let now = 0;
+  let released = 0;
+  let callback: (() => void) | undefined;
+  const registry = new SignerRouteRegistry(1, 10, () => now, {
+    set(fn) {
+      callback = fn;
+      return 1;
+    },
+    clear() {
+      callback = undefined;
+    },
+  });
+  const lease = (generation: number) => ({
+    snapshot: {
+      generation,
+      entries: new Map(),
+      storePaths: new Set<string>(),
+    },
+    release: () => released++,
+  });
+  registry.set("nar/one.nar", lease(1));
+  registry.set("nar/two.nar", lease(2));
+  assertEquals(released, 1);
+  const taken = registry.take("nar/two.nar");
+  taken?.release();
+  assertEquals(released, 2);
+  registry.set("nar/three.nar", lease(3));
+  now = 11;
+  callback?.();
+  assertEquals(released, 3);
+  registry.close();
+  registry.close();
+  assertEquals(released, 3);
 });
 
 Deno.test("conflict returns byte-identical winner and emits one redacted diagnostic per loser", async () => {

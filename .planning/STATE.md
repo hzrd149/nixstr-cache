@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 04
-status: completed
-stopped_at: Completed 04-04-PLAN.md
-last_updated: "2026-08-12T16:07:30.666Z"
+status: Awaiting next milestone
+stopped_at: Completed quick task 260812-osc
+last_updated: "2026-08-12T18:03:31.697Z"
 last_activity: 2026-08-12
-last_activity_desc: Phase 04 complete
+last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 4
   completed_phases: 4
   total_plans: 21
   completed_plans: 21
+current_phase: 04
 current_phase_name: Availability-Gated Publication Loop
 ---
 
@@ -23,16 +23,14 @@ current_phase_name: Availability-Gated Publication Loop
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** An unmodified Nix client can reliably read and publish a decentralized binary cache while preserving NIP.md trust, integrity, freshness, and bounded-resource guarantees.
-**Current focus:** Phase 04 — availability-gated publication loop
+**Current focus:** v1.0 MVP shipped; awaiting the next milestone. Human-readable console logging remains in the backlog.
 
 ## Current Position
 
-Phase: 04
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-08-12 — Phase 04 complete
-
-Progress: [██████████] 100%
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-08-12 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
@@ -81,6 +79,8 @@ Progress: [██████████] 100%
 | Phase 04 P02 | 9min | 2 tasks | 9 files |
 | Phase 04 P03 | 8min | 2 tasks | 6 files |
 | Phase 04 P04 | 11min | 3 tasks | 7 files |
+| Phase quick P260812-obg | 35min | 3 tasks | 11 files |
+| Phase quick P260812-osc | 24min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -139,6 +139,12 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Operational JSON is constructed field-by-field from a closed union; unknown properties and recursive errors are never traversed.
 - [Phase ?]: An empty write-ready cache returns 404 for stock Nix destination probes while read-only empty caches remain unavailable.
 - [Phase ?]: Long publication-expiration timers clamp to the signed 32-bit timer ceiling and recompute on wake.
+- [Quick 260812-nes]: Configured relay OK is the publication barrier; local relay forwarding follows selector admission and cannot delay saga admission.
+- [Quick 260812-nes]: Reclaim candidate content only after transient run and durable batch/history ownership both reach zero.
+- [Phase ?]: Candidate blob ownership is consolidated into WriteRepository so pending admission and durable batch ownership commit atomically.
+- [Phase ?]: Signer route pins own exact-generation leases through response terminal state.
+- [Phase ?]: Route registries are handler-owned disposable resources with timer-driven signer lease expiry.
+- [Phase ?]: Writer run index cleanup uses durable tombstones until SQLite, WAL, and SHM paths are absent.
 
 ### Pending Todos
 
@@ -146,10 +152,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 1]: Pin current BUD-16/17/18 revisions and supported Nix version during planning; proposal and CLI details may have changed.
-- [Phase 1]: Confirm an address-bound outbound transport strategy that closes DNS rebinding gaps while preserving HTTP Host and TLS SNI.
-- [Phase 3]: Confirm daemon-safe NIP-46 authorization and protected local-key lifecycle before enabling PUT.
-- [Phase 4]: Planning resolved concrete same-server Blossom proof, exact configured-relay OK acknowledgement, durable repair, and refresh policies; implementation remains pending.
+None for the shipped v1.0 milestone.
 
 ### Quick Tasks Completed
 
@@ -159,6 +162,7 @@ None yet.
 | 260812-kuw | Add deterministic in-process NIP-46 integration coverage | 2026-08-12 | 1209236 | [260812-kuw-add-deterministic-in-process-nip-46-inte](./quick/260812-kuw-add-deterministic-in-process-nip-46-inte/) |
 | 260812-mhi | Close milestone integration gaps for signing, restart recovery, and diagnostics | 2026-08-12 | b79030c | [260812-mhi-close-milestone-integration-gaps-nip-46-](./quick/260812-mhi-close-milestone-integration-gaps-nip-46-/) |
 | 260812-mw9 | Close bounded writer and staging security audit blockers | 2026-08-12 | 73dabe6 | [260812-mw9-close-security-audit-blockers-bounded-st](./quick/260812-mw9-close-security-audit-blockers-bounded-st/) |
+| 260812-nes | Close all actionable milestone review findings | 2026-08-12 | 8b06d81 | [260812-nes-close-all-actionable-milestone-review-fi](./quick/260812-nes-close-all-actionable-milestone-review-fi/) |
 
 ## Deferred Items
 
@@ -169,6 +173,10 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-12T16:43:40Z
-Stopped at: Completed quick task 260812-mw9
+Last session: 2026-08-12T17:57:55.713Z
+Stopped at: Completed quick task 260812-osc
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
