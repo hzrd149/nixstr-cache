@@ -963,7 +963,8 @@ Deno.test("writable-only signer NIP-65 discovery enables an empty cache", async 
       socket.onmessage = (message) => {
         const frame = JSON.parse(String(message.data));
         if (
-          frame[0] === "REQ" && frame.slice(2).some((filter: unknown) =>
+          frame[0] === "REQ" &&
+          frame.slice(2).some((filter: unknown) =>
             typeof filter === "object" && filter !== null &&
             (filter as { kinds?: number[] }).kinds?.includes(10002) &&
             (filter as { authors?: string[] }).authors?.includes(pubkey)
@@ -1005,7 +1006,10 @@ Deno.test("writable-only signer NIP-65 discovery enables an empty cache", async 
     await Promise.race([
       signerQuery,
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("signer NIP-65 query timed out")), 2000)
+        setTimeout(
+          () => reject(new Error("signer NIP-65 query timed out")),
+          2000,
+        )
       ),
     ]);
     events.next(finalizeEvent({
