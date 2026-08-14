@@ -9,6 +9,37 @@ class WriteRepository extends BaseWriteRepository {
   }
 }
 import { DatabaseSync } from "node:sqlite";
+import { BlobStore } from "../../src/persistence/blob_store.ts";
+
+Deno.test("canonical writer reuses pre-chunked shared-store components", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const store = new BlobStore(`${root}/catalog.sqlite`, `${root}/store`, {
+      capacityBytes: 4096,
+    });
+    const component = await store.admit(new TextEncoder().encode("component"), {
+      origin: "write",
+      owner: "route:nar/component.nar",
+      reserveBytes: 9,
+    });
+    const writer = new HashtreeWriter(`${root}/trees`, {
+      maxLinks: 2,
+      maxInventoryBlobs: 32,
+      maxInventoryBytes: 4096,
+    }, undefined, store);
+    const built = await writer.build([{
+      route: "nar/component.nar",
+      size: 9,
+      components: [{ index: 0, hash: component.hash, size: 9 }],
+    }]);
+    assertGreater(built.inventory.length, 1);
+    await built.dispose();
+    await writer.close();
+    store.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
 
 Deno.test("canonical writer is deterministic, reader-compatible, and reuses blobs", async () => {
   const root = await Deno.makeTempDir();

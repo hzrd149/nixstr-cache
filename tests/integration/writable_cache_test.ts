@@ -176,7 +176,10 @@ Deno.test("NAR staging records canonical content-addressed route components", as
       2_097_152,
       1,
     ]);
-    assertEquals(store.inventory().filter((x) => x.origin === "write").length, 2);
+    assertEquals(
+      store.inventory().filter((x) => x.origin === "write").length,
+      2,
+    );
     repository.close();
   } finally {
     await Deno.remove(root, { recursive: true });
