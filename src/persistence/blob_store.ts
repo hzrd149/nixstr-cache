@@ -483,6 +483,54 @@ export class BlobStore {
     ));
   }
 
+  commitRoute(
+    route: string,
+    size: number,
+    components: readonly RouteComponent[],
+    uploadOwner: string,
+  ): void {
+    this.#assertOpen();
+    const existing = this.routeComponents(route);
+    if (existing.length) {
+      if (
+        existing.length !== components.length ||
+        existing.some((item, index) =>
+          item.hash !== components[index].hash ||
+          item.size !== components[index].size
+        )
+      ) throw new Error("immutable route conflict");
+      this.releaseOwner(uploadOwner);
+      return;
+    }
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      const insert = this.#db.prepare(
+        "INSERT INTO blob_store_route_components(route,component_index,hash,size) VALUES(?,?,?,?)",
+      );
+      for (const item of components) {
+        validateHash(item.hash);
+        const owned = this.#db.prepare(
+          "SELECT 1 FROM blob_store_owners WHERE owner=? AND hash=?",
+        ).get(uploadOwner, item.hash);
+        if (!owned) throw new Error("upload component ownership missing");
+        insert.run(route, item.index, item.hash, item.size);
+        this.#db.prepare(
+          "INSERT OR IGNORE INTO blob_store_owners(owner,hash) VALUES(?,?)",
+        ).run(`route:${route}`, item.hash);
+      }
+      this.#db.prepare(
+        "INSERT INTO blob_store_routes(route,size,component_count) VALUES(?,?,?)",
+      ).run(route, size, components.length);
+      this.#db.prepare("DELETE FROM blob_store_owners WHERE owner=?").run(
+        uploadOwner,
+      );
+      this.#db.exec("COMMIT");
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   async migrateLegacy(
     options: LegacyMigrationOptions,
   ): Promise<LegacyMigrationReport> {

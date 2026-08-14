@@ -6,6 +6,7 @@ import { verifyEvent } from "nostr-tools";
 import type { CandidateBlob } from "../hashtree/writer.ts";
 import { validatePublication } from "../protocol/publication.ts";
 import { BlobStore, type BlobStoreOptions } from "./blob_store.ts";
+import { FILE_CHUNK_BYTES } from "../hashtree/writer.ts";
 
 export class WriteConflict extends Error {
   constructor() {
@@ -150,6 +151,7 @@ export class WriteRepository {
   #admittedGeneration = 0;
   readonly #writerSession = crypto.randomUUID();
   #active = false;
+  #blobStore?: BlobStore;
 
   constructor(
     databasePath: string,
@@ -284,7 +286,7 @@ export class WriteRepository {
 
   /** Shares this repository's SQLite transaction boundary with the blob catalog. */
   openBlobStore(root: string, options: BlobStoreOptions = {}): BlobStore {
-    return new BlobStore(this.#db, root, options);
+    return this.#blobStore ??= new BlobStore(this.#db, root, options);
   }
 
   #stagingHasContent(): boolean {
@@ -1391,6 +1393,9 @@ export class WriteRepository {
     signal?: AbortSignal,
     bodyCeiling = this.#limits.perBodyBytes,
   ): Promise<StagedBlob> {
+    if (route.startsWith("nar/")) {
+      return await this.#stageNarComponents(route, body, signal, bodyCeiling);
+    }
     const token = crypto.randomUUID();
     const temp = `${this.#root}/tmp/${token}`;
     this.#reserve(token);
@@ -1488,6 +1493,119 @@ export class WriteRepository {
     }
   }
 
+  async #stageNarComponents(
+    route: string,
+    body: ReadableStream<Uint8Array>,
+    signal?: AbortSignal,
+    bodyCeiling = this.#limits.perBodyBytes,
+  ): Promise<StagedBlob> {
+    const store = this.#blobStore ??= new BlobStore(
+      this.#db,
+      `${this.#root}/store`,
+      { capacityBytes: this.#limits.aggregateBytes },
+    );
+    const owner = `upload:${crypto.randomUUID()}`;
+    const reader = body.getReader();
+    const parts: Uint8Array[] = [];
+    const components: { index: number; hash: string; size: number }[] = [];
+    const whole = sha256.create();
+    let buffered = 0;
+    let total = 0;
+    const flush = async () => {
+      if (!buffered) return;
+      const bytes = new Uint8Array(buffered);
+      let offset = 0;
+      for (const part of parts) {
+        bytes.set(part, offset);
+        offset += part.length;
+      }
+      parts.length = 0;
+      buffered = 0;
+      let admitted;
+      try {
+        admitted = await store.admit(bytes, {
+          origin: "write",
+          owner,
+          reserveBytes: bytes.length,
+        });
+      } catch (error) {
+        if (
+          error instanceof RangeError &&
+          error.message === "blob store capacity unavailable"
+        ) throw new RangeError("aggregate staging reservation unavailable");
+        throw error;
+      }
+      components.push({
+        index: components.length,
+        hash: admitted.hash,
+        size: bytes.length,
+      });
+    };
+    try {
+      while (true) {
+        signal?.throwIfAborted();
+        const item = await reader.read();
+        if (item.done) break;
+        let offset = 0;
+        while (offset < item.value.length) {
+          const length = Math.min(
+            FILE_CHUNK_BYTES - buffered,
+            item.value.length - offset,
+          );
+          const part = item.value.slice(offset, offset + length);
+          parts.push(part);
+          buffered += length;
+          total += length;
+          if (total > Math.min(bodyCeiling, this.#limits.perBodyBytes)) {
+            throw new RangeError("body ceiling exceeded");
+          }
+          whole.update(part);
+          offset += length;
+          if (buffered === FILE_CHUNK_BYTES) await flush();
+        }
+      }
+      await flush();
+      const digest = whole.digest().toHex();
+      const existing = this.lookup(route);
+      if (existing) {
+        if (existing.digest !== digest || existing.size !== total) {
+          throw new WriteConflict();
+        }
+        store.releaseOwner(owner);
+        return Object.freeze({ ...existing, idempotent: true });
+      }
+      try {
+        store.commitRoute(route, total, components, owner);
+      } catch (error) {
+        if (
+          error instanceof Error && error.message === "immutable route conflict"
+        ) {
+          throw new WriteConflict();
+        }
+        throw error;
+      }
+      const path = components.length === 1
+        ? store.pathFor(components[0].hash)
+        : store.pathFor(components[0].hash);
+      this.#db.prepare(
+        "INSERT INTO staged_blobs(route,digest,size,path) VALUES(?,?,?,?)",
+      ).run(route, digest, total, path);
+      this.changes$.next(route);
+      return Object.freeze({
+        route,
+        digest,
+        size: total,
+        path,
+        idempotent: false,
+      });
+    } catch (error) {
+      store.releaseOwner(owner);
+      throw error;
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
   discard(route: string): void {
     const existing = this.lookup(route);
     if (!existing) return;
@@ -1544,6 +1662,7 @@ export class WriteRepository {
   }
   close(): void {
     this.changes$.complete();
+    this.#blobStore?.close();
     this.#db.close();
   }
 }
