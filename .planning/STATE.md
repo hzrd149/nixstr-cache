@@ -4,9 +4,9 @@ milestone: v1.0
 milestone_name: milestone
 status: Executing quick task 260813-tzo
 stopped_at: Completed 260813-tzo-03; Plan 04 is next
-last_updated: "2026-08-14T09:59:27.000Z"
+last_updated: "2026-08-14T10:24:00.000Z"
 last_activity: 2026-08-14
-last_activity_desc: "Completed quick task 260813-lgb: Add CLI signer overrides with pre-bind ncryptsec unlocking"
+last_activity_desc: "Completed quick task 260814-ff8: Remove startup requirements for non-empty caches and extraRelays"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -179,6 +179,7 @@ None for the shipped v1.0 milestone.
 | 260813-oq1 | Identify inbound local Nix HTTP requests and separate outbound IDs | 2026-08-13 | 18a9882 | [260813-oq1-make-inbound-nix-cache-http-debug-logs-c](./quick/260813-oq1-make-inbound-nix-cache-http-debug-logs-c/) |
 | 260813-p2w | Implement bounded daemon-wide verified Hashtree manifest cache | 2026-08-13 | f8a88df | [260813-p2w-implement-bounded-daemon-wide-in-memory-](./quick/260813-p2w-implement-bounded-daemon-wide-in-memory-/) |
 | 260813-qy6 | Log compact reactive cache and writable Hashtree state | 2026-08-13 | 706d0b2 | [260813-qy6-log-write-hashtree-state-and-reactive-ca](./quick/260813-qy6-log-write-hashtree-state-and-reactive-ca/) |
+| 260814-ff8 | Remove startup requirements for non-empty caches and extraRelays | 2026-08-14 | 33b97b8 | [260814-ff8-remove-startup-requirements-for-non-empt](./quick/260814-ff8-remove-startup-requirements-for-non-empt/) |
 
 ## Deferred Items
 
