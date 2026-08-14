@@ -135,9 +135,8 @@ Deno.test("staging failure diagnostic is typed secret-safe and non-authoritative
     }),
   );
   assertEquals(response.status, 503);
-  assertEquals(lines.length, 2);
+  assertEquals(lines.length, 1);
   assertStringIncludes(lines[0], "upload staging failed: staging_unavailable");
-  assertStringIncludes(lines[1], "PUT /nar/fail.nar -> 503");
   assertEquals(lines.some((line) => line.includes("secret")), false);
 
   const throwing = createNixHttpHandler({
@@ -194,13 +193,10 @@ Deno.test("empty cache preflight logs actionable write readiness reasons", async
   );
   assertEquals(response.status, 503);
   assertEquals(lines.length, 1);
-  assertStringIncludes(
-    lines[0],
-    "GET /0123456789abcdfghijklmnpqrsvwxyz.narinfo -> 503",
-  );
-  assertStringIncludes(
-    lines[0],
-    "reason=no_read_sources,write_activation_failed",
+  assertEquals(
+    /^1970-01-01T00:00:00\.000Z ERROR GET \/0123456789abcdfghijklmnpqrsvwxyz\.narinfo -> 503 duration=\d+ms$/
+      .test(lines[0]),
+    true,
   );
 });
 
@@ -377,7 +373,7 @@ Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are co
     },
     {
       type: "hashtree_nar",
-      code: "nar_served",
+      code: "nar_resolution_failed",
       method: "GET",
       path: "nar/demo.nar?secret=hidden",
       cacheIdentity: `17091:${"a".repeat(64)}:`,
@@ -434,7 +430,8 @@ Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are co
   assertStringIncludes(lines[11], "cache selection changed");
   assertStringIncludes(lines[12], "package metadata loaded from cache");
   assertEquals(lines[12].includes("secret"), false);
-  assertStringIncludes(lines[13], "NAR served from Hashtree cache");
+  assertStringIncludes(lines[13], "NAR resolution failed in Hashtree cache");
+  assertStringIncludes(lines[13], "WARN");
   assertStringIncludes(lines[13], "route=pinned");
   assertEquals(lines[13].includes("secret"), false);
   assertStringIncludes(lines[14], "writable.enabled was honored");

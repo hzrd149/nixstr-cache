@@ -21,12 +21,17 @@ export interface AppDependencies {
   createHandler(
     selection: DisposableSelection,
     config: ValidatedConfig,
-  ): (request: Request) => Response | Promise<Response>;
+  ): HttpHandler;
 }
+
+export type HttpHandler = (
+  request: Request,
+  info?: Pick<Deno.ServeHandlerInfo, "completed">,
+) => Response | Promise<Response>;
 
 export interface DaemonApp {
   readonly config: ValidatedConfig;
-  readonly handler: (request: Request) => Response | Promise<Response>;
+  readonly handler: HttpHandler;
   readyBeforeBind(): Promise<void>;
   closeResources(): Promise<void>;
 }
@@ -89,7 +94,7 @@ export interface Listener {
   shutdown(): Promise<void>;
 }
 export type Bind = (
-  handler: (request: Request) => Response | Promise<Response>,
+  handler: HttpHandler,
   options: { hostname: string; port: number; signal: AbortSignal },
 ) => Listener;
 
@@ -119,7 +124,7 @@ export function startApp(
 }
 
 function denoBind(
-  handler: (request: Request) => Response | Promise<Response>,
+  handler: HttpHandler,
   options: { hostname: string; port: number; signal: AbortSignal },
 ): Listener {
   const server = Deno.serve(options, handler);

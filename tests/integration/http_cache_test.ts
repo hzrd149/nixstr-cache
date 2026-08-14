@@ -6,6 +6,7 @@ import { createApp, startApp } from "../../src/app.ts";
 import { launchDaemon } from "../../src/runtime/daemon.ts";
 import { Subject } from "rxjs";
 import type { RawPublication } from "../../src/protocol/publication.ts";
+import { createConsoleDiagnosticSink } from "../../src/operations/diagnostics.ts";
 
 const encoder = new TextEncoder();
 const narinfo = [
@@ -41,10 +42,15 @@ function snapshot(id: string): SelectedPublication {
 
 Deno.test("metadata bound|GET/HEAD: route classes preserve metadata and stream NAR", async () => {
   let finalGets = 0;
+  const accessLogs: string[] = [];
   const selected = snapshot("old");
   const handler = createNixHttpHandler({
     decodedMetadataBytes: encoder.encode(narinfo).length,
     selection: { current: () => [selected] },
+    operationalDiagnostics: createConsoleDiagnosticSink({
+      write: (line) => accessLogs.push(line),
+      now: () => 0,
+    }),
     resolverFor: () => ({
       resolve: (_root, path, method) => {
         if (path.endsWith(".narinfo")) {
@@ -98,6 +104,61 @@ Deno.test("metadata bound|GET/HEAD: route classes preserve metadata and stream N
     "nar",
   );
   assertEquals(finalGets, 1);
+  const narinfoLogs = accessLogs.filter((line) => line.includes(".narinfo"));
+  assertEquals(narinfoLogs.length, 2);
+  assertEquals(
+    /^1970-01-01T00:00:00\.000Z INFO {2}GET \/0123456789abcdfghijklmnpqrsvwxyz\.narinfo -> 200 duration=\d+ms$/
+      .test(narinfoLogs[0]),
+    true,
+  );
+  assertEquals(
+    /^1970-01-01T00:00:00\.000Z INFO {2}HEAD \/0123456789abcdfghijklmnpqrsvwxyz\.narinfo -> 200 duration=\d+ms$/
+      .test(narinfoLogs[1]),
+    true,
+  );
+});
+
+Deno.test("GET access logging is immediate while transport completion drives cancellation", async () => {
+  const completed = Promise.withResolvers<void>();
+  const accessLogs: string[] = [];
+  let signal: AbortSignal | undefined;
+  const handler = createNixHttpHandler({
+    decodedMetadataBytes: 4096,
+    selection: { current: () => [snapshot("x")] },
+    operationalDiagnostics: createConsoleDiagnosticSink({
+      write: (line) => accessLogs.push(line),
+      now: () => 0,
+    }),
+    resolverFor: () => ({
+      resolve: (_root, _path, _method, _budget, requestSignal) => {
+        signal = requestSignal;
+        return Promise.resolve({
+          hash: "x",
+          size: 3,
+          type: 0,
+          body: new Blob([encoder.encode("nar")]).stream(),
+        });
+      },
+    }),
+  });
+
+  const response = await handler(
+    new Request("http://cache/nar/demo.nar"),
+    { completed: completed.promise },
+  );
+  assertEquals(accessLogs.length, 1);
+  assertEquals(
+    /^1970-01-01T00:00:00\.000Z INFO {2}GET \/nar\/demo\.nar -> 200 duration=\d+ms$/
+      .test(accessLogs[0]),
+    true,
+  );
+  assertEquals(await response.text(), "nar");
+  assertEquals(signal?.aborted, false);
+
+  completed.reject(new Error("client disconnected"));
+  await Promise.resolve();
+  assertEquals(signal?.aborted, true);
+  assertEquals(accessLogs.length, 1);
 });
 
 Deno.test("http cache request captures one immutable selection before awaits", async () => {

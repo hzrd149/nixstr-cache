@@ -131,6 +131,7 @@ Deno.test("NAR sourcing debug is emitted only for an in-tree resolution failure"
     root: { hex: "0".repeat(64) },
   } as SelectedPublication;
   const calls: unknown[][] = [];
+  const operational: unknown[] = [];
   const original = console.debug;
   console.debug = (...args: unknown[]) => calls.push(args);
   debugHttpRoute.enabled = true;
@@ -138,6 +139,7 @@ Deno.test("NAR sourcing debug is emitted only for an in-tree resolution failure"
     const handler = createNixHttpHandler({
       decodedMetadataBytes: 4096,
       selection: { current: () => [publication] },
+      operationalDiagnostics: { emit: (item) => operational.push(item) },
       resolverFor: () => ({
         resolve: (_root, path) =>
           Promise.reject(
@@ -172,5 +174,20 @@ Deno.test("NAR sourcing debug is emitted only for an in-tree resolution failure"
   assertEquals(
     String(sourcing[0][0]).replace(/requestId=\d+/, "requestId=<id>"),
     "nixstr:http:route NAR source resolution failed requestId=<id> path=nar/present.nar sources=https://one.example,https://two.example",
+  );
+  assertEquals(
+    operational.filter((item) =>
+      (item as { type?: string }).type === "hashtree_nar"
+    ),
+    [{
+      type: "hashtree_nar",
+      code: "nar_resolution_failed",
+      method: "GET",
+      path: "nar/present.nar",
+      cacheIdentity: `17091:${"a".repeat(64)}:`,
+      rootHash: "0".repeat(64),
+      eventId: "e",
+      route: "fallback",
+    }],
   );
 });

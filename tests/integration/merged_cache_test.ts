@@ -98,17 +98,22 @@ Deno.test("agreement preserves duplicate signature occurrence order and exact HE
   const response = await handler(new Request(`http://cache/${hash}.narinfo`));
   const expected = record([sig, "System: x86_64-linux", sig, sig]);
   assertEquals(await response.text(), expected);
-  assertEquals(operational[0], {
-    type: "cache_package",
-    code: "narinfo_loaded",
-    storePathHash: hash,
-    narPath: "nar/winner.nar",
-    winnerIdentity: `17091:${"a".repeat(64)}:`,
-    providerIdentities: [
-      `17091:${"a".repeat(64)}:`,
-      `17091:${"b".repeat(64)}:`,
-    ],
-  });
+  assertEquals(
+    operational.find((item) =>
+      (item as { type?: string }).type === "cache_package"
+    ),
+    {
+      type: "cache_package",
+      code: "narinfo_loaded",
+      storePathHash: hash,
+      narPath: "nar/winner.nar",
+      winnerIdentity: `17091:${"a".repeat(64)}:`,
+      providerIdentities: [
+        `17091:${"a".repeat(64)}:`,
+        `17091:${"b".repeat(64)}:`,
+      ],
+    },
+  );
   assertEquals(budgets.size, 1);
   const head = await handler(
     new Request(`http://cache/${hash}.narinfo`, { method: "HEAD" }),
@@ -245,19 +250,10 @@ Deno.test("winner route remains pinned across selection update and registry evic
     "old",
   );
   assertEquals(
-    operational.find((item) =>
+    operational.some((item) =>
       (item as { type?: string }).type === "hashtree_nar"
     ),
-    {
-      type: "hashtree_nar",
-      code: "nar_served",
-      method: "GET",
-      path: "nar/winner.nar",
-      cacheIdentity: `17091:${"a".repeat(64)}:`,
-      rootHash: old.root.hex,
-      eventId: "old",
-      route: "pinned",
-    },
+    false,
   );
   assertExists(registry.get("nar/winner.nar"));
   registry.set("nar/other.nar", fresh);

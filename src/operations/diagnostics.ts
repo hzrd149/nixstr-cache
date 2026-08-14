@@ -100,12 +100,11 @@ export type OperationalDiagnostic =
   }
   | {
     readonly type: "http_request";
-    readonly code: "request_completed";
-    readonly method: string;
+    readonly code: "request_handled";
+    readonly method: "GET" | "HEAD";
     readonly path: string;
     readonly status: number;
     readonly durationMs: number;
-    readonly reasons?: readonly string[];
   }
   | {
     readonly type: "write_transition";
@@ -140,6 +139,7 @@ export type OperationalDiagnostic =
     readonly code: "cache_selection_found" | "cache_selection_changed";
     readonly count: number;
     readonly caches: readonly string[];
+    readonly htreeLinks?: readonly string[];
   }
   | {
     readonly type: "cache_package";
@@ -151,7 +151,7 @@ export type OperationalDiagnostic =
   }
   | {
     readonly type: "hashtree_nar";
-    readonly code: "nar_served";
+    readonly code: "nar_resolution_failed";
     readonly method: "GET" | "HEAD";
     readonly path: string;
     readonly cacheIdentity: string;
@@ -197,6 +197,14 @@ function safeIdentity(value: string): string {
     if (code <= 0x1f || code === 0x7f) return "invalid";
   }
   return /^(?:17091|37091):[0-9a-f]{64}:.{0,64}$/.test(value)
+    ? value
+    : "invalid";
+}
+
+function safeHtreeLink(value: string): string {
+  return /^htree:\/\/nhash1[023456789acdefghjklmnpqrstuvwxyz]{6,120}$/.test(
+      value,
+    )
     ? value
     : "invalid";
 }
@@ -321,7 +329,6 @@ export function formatOperationalDiagnostic(
         : "INFO";
       message = `${item.method} ${safePath(item.path)} -> ${item.status}`;
       fields.push(`duration=${item.durationMs}ms`);
-      if (item.reasons?.length) fields.push(`reason=${item.reasons.join(",")}`);
       break;
     case "write_transition":
       level = item.status === "failed" ? "ERROR" : "INFO";
@@ -382,6 +389,9 @@ export function formatOperationalDiagnostic(
       if (item.caches.length) {
         fields.push(`identities=${item.caches.map(safeIdentity).join(",")}`);
       }
+      if (item.htreeLinks?.length) {
+        fields.push(`htrees: ${item.htreeLinks.map(safeHtreeLink).join(",")}`);
+      }
       break;
     case "cache_package":
       message = "package metadata loaded from cache";
@@ -393,7 +403,8 @@ export function formatOperationalDiagnostic(
       );
       break;
     case "hashtree_nar":
-      message = "NAR served from Hashtree cache";
+      level = "WARN";
+      message = "NAR resolution failed in Hashtree cache";
       fields.push(
         `method=${item.method}`,
         `path=${safePath(item.path)}`,

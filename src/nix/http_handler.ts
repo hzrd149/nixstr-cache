@@ -115,6 +115,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
   const handleRequest = async (
     request: Request,
     trace: number,
+    cancellation: AbortSignal,
   ): Promise<Response> => {
     if (closed) {
       debugHttpRoute("handler closed", { requestId: trace });
@@ -193,7 +194,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
         const staged = await readiness.repository.stage(
           route,
           request.body,
-          request.signal,
+          cancellation,
           narinfoMatch ? dependencies.decodedMetadataBytes : undefined,
         );
         if (narinfoMatch) {
@@ -279,6 +280,8 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
     }
     const path = narinfoMatch ? `${narinfoMatch[1]}.narinfo` : narMatch![1];
     let releaseOverlay: (() => void) | undefined;
+    let servingPublication: SelectedPublication | undefined;
+    let servingRoute: "pinned" | "fallback" = "fallback";
     try {
       if (narinfoMatch) {
         const signerEntry = overlaySnapshot?.entries.get(path);
@@ -303,7 +306,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           path,
           storePathHash: narinfoMatch[1],
           budget: (dependencies.budgetFor ?? defaultBudget)(),
-          signal: request.signal,
+          signal: cancellation,
           decodedMetadataBytes: dependencies.decodedMetadataBytes,
           resolverFor: dependencies.resolverFor,
           diagnostics: dependencies.diagnostics,
@@ -361,47 +364,33 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           .resolve("", path, request.method);
       }
       const pinned = routes.get(path);
-      let servingPublication: SelectedPublication | undefined;
-      let servingRoute: "pinned" | "fallback" = "fallback";
       if (!resolved && pinned) {
+        servingPublication = pinned;
+        servingRoute = "pinned";
         resolved = await dependencies.resolverFor(pinned).resolve(
           pinned.root.hex,
           path,
           request.method,
           budget,
-          request.signal,
+          cancellation,
         );
-        servingPublication = pinned;
-        servingRoute = "pinned";
       } else if (!resolved) {
         for (const publication of snapshot) {
           try {
+            servingPublication = publication;
             resolved = await dependencies.resolverFor(publication).resolve(
               publication.root.hex,
               path,
               request.method,
               budget,
-              request.signal,
+              cancellation,
             );
-            servingPublication = publication;
             break;
           } catch (error) {
             if (!(error instanceof VerifiedAbsent)) throw error;
           }
         }
         if (!resolved) throw new VerifiedAbsent(path);
-      }
-      if (servingPublication) {
-        emitOperational({
-          type: "hashtree_nar",
-          code: "nar_served",
-          method: request.method,
-          path,
-          cacheIdentity: cacheIdentity(servingPublication),
-          rootHash: servingPublication.root.hex,
-          eventId: servingPublication.event.id,
-          route: servingRoute,
-        });
       }
       if (request.method === "HEAD") {
         releaseOverlay?.();
@@ -424,6 +413,18 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
     } catch (error) {
       releaseOverlay?.();
       if (narMatch && error instanceof NarResolutionFailed) {
+        if (servingPublication) {
+          emitOperational({
+            type: "hashtree_nar",
+            code: "nar_resolution_failed",
+            method: request.method,
+            path,
+            cacheIdentity: cacheIdentity(servingPublication),
+            rootHash: servingPublication.root.hex,
+            eventId: servingPublication.event.id,
+            route: servingRoute,
+          });
+        }
         debugHttpRoute("NAR source resolution failed", {
           requestId: trace,
           path,
@@ -442,33 +443,30 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       return mapped(error);
     }
   };
-  const handler = async (request: Request): Promise<Response> => {
+  const handler = async (
+    request: Request,
+    info?: Pick<Deno.ServeHandlerInfo, "completed">,
+  ): Promise<Response> => {
     const trace = inboundRequestId();
     const started = Date.now();
     const url = new URL(request.url);
     const listener = debugEndpoint(url.origin);
+    let cancellation: AbortController | undefined;
+    if (info) {
+      const controller = new AbortController();
+      cancellation = controller;
+      // ServeHandlerInfo.completed rejects when the client disconnects or the
+      // response write fails. Derive request-work cancellation from that
+      // mode-independent lifecycle signal instead of Deno's legacy
+      // request.signal behavior.
+      void info.completed.catch((error) => controller.abort(error));
+    }
     let status = 500;
     let reasons: readonly string[] | undefined;
-    try {
-      debugHttpRequest("started", {
-        direction: "inbound",
-        inboundId: trace,
-        listener,
-        method: request.method,
-        path: debugPath(url.pathname),
-      });
-      const response = await handleRequest(request, trace);
-      status = response.status;
-      if (status === 503 && dependencies.health) {
-        const health = dependencies.health.current();
-        reasons = [
-          ...health.process.reasons,
-          ...health.read.reasons,
-          ...health.write.reasons,
-        ];
-      }
-      return response;
-    } finally {
+    let finalized = false;
+    const finalize = () => {
+      if (finalized) return;
+      finalized = true;
       debugHttpRequest("completed", {
         direction: "inbound",
         inboundId: trace,
@@ -479,15 +477,53 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
         durationMs: Math.max(0, Date.now() - started),
         ...(reasons?.length ? { reasons } : {}),
       });
-      emitOperational({
-        type: "http_request",
-        code: "request_completed",
+    };
+    try {
+      debugHttpRequest("started", {
+        direction: "inbound",
+        inboundId: trace,
+        listener,
         method: request.method,
-        path: new URL(request.url).pathname,
-        status,
-        durationMs: Math.max(0, Date.now() - started),
-        reasons,
+        path: debugPath(url.pathname),
       });
+      const response = await handleRequest(
+        request,
+        trace,
+        cancellation?.signal ?? request.signal,
+      );
+      status = response.status;
+      if (status === 503 && dependencies.health) {
+        const health = dependencies.health.current();
+        reasons = [
+          ...health.process.reasons,
+          ...health.read.reasons,
+          ...health.write.reasons,
+        ];
+      }
+      return response;
+    } catch (error) {
+      finalize();
+      throw error;
+    } finally {
+      if (request.method === "GET" || request.method === "HEAD") {
+        emitOperational({
+          type: "http_request",
+          code: "request_handled",
+          method: request.method,
+          path: url.pathname,
+          status,
+          durationMs: Math.max(0, Date.now() - started),
+        });
+      }
+      if (info) {
+        // A handler return only starts delivery for streaming responses. Deno's
+        // completion promise is the lifecycle boundary for successful delivery
+        // (and rejects on disconnect/write failure), independent of abort mode.
+        void info.completed.then(finalize, finalize);
+      } else {
+        // Direct handler calls in tests and embedders have no transport phase.
+        finalize();
+      }
     }
   };
   return Object.assign(handler, {
