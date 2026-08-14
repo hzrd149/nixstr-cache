@@ -368,9 +368,11 @@ Deno.test("empty read-only config keeps bootstrap relays and serves 503", async 
       bootstrapRelays: [],
     });
     assert(!noBootstrap.ok);
-    assert(noBootstrap.diagnostics.some((item) =>
-      item.field === "bootstrapRelays" && item.code === "required"
-    ));
+    assert(
+      noBootstrap.diagnostics.some((item) =>
+        item.field === "bootstrapRelays" && item.code === "required"
+      ),
+    );
 
     const result = await launchDaemon({
       databasePath: `${root}/daemon.sqlite`,

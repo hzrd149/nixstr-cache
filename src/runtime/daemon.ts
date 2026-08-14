@@ -76,7 +76,6 @@ interface WriteBlossomDestination {
 }
 
 function writeBlossomDestinations(
-  config: ValidatedConfig,
   bud03: readonly string[],
 ): readonly WriteBlossomDestination[] {
   const ordered: Array<[string | URL, WriteBlossomDestination["trust"]]> = [];
@@ -516,13 +515,13 @@ export function createProductionDependencies(
         }
         : undefined;
       let eligibility: EligibilityModel | undefined;
-      let writeDestinations = writeBlossomDestinations(config, []);
+      let writeDestinations = writeBlossomDestinations([]);
       let previousWriteDestinations = "";
       const refreshWriteBlossomServers = (pubkey: string) => {
         const next =
           (selection as unknown as import("../nostr/selection.ts").PublicationSelector)
             .blossomServersFor(pubkey);
-        const destinations = writeBlossomDestinations(config, next);
+        const destinations = writeBlossomDestinations(next);
         const encoded = JSON.stringify(destinations);
         if (encoded !== previousWriteDestinations) {
           previousWriteDestinations = encoded;
