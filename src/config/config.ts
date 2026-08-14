@@ -59,6 +59,7 @@ export interface RawWritableConfig {
   readonly publication?: {
     readonly nixSigKeys?: string | readonly string[];
     readonly lifetimeSeconds?: string | number;
+    readonly quietSeconds?: string | number;
     readonly localRelayUrl?: string;
     readonly concurrency?: string | number;
     readonly maxAttempts?: string | number;
@@ -131,6 +132,7 @@ export type ValidatedWritableConfig =
     readonly publication: {
       readonly nixSigKeys: readonly string[];
       readonly lifetimeSeconds: number;
+      readonly quietSeconds: number;
       readonly localRelayUrl?: URL;
       readonly concurrency: number;
       readonly maxAttempts: number;
@@ -581,6 +583,15 @@ export function parseConfig(
     31_536_000,
     diagnostics,
   );
+  const publicationQuietSeconds = parseBoundedPositive(
+    writableEnabled
+      ? stringNumber(writableRaw?.publication?.quietSeconds)
+      : undefined,
+    "writable.publication.quietSeconds",
+    5,
+    60,
+    diagnostics,
+  );
   const publicationConcurrency = parseBoundedPositive(
     writableEnabled
       ? stringNumber(writableRaw?.publication?.concurrency)
@@ -699,6 +710,7 @@ export function parseConfig(
       publication: Object.freeze({
         nixSigKeys: Object.freeze([...nixSigKeys]),
         lifetimeSeconds: publicationLifetimeSeconds,
+        quietSeconds: publicationQuietSeconds,
         ...(localRelayUrl ? { localRelayUrl } : {}),
         concurrency: publicationConcurrency,
         maxAttempts: publicationMaxAttempts,

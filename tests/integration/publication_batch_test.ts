@@ -113,6 +113,51 @@ Deno.test("quiet window builds one unpublished pending candidate", async () => {
   }
 });
 
+Deno.test("configured quiet delay logs one successful publication claim", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const repository = new WriteRepository(
+      `${root}/write.db`,
+      `${root}/spool`,
+      { perBodyBytes: 4096, aggregateBytes: 65536 },
+    );
+    await repository.stage("one", new Blob(["1"]).stream());
+    const generation = repository.commitOverlayRoutes(["one"]);
+    const clock = new FakeClock();
+    const seen: unknown[] = [];
+    const scheduler = new PublicationBatchScheduler(
+      repository,
+      new HashtreeWriter(`${root}/trees`, {
+        maxLinks: 174,
+        maxInventoryBlobs: 100,
+        maxInventoryBytes: 65536,
+      }, repository),
+      clock,
+      { emit: (item) => seen.push(item) },
+      undefined,
+      9_000,
+    );
+    scheduler.dirty(generation);
+    await clock.advance(8_999);
+    assertEquals(repository.pendingCandidate(), undefined);
+    assertEquals(seen, []);
+    await clock.advance(1);
+    await scheduler.idle();
+    assertEquals(seen, [{
+      type: "publication_window",
+      code: "publication_window_elapsed",
+      trigger: "quiet",
+      batchId: 1,
+      generation,
+      count: 1,
+    }]);
+    await scheduler.close();
+    repository.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
 Deno.test("pending publication inventory includes every staged NAR component", async () => {
   const root = await Deno.makeTempDir();
   try {
@@ -178,6 +223,7 @@ Deno.test("sustained windows race safely and builds serialize across restart", a
     await repository.stage("one", new Blob(["1"]).stream());
     const one = repository.commitOverlayRoutes(["one"]);
     const clock = new FakeClock();
+    const seen: unknown[] = [];
     const scheduler = new PublicationBatchScheduler(
       repository,
       new HashtreeWriter(`${root}/trees`, {
@@ -186,6 +232,7 @@ Deno.test("sustained windows race safely and builds serialize across restart", a
         maxInventoryBytes: 65536,
       }, repository),
       clock,
+      { emit: (item) => seen.push(item) },
     );
     for (let elapsed = 0; elapsed < 60_000; elapsed += 4_000) {
       scheduler.dirty(one);
@@ -193,6 +240,14 @@ Deno.test("sustained windows race safely and builds serialize across restart", a
     }
     await scheduler.idle();
     assertEquals(repository.batches().length, 1);
+    assertEquals(seen, [{
+      type: "publication_window",
+      code: "publication_window_elapsed",
+      trigger: "maximum",
+      batchId: 1,
+      generation: one,
+      count: 1,
+    }]);
     scheduler.dirty(one);
     await clock.advance(5_000);
     await scheduler.idle();
@@ -329,12 +384,22 @@ Deno.test("batch build failure diagnostic is typed and preserves durable retry",
     await clock.advance(5_000);
     await scheduler.idle().catch(() => {});
     assertEquals(repository.batches().map((batch) => batch.status), ["failed"]);
-    assertEquals(seen, [{
-      type: "batch_build_failure",
-      code: "hashtree_build_failed",
-      batchId: 1,
-      count: 1,
-    }]);
+    assertEquals(seen, [
+      {
+        type: "publication_window",
+        code: "publication_window_elapsed",
+        trigger: "quiet",
+        batchId: 1,
+        generation,
+        count: 1,
+      },
+      {
+        type: "batch_build_failure",
+        code: "hashtree_build_failed",
+        batchId: 1,
+        count: 1,
+      },
+    ]);
     await scheduler.close().catch(() => {});
     repository.close();
   } finally {

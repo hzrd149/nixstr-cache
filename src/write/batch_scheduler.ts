@@ -50,6 +50,7 @@ export class PublicationBatchScheduler {
     readonly clock: BatchClock = systemClock,
     readonly diagnostics?: OperationalDiagnosticSink,
     readonly stateDebug: WritableStateDebug = debugWriteHashtreeState,
+    readonly quietDelayMs = 5_000,
   ) {
     const pending = repository.pendingCandidate();
     if (pending) this.#logPending(pending);
@@ -70,21 +71,33 @@ export class PublicationBatchScheduler {
     if (this.#quiet !== undefined) this.clock.clearTimer(this.#quiet);
     if (this.#maximum !== undefined) this.clock.clearTimer(this.#maximum);
     this.#quiet = this.clock.setTimer(
-      () => this.#fire(window.token),
-      Math.max(0, window.lastDirtyAt + 5_000 - this.clock.now),
+      () => this.#fire(window.token, "quiet"),
+      Math.max(0, window.lastDirtyAt + this.quietDelayMs - this.clock.now),
     );
     this.#maximum = this.clock.setTimer(
-      () => this.#fire(window.token),
+      () => this.#fire(window.token, "maximum"),
       Math.max(0, window.openedAt + 60_000 - this.clock.now),
     );
   }
-  #fire(token: number): void {
+  #fire(token: number, trigger: "quiet" | "maximum"): void {
     if (this.#closed) return;
     if (this.#quiet !== undefined) this.clock.clearTimer(this.#quiet);
     if (this.#maximum !== undefined) this.clock.clearTimer(this.#maximum);
     this.#quiet = this.#maximum = undefined;
     const batch = this.repository.claimPublicationBatch(token);
-    if (batch) this.#enqueue(batch);
+    if (batch) {
+      try {
+        this.diagnostics?.emit({
+          type: "publication_window",
+          code: "publication_window_elapsed",
+          trigger,
+          batchId: batch.id,
+          generation: batch.generation,
+          count: batch.entryCount,
+        });
+      } catch { /* diagnostics are non-authoritative */ }
+      this.#enqueue(batch);
+    }
   }
   #enqueue(batch: FrozenBatch): void {
     this.#serial = this.#serial.catch(() => {}).then(async () => {

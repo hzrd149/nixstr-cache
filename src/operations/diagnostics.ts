@@ -42,6 +42,14 @@ export type OperationalDiagnostic =
     readonly count: number;
   }
   | {
+    readonly type: "publication_window";
+    readonly code: "publication_window_elapsed";
+    readonly trigger: "quiet" | "maximum";
+    readonly batchId: number;
+    readonly generation: number;
+    readonly count: number;
+  }
+  | {
     readonly type: "event_rejection";
     readonly code: string;
     readonly eventId?: string;
@@ -251,6 +259,15 @@ export function formatOperationalDiagnostic(
       level = "ERROR";
       message = "cache tree build failed";
       fields.push(`batch=${item.batchId}`, `entries=${item.count}`);
+      break;
+    case "publication_window":
+      message = "publication delay elapsed; starting Hashtree publication";
+      fields.push(
+        `trigger=${item.trigger}`,
+        `batch=${item.batchId}`,
+        `generation=${item.generation}`,
+        `entries=${item.count}`,
+      );
       break;
     case "event_rejection":
       level = "WARN";

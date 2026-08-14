@@ -645,6 +645,8 @@ export function createProductionDependencies(
           ),
           undefined,
           diagnostics,
+          undefined,
+          writable!.publication.quietSeconds * 1_000,
         );
         let lastDirtiedGeneration = writeRepository.activePublicationWindow()
           ?.generation ?? 0;

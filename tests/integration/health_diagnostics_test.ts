@@ -23,6 +23,25 @@ const secretCorpus = [
   "query-secret",
 ];
 
+Deno.test("publication window claim is visible in normal console output", () => {
+  const lines: string[] = [];
+  const sink = createConsoleDiagnosticSink({
+    write: (line) => lines.push(line),
+    now: () => 0,
+  });
+  sink.emit({
+    type: "publication_window",
+    code: "publication_window_elapsed",
+    trigger: "quiet",
+    batchId: 3,
+    generation: 8,
+    count: 4,
+  });
+  assertEquals(lines, [
+    "1970-01-01T00:00:00.000Z INFO  publication delay elapsed; starting Hashtree publication trigger=quiet batch=3 generation=8 entries=4",
+  ]);
+});
+
 function healthInputs(overrides: Partial<HealthInputs> = {}): HealthInputs {
   return {
     process: { repositoryHealthy: true, fatalCode: undefined },

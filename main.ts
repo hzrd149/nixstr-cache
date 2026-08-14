@@ -377,6 +377,7 @@ function writableFromEnvironment(
     publication: {
       nixSigKeys: e.NIXSTR_WRITABLE_PUBLICATION_NIX_SIG_KEYS,
       lifetimeSeconds: e.NIXSTR_WRITABLE_PUBLICATION_LIFETIME_SECONDS,
+      quietSeconds: e.NIXSTR_WRITABLE_PUBLICATION_QUIET_SECONDS,
       localRelayUrl: e.NIXSTR_WRITABLE_PUBLICATION_LOCAL_RELAY_URL,
       concurrency: e.NIXSTR_WRITABLE_PUBLICATION_CONCURRENCY,
       maxAttempts: e.NIXSTR_WRITABLE_PUBLICATION_MAX_ATTEMPTS,
@@ -456,6 +457,7 @@ function validateWritableJson(value: unknown): void {
     publication: {
       nixSigKeys: "array",
       lifetimeSeconds: "number",
+      quietSeconds: "number",
       localRelayUrl: "string",
       concurrency: "number",
       maxAttempts: "number",

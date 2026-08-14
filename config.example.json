@@ -21,6 +21,9 @@
     "signer": {
       "type": "ncryptsec",
       "ncryptsec": "ncryptsec1REPLACE_WITH_YOUR_ENCRYPTED_SECRET"
+    },
+    "publication": {
+      "quietSeconds": 5
     }
   },
   "limits": {

@@ -673,6 +673,7 @@ Deno.test("publication policy is canonical bounded and explicitly mapped", () =>
     NIXSTR_WRITABLE_PUBLICATION_NIX_SIG_KEYS:
       "cache-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=,other-1:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
     NIXSTR_WRITABLE_PUBLICATION_LIFETIME_SECONDS: "86400",
+    NIXSTR_WRITABLE_PUBLICATION_QUIET_SECONDS: "9",
     NIXSTR_WRITABLE_PUBLICATION_LOCAL_RELAY_URL: "ws://127.0.0.1:7447",
     NIXSTR_WRITABLE_PUBLICATION_CONCURRENCY: "3",
     NIXSTR_WRITABLE_PUBLICATION_MAX_ATTEMPTS: "7",
@@ -693,6 +694,7 @@ Deno.test("publication policy is canonical bounded and explicitly mapped", () =>
     "other-1:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
   ]);
   assertEquals(parsed.value.writable.publication.lifetimeSeconds, 86400);
+  assertEquals(parsed.value.writable.publication.quietSeconds, 9);
   assertEquals(
     parsed.value.writable.publication.localRelayUrl?.href,
     "ws://127.0.0.1:7447/",
@@ -702,6 +704,34 @@ Deno.test("publication policy is canonical bounded and explicitly mapped", () =>
   const defaults = parseConfig(validRaw());
   assert(defaults.ok);
   assertEquals(defaults.value.writable, { enabled: false });
+});
+
+Deno.test("publication quiet delay defaults and bounds are enforced", () => {
+  const configured = (quietSeconds?: string | number) =>
+    parseConfig(validRaw({
+      writable: {
+        enabled: true,
+        type: "root",
+        signer: { type: "local", path: "/tmp/key" },
+        staging: { directory: "/tmp/staging" },
+        publication: quietSeconds === undefined ? {} : { quietSeconds },
+      },
+    }));
+  const defaults = configured();
+  assert(defaults.ok);
+  assert(defaults.value.writable.enabled);
+  assertEquals(defaults.value.writable.publication.quietSeconds, 5);
+  for (const value of [0, -1, 1.5, 61, "not-a-number"]) {
+    const parsed = configured(value);
+    assert(!parsed.ok);
+    assertEquals(
+      parsed.diagnostics.some((item) =>
+        item.field === "writable.publication.quietSeconds" &&
+        item.code === "out_of_range"
+      ),
+      true,
+    );
+  }
 });
 
 Deno.test("enabled signer requires exactly its protected source and staging limits", () => {

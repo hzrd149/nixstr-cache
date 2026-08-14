@@ -130,7 +130,8 @@ cache in `config.json`:
       "directory": "data/staging"
     },
     "publication": {
-      "nixSigKeys": ["my-cache-1:<base64-public-key>"]
+      "nixSigKeys": ["my-cache-1:<base64-public-key>"],
+      "quietSeconds": 5
     }
   }
 }
@@ -159,9 +160,13 @@ nix copy --to \
   /nix/store/<hash>-<name>
 ```
 
-Accepted uploads are immediately visible through the local writable overlay.
-They are batched into a new immutable Hashtree and announced after Blossom
-replication succeeds.
+Accepted uploads are immediately visible through the local writable overlay. By
+default, they are batched into a new immutable Hashtree after five seconds
+without another committed write. Override that delay with
+`writable.publication.quietSeconds` (or
+`NIXSTR_WRITABLE_PUBLICATION_QUIET_SECONDS`); continuous writes still trigger a
+batch after the fixed 60-second maximum window. The resulting root is announced
+after Blossom replication succeeds.
 
 ## NixOS service
 
