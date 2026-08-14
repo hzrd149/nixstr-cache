@@ -98,6 +98,15 @@ export type OperationalDiagnostic =
     readonly count?: number;
   }
   | {
+    readonly type: "replica_progress";
+    readonly code: "replica_started" | "replica_progress";
+    readonly batchId: number;
+    readonly rootHash?: string;
+    readonly endpoint: string;
+    readonly completed: number;
+    readonly total: number;
+  }
+  | {
     readonly type: "replica_attempt";
     readonly code: string;
     readonly cacheIdentity?: string;
@@ -339,6 +348,16 @@ export function formatOperationalDiagnostic(
       if (item.count !== undefined) fields.push(`blobs=${item.count}`);
       fields.push(`duration=${item.durationMs}ms`);
       break;
+    case "replica_progress":
+      message = item.code === "replica_started"
+        ? "Blossom upload started"
+        : "Blossom upload progress";
+      fields.push(
+        `endpoint=${safeEndpoint(item.endpoint) ?? "invalid"}`,
+        `blobs=${item.completed}/${item.total}`,
+      );
+      if (item.rootHash) fields.push(`root=${item.rootHash}`);
+      break;
     case "relay_acknowledgement":
       level = item.ok ? "INFO" : "WARN";
       message = `relay publication ${
@@ -506,6 +525,14 @@ export function createConsoleDiagnosticSink(
           ok: item.ok,
           code: item.code,
         });
+      } else if (item.type === "replica_progress") {
+        debugWritePublication("replica progress", {
+          batch: item.batchId,
+          endpoint: debugEndpoint(item.endpoint),
+          completed: item.completed,
+          total: item.total,
+          code: item.code,
+        });
       } else if (item.type === "publication_stage") {
         debugWritePublication("stage", {
           batch: item.batchId,
@@ -668,6 +695,21 @@ export function createConsoleDiagnosticSink(
             } ${uploadSummary(item)} ${item.ok ? "to" : "at"} ${
               safeEndpoint(item.endpoint) ?? "invalid"
             }`,
+          );
+          return;
+        }
+        if (item.type === "replica_progress") {
+          const root = item.rootHash && /^[0-9a-f]{64}$/i.test(item.rootHash)
+            ? item.rootHash.slice(0, 12).toLowerCase()
+            : "unknown";
+          write(
+            `${timestamp} INFO  ${
+              item.code === "replica_started"
+                ? "Starting Blossom upload"
+                : "Blossom upload progress"
+            } root ${root} at ${
+              safeEndpoint(item.endpoint) ?? "invalid"
+            } blobs=${item.completed}/${item.total}`,
           );
           return;
         }

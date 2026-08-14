@@ -170,6 +170,7 @@ Deno.test("one complete replica publishes exact event through normal admission",
 Deno.test("initial replicas overlap and first completion cancels siblings", async () => {
   const f = await fixture();
   try {
+    const diagnostics: OperationalDiagnostic[] = [];
     const started = new Set<string>();
     let bothStarted!: () => void;
     const overlap = new Promise<void>((resolve) => bothStarted = resolve);
@@ -212,6 +213,7 @@ Deno.test("initial replicas overlap and first completion cancels siblings", asyn
         concurrency: 2,
         jitter: () => 0,
       },
+      diagnostics: { emit: (item) => diagnostics.push(item) },
     });
     await coordinator.tick();
     assertEquals(started.size, 2);
@@ -221,6 +223,19 @@ Deno.test("initial replicas overlap and first completion cancels siblings", asyn
       f.write.endpointWork().find((work) => work.target.endsWith("9002"))
         ?.status,
       "retry",
+    );
+    const progress = diagnostics.filter((item) =>
+      item.type === "replica_progress"
+    );
+    assertEquals(
+      progress.filter((item) => item.code === "replica_started").length,
+      2,
+    );
+    assert(
+      progress.some((item) =>
+        item.type === "replica_progress" && item.completed === 1 &&
+        item.total === 2
+      ),
     );
   } finally {
     f.selection.dispose();

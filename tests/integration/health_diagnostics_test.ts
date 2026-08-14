@@ -246,6 +246,42 @@ Deno.test("replica attempt output says what was uploaded and sanitized where", (
   assertEquals(lines.every((line) => !line.includes("{")), true);
 });
 
+Deno.test("replica progress output is bounded and sanitizes its endpoint", () => {
+  const lines: string[] = [];
+  const sink = createConsoleDiagnosticSink({
+    write: (line) => lines.push(line),
+    now: () => 0,
+  });
+  const rootHash = "abcdef0123456789".repeat(4);
+  const endpoint = "https://user:password@example.test/base?secret=yes";
+  sink.emit({
+    type: "replica_progress",
+    code: "replica_started",
+    batchId: 7,
+    rootHash,
+    endpoint,
+    completed: 0,
+    total: 40,
+  });
+  sink.emit({
+    type: "replica_progress",
+    code: "replica_progress",
+    batchId: 7,
+    rootHash,
+    endpoint,
+    completed: 10,
+    total: 40,
+  });
+  assertEquals(lines.length, 2);
+  assertStringIncludes(
+    lines[0],
+    "Starting Blossom upload root abcdef012345 at https://example.test/base blobs=0/40",
+  );
+  assertStringIncludes(lines[1], "Blossom upload progress");
+  assertStringIncludes(lines[1], "blobs=10/40");
+  assertEquals(lines.some((line) => /user|password|secret/.test(line)), false);
+});
+
 Deno.test("staging failure diagnostic is typed secret-safe and non-authoritative", async () => {
   const lines: string[] = [];
   const sink = createConsoleDiagnosticSink({

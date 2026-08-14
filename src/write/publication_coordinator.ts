@@ -442,6 +442,8 @@ export class PublicationCoordinator {
         if (!server) return;
         const started = Date.now();
         let complete = true;
+        let processed = 0;
+        this.#emitReplicaProgress(saga, server, 0, inventory.length);
         try {
           for (const entry of inventory) {
             signal.throwIfAborted();
@@ -449,6 +451,15 @@ export class PublicationCoordinator {
               o.repository.recordBlobProof(saga.batchId, server, entry.hash);
             } else {
               complete = false;
+            }
+            processed++;
+            if (processed === 1 || processed % 10 === 0) {
+              this.#emitReplicaProgress(
+                saga,
+                server,
+                processed,
+                inventory.length,
+              );
             }
           }
           const proven = complete &&
@@ -488,6 +499,22 @@ export class PublicationCoordinator {
     this.#abort.signal.throwIfAborted();
     const rejected = outcomes.find((outcome) => outcome.status === "rejected");
     if (rejected?.status === "rejected") throw rejected.reason;
+  }
+  #emitReplicaProgress(
+    saga: import("../persistence/write_repository.ts").PublicationSaga,
+    endpoint: string,
+    completed: number,
+    total: number,
+  ): void {
+    this.options.diagnostics?.emit({
+      type: "replica_progress",
+      code: completed === 0 ? "replica_started" : "replica_progress",
+      batchId: saga.batchId,
+      rootHash: saga.candidate.rootHex,
+      endpoint,
+      completed,
+      total,
+    });
   }
   #outcome(
     work: import("../persistence/write_repository.ts").EndpointWork,
@@ -582,10 +609,22 @@ export class PublicationCoordinator {
       }
       if (work.kind === "replica") {
         let ok = true;
-        for (const entry of o.repository.publicationInventory(work.batchId)) {
+        const inventory = o.repository.publicationInventory(work.batchId);
+        let processed = 0;
+        this.#emitReplicaProgress(saga, work.target, 0, inventory.length);
+        for (const entry of inventory) {
           if (await o.replica.prove(work.target, entry, this.#abort.signal)) {
             o.repository.recordBlobProof(work.batchId, work.target, entry.hash);
           } else ok = false;
+          processed++;
+          if (processed === 1 || processed % 10 === 0) {
+            this.#emitReplicaProgress(
+              saga,
+              work.target,
+              processed,
+              inventory.length,
+            );
+          }
         }
         this.#outcome(
           work,
