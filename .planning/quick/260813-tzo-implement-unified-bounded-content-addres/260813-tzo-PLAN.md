@@ -1,7 +1,7 @@
 ---
 quick_id: 260813-tzo
 type: quick-index
-status: ready
+status: complete
 plans: 4
 ---
 
