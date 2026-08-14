@@ -15,6 +15,8 @@ import {
   type CachedManifest,
   VerifiedManifestCache,
 } from "./manifest_cache.ts";
+import type { CandidateBlob, HashtreeBuild } from "./writer.ts";
+import { encodePlaintextNhash } from "../protocol/nhash.ts";
 
 export interface TraversalLimits {
   readonly maxDepth: number;
@@ -179,6 +181,103 @@ export class PathResolver {
     readonly manifestLimits: ManifestLimits,
     readonly manifestCache?: VerifiedManifestCache,
   ) {}
+
+  /** Materialize every authenticated blob reachable from a root under one budget. */
+  async materialize(
+    rootHash: string,
+    budget: RequestBudget,
+    signal?: AbortSignal,
+  ): Promise<HashtreeBuild> {
+    const held = new Map<string, VerifiedBlob>();
+    const traversedManifests = new Set<string>();
+    const inventory: CandidateBlob[] = [];
+    let totalBytes = 0;
+    const fetchOne = async (
+      hash: string,
+      declaredSize?: number,
+      manifest = false,
+    ): Promise<VerifiedBlob> => {
+      const existing = held.get(hash);
+      if (existing) return existing;
+      if (!budget.visit(hash)) return held.get(hash)!;
+      const blob = await this.#fetch(
+        hash,
+        budget,
+        signal,
+        declaredSize,
+        manifest
+          ? this.manifestLimits.maxWireBytes
+          : budget.limits.maxBlobTransferBytes,
+      );
+      held.set(hash, blob);
+      inventory.push(Object.freeze({ hash, size: blob.size, path: blob.path }));
+      totalBytes += blob.size;
+      return blob;
+    };
+    const visitManifest = async (
+      hash: string,
+      expected: Manifest["type"],
+    ): Promise<void> => {
+      signal?.throwIfAborted();
+      if (traversedManifests.has(hash)) return;
+      traversedManifests.add(hash);
+      const blob = await fetchOne(hash, undefined, true);
+      const decoded = decodeValidatedManifest(
+        await Deno.readFile(blob.path),
+        this.manifestLimits,
+      );
+      budget.debitDecoded(decoded.decodedBytes);
+      budget.debitLinks(decoded.manifest.links.length);
+      if (decoded.manifest.type !== expected) {
+        throw new Error(
+          "linked manifest type does not match authenticated link",
+        );
+      }
+      for (const link of decoded.manifest.links) {
+        if (link.type === 0) {
+          await fetchOne(link.hash.toHex(), link.size);
+        } else {
+          await visitManifest(
+            link.hash.toHex(),
+            link.type === 1 ? "file" : link.type === 2 ? "directory" : "fanout",
+          );
+        }
+      }
+    };
+    try {
+      await visitManifest(rootHash, "directory");
+      const root = held.get(rootHash)!;
+      let disposed = false;
+      const frozenInventory = Object.freeze([...inventory]);
+      return Object.freeze({
+        runId: `remote:${crypto.randomUUID()}`,
+        rootHex: rootHash,
+        rootNhash: encodePlaintextNhash(Uint8Array.fromHex(rootHash)),
+        rootPath: root.path,
+        inventory: Object.freeze({
+          length: frozenInventory.length,
+          *[Symbol.iterator]() {
+            yield* frozenInventory;
+          },
+        }),
+        totalBytes,
+        createdBlobs: 0,
+        maxBufferedLinks: 0,
+        dispose: async () => {
+          if (disposed) return;
+          disposed = true;
+          await Promise.allSettled(
+            [...held.values()].map((blob) => blob.dispose()),
+          );
+        },
+      });
+    } catch (error) {
+      await Promise.allSettled(
+        [...held.values()].map((blob) => blob.dispose()),
+      );
+      throw error;
+    }
+  }
 
   async resolve(
     rootHash: string,

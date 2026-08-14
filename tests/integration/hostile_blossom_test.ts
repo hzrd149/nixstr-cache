@@ -28,6 +28,8 @@ import {
   RequestBudget,
   VerifiedAbsent,
 } from "../../src/hashtree/reader.ts";
+import { HashtreeWriter } from "../../src/hashtree/writer.ts";
+import { decodeManifest } from "../../src/protocol/hashtree.ts";
 
 const hex = (bytes: Uint8Array) => bytes.toHex();
 const response = (body: Uint8Array, status = 200): PinnedResponse => ({
@@ -155,6 +157,79 @@ const traversalLimits = (overrides: Record<string, number> = {}) => ({
   maxOutputBytes: 10000,
   deadline: Date.now() + 5000,
   ...overrides,
+});
+
+Deno.test("verified remote materialization preserves untouched routes during overlay", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const keep = new TextEncoder().encode("keep");
+    const old = new TextEncoder().encode("old");
+    const baseRoot = manifest({
+      l: [
+        { h: hashBytes(keep), n: "keep", s: keep.length, t: 0 },
+        { h: hashBytes(old), n: "replace", s: old.length, t: 0 },
+      ],
+      t: 2,
+    });
+    const remote = new Map([
+      [hex(hashBytes(baseRoot)), baseRoot],
+      [hex(hashBytes(keep)), keep],
+      [hex(hashBytes(old)), old],
+    ]);
+    const store = testBlobStore(`${root}/blobs`);
+    const resolver = new PathResolver(
+      new BlobFetcher({
+        fetcher: {
+          fetch: (url: string | URL) =>
+            Promise.resolve(
+              response(remote.get(String(url).split("/").at(-1)!)!),
+            ),
+        },
+        quarantine: {
+          isQuarantined: () => false,
+          quarantine: () => {},
+          releaseQuarantine: () => {},
+        },
+        store,
+      }),
+      buildSourcePlan({ event: ["http://tree.test"] }),
+      { maxWireBytes: 4096, maxDecodedBytes: 4096, maxLinks: 10 },
+    );
+    const base = await resolver.materialize(
+      hex(hashBytes(baseRoot)),
+      new RequestBudget(traversalLimits()),
+    );
+    const replacement = `${root}/replacement`;
+    await Deno.writeTextFile(replacement, "new");
+    const writer = new HashtreeWriter(`${root}/writer`, {
+      maxLinks: 10,
+      maxInventoryBlobs: 20,
+      maxInventoryBytes: 10000,
+    });
+    const result = await writer.build([
+      { route: "replace", path: replacement, size: 3 },
+    ], base);
+    const rootManifest = decodeManifest(await Deno.readFile(result.rootPath), {
+      maxWireBytes: 4096,
+      maxDecodedBytes: 4096,
+      maxLinks: 10,
+    });
+    assertEquals(rootManifest.links.map((link) => link.name), [
+      "keep",
+      "replace",
+    ]);
+    assertEquals(rootManifest.links[0].hash.toHex(), hex(hashBytes(keep)));
+    assertEquals(
+      rootManifest.links[1].hash.toHex(),
+      hex(hashBytes(new TextEncoder().encode("new"))),
+    );
+    await result.dispose();
+    await base.dispose();
+    await writer.close();
+    store.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
 });
 
 Deno.test("traversal|backpressure|HEAD: lazy lookup ignores unrelated missing branches", async () => {

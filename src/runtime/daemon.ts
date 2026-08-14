@@ -524,6 +524,21 @@ export function createProductionDependencies(
           maxLinks: config.limits.linksPerNode,
         }, manifestCache);
       };
+      const publicationsByRoot = new Map<
+        string,
+        import("../nostr/selection.ts").SelectedPublication
+      >();
+      const publicationHistorySubscription =
+        (selection as unknown as import("../nostr/selection.ts").PublicationSelector)
+          .selected$.subscribe((selected) => {
+            for (const publication of selected) {
+              publicationsByRoot.set(publication.root.nhash, publication);
+            }
+          });
+      supervisor.drains.add(() => {
+        publicationHistorySubscription.unsubscribe();
+        return Promise.resolve();
+      });
       let activatedOverlay: SignerOverlay | undefined;
       let writesActivated = false;
       let writeActivationStatus: "initializing" | "ready" | "failed" =
@@ -567,6 +582,7 @@ export function createProductionDependencies(
           config.writeIntent.mode === "disabled"
         ) return;
         await signer!.assertIdentity();
+        const configuredWritableIdentity = config.writeIntent.identity;
         const publicationSelector =
           selection as unknown as import("../nostr/selection.ts").PublicationSelector;
         publicationSelector.authorizePublicationPublisher(
@@ -652,13 +668,45 @@ export function createProductionDependencies(
           diagnostics,
           undefined,
           writable!.publication.quietSeconds * 1_000,
+          async (root, signal) => {
+            const publication = publicationsByRoot.get(root) ??
+              publicationSelector.current().find((item) =>
+                item.root.nhash === root
+              );
+            if (!publication) {
+              throw new Error("frozen publication base is no longer available");
+            }
+            return await publisherResolver(publication).materialize(
+              publication.root.hex,
+              new RequestBudget({
+                maxDepth: config.limits.traversalDepth,
+                maxLinks: config.limits.linksPerNode *
+                  config.limits.uniqueManifestNodes,
+                maxUniqueNodes: config.limits.uniqueManifestNodes,
+                maxDecodedBytes: config.limits.totalDecodedManifestBytes,
+                maxAttempts: config.limits.sourceAttempts *
+                  config.limits.uniqueManifestNodes,
+                maxRedirects: config.limits.maxRedirects,
+                maxConcurrent: config.limits.concurrentFetches,
+                maxBlobTransferBytes: config.limits.blobTransferBytes,
+                maxTransferredBytes: writable.staging.aggregateBytes,
+                maxOutputBytes: writable.staging.aggregateBytes,
+                deadline: Date.now() + config.limits.totalTimeoutMs,
+              }),
+              signal,
+            );
+          },
         );
         let lastDirtiedGeneration = writeRepository.activePublicationWindow()
           ?.generation ?? 0;
         const onCommitted = (generation: number) => {
           if (generation <= lastDirtiedGeneration) return;
           lastDirtiedGeneration = generation;
-          nextBatchScheduler.dirty(generation);
+          const baseRoot = publicationSelector.current().find((publication) =>
+            cacheIdentity(publication) ===
+              `${configuredWritableIdentity.kind}:${pubkey}:${configuredWritableIdentity.identifier}`
+          )?.root.nhash;
+          nextBatchScheduler.dirty(generation, baseRoot);
         };
         const writableIdentity = Object.freeze({
           ...config.writeIntent.identity,

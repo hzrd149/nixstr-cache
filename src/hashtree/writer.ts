@@ -1,6 +1,10 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { DatabaseSync } from "node:sqlite";
-import { encodeManifest, type ManifestLink } from "../protocol/hashtree.ts";
+import {
+  decodeManifest,
+  encodeManifest,
+  type ManifestLink,
+} from "../protocol/hashtree.ts";
 import { encodePlaintextNhash } from "../protocol/nhash.ts";
 import type { BlobStore, RouteComponent } from "../persistence/blob_store.ts";
 
@@ -158,7 +162,7 @@ export class HashtreeWriter {
 
   async #build(
     files: LogicalFileSource,
-    _base?: HashtreeBuild,
+    base?: HashtreeBuild,
     signal?: AbortSignal,
   ): Promise<HashtreeBuild> {
     const ownershipRepository = this.ownershipRepository;
@@ -271,6 +275,65 @@ export class HashtreeWriter {
       return recordCandidate(blob, createdNow);
     };
     try {
+      if (base) {
+        const baseInventory = new Map(
+          [...base.inventory].map((blob) => [blob.hash, blob] as const),
+        );
+        for (const blob of baseInventory.values()) registerCandidate(blob);
+        const manifestLimits = {
+          maxWireBytes: this.limits.maxInventoryBytes,
+          maxDecodedBytes: this.limits.maxInventoryBytes,
+          maxLinks: this.limits.maxLinks,
+        };
+        const loadManifest = (hash: string) => {
+          const blob = baseInventory.get(hash);
+          if (!blob) throw new Error("base manifest missing from inventory");
+          return decodeManifest(Deno.readFileSync(blob.path), manifestLimits);
+        };
+        const importDirectory = (
+          hash: string,
+          type: 2 | 3,
+          parent: string,
+          depth: number,
+        ): void => {
+          signal?.throwIfAborted();
+          const manifest = loadManifest(hash);
+          if (
+            (type === 2 && manifest.type !== "directory") ||
+            (type === 3 && manifest.type !== "fanout")
+          ) throw new Error("base manifest link type changed");
+          for (const link of manifest.links) {
+            if (manifest.type === "fanout") {
+              if (link.type !== 2 && link.type !== 3) {
+                throw new Error("base fanout contains non-directory link");
+              }
+              importDirectory(link.hash.toHex(), link.type, parent, depth);
+              continue;
+            }
+            if (!link.name) throw new Error("base directory link has no name");
+            const path = parent ? `${parent}/${link.name}` : link.name;
+            index.prepare(
+              "INSERT INTO nodes(path,parent,name,depth,is_file,hash,size,type) VALUES(?,?,?,?,?,?,?,?)",
+            ).run(
+              path,
+              parent,
+              link.name,
+              depth,
+              link.type === 0 || link.type === 1 ? 1 : 0,
+              link.type === 0 || link.type === 1 ? link.hash.toHex() : null,
+              link.type === 0 || link.type === 1 ? link.size : null,
+              link.type === 0 || link.type === 1 ? link.type : null,
+            );
+            if (link.type === 2 || link.type === 3) {
+              importDirectory(link.hash.toHex(), link.type, path, depth + 1);
+            }
+          }
+        };
+        index.prepare(
+          "INSERT INTO nodes(path,parent,name,depth,is_file) VALUES('','','',0,0)",
+        ).run();
+        importDirectory(base.rootHex, 2, "", 1);
+      }
       let previousRoute: string | undefined;
       let entries = 0;
       for await (const file of files) {
@@ -303,7 +366,7 @@ export class HashtreeWriter {
         previousRoute = file.route;
         const parent = parts.slice(0, -1).join("/");
         index.prepare(
-          "INSERT INTO nodes(path,parent,name,depth,is_file,component_source,source_path,source_size) VALUES(?,?,?,?,1,?,?,?)",
+          "INSERT OR REPLACE INTO nodes(path,parent,name,depth,is_file,component_source,source_path,source_size) VALUES(?,?,?,?,1,?,?,?)",
         )
           .run(
             file.route,
@@ -594,7 +657,7 @@ export class HashtreeWriter {
       };
       for (
         const file of index.prepare(
-          "SELECT path route,source_path path,source_size size,component_source componentSource FROM nodes WHERE is_file=1 ORDER BY CAST(path AS BLOB)",
+          "SELECT path route,source_path path,source_size size,component_source componentSource FROM nodes WHERE is_file=1 AND source_size IS NOT NULL ORDER BY CAST(path AS BLOB)",
         ).iterate() as unknown as Iterable<{
           route: string;
           path?: string;

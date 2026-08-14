@@ -359,6 +359,49 @@ Deno.test("restart restores the durable quiet deadline without another dirty", a
   }
 });
 
+Deno.test("scheduler resolves and passes the frozen base root to the writer", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const repository = new WriteRepository(
+      `${root}/write.db`,
+      `${root}/spool`,
+      {
+        perBodyBytes: 4096,
+        aggregateBytes: 65536,
+      },
+    );
+    await repository.stage("one", new Blob(["1"]).stream());
+    const generation = repository.commitOverlayRoutes(["one"]);
+    const clock = new FakeClock();
+    const base = { rootHex: "base" } as HashtreeBuild;
+    let received: HashtreeBuild | undefined;
+    const scheduler = new PublicationBatchScheduler(
+      repository,
+      {
+        build: (_files, value) => {
+          received = value;
+          return Promise.reject(new Error("stop after observing base"));
+        },
+      },
+      clock,
+      undefined,
+      undefined,
+      5_000,
+      (root) => {
+        assertEquals(root, "selected-root");
+        return Promise.resolve(base);
+      },
+    );
+    scheduler.dirty(generation, "selected-root");
+    await clock.advance(5_000);
+    await scheduler.idle().catch(() => {});
+    assertEquals(received, base);
+    repository.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
 Deno.test("batch build failure diagnostic is typed and preserves durable retry", async () => {
   const root = await Deno.makeTempDir();
   try {

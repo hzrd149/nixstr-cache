@@ -51,6 +51,10 @@ export class PublicationBatchScheduler {
     readonly diagnostics?: OperationalDiagnosticSink,
     readonly stateDebug: WritableStateDebug = debugWriteHashtreeState,
     readonly quietDelayMs = 5_000,
+    readonly resolveBase?: (
+      root: string,
+      signal: AbortSignal,
+    ) => Promise<HashtreeBuild>,
   ) {
     const pending = repository.pendingCandidate();
     if (pending) this.#logPending(pending);
@@ -102,14 +106,18 @@ export class PublicationBatchScheduler {
   #enqueue(batch: FrozenBatch): void {
     this.#serial = this.#serial.catch(() => {}).then(async () => {
       let candidate: HashtreeBuild | undefined;
+      let base: HashtreeBuild | undefined;
       try {
+        base = batch.baseRoot
+          ? await this.resolveBase?.(batch.baseRoot, this.#abort.signal)
+          : undefined;
         candidate = await this.writer.build(
           this.repository.publicationBatchFiles(
             batch,
             batch.entryCount,
             this.#abort.signal,
           ),
-          undefined,
+          base,
           this.#abort.signal,
         );
         this.repository.recordPending(
@@ -146,6 +154,7 @@ export class PublicationBatchScheduler {
         throw error;
       } finally {
         await candidate?.dispose();
+        await base?.dispose();
       }
     });
   }

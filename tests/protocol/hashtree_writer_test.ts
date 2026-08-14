@@ -12,6 +12,50 @@ class WriteRepository extends BaseWriteRepository {
 import { DatabaseSync } from "node:sqlite";
 import { BlobStore } from "../../src/persistence/blob_store.ts";
 
+Deno.test("writer overlays a route without dropping untouched base routes", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const write = async (name: string, value: string) => {
+      const path = `${root}/${name}`;
+      await Deno.writeTextFile(path, value);
+      return { route: name, path, size: value.length };
+    };
+    const writer = new HashtreeWriter(`${root}/trees`, {
+      maxLinks: 8,
+      maxInventoryBlobs: 100,
+      maxInventoryBytes: 65536,
+    });
+    const base = await writer.build([
+      await write("keep", "old-keep"),
+      await write("replace", "old-value"),
+    ]);
+    const overlaid = await writer.build([
+      await write("replace", "new-value"),
+    ], base);
+    const inventory = [...overlaid.inventory];
+    const manifest = decodeManifest(await Deno.readFile(overlaid.rootPath), {
+      maxWireBytes: 65536,
+      maxDecodedBytes: 65536,
+      maxLinks: 8,
+    });
+    assertEquals(manifest.links.map((link) => link.name), ["keep", "replace"]);
+    assertEquals(
+      manifest.links.find((link) => link.name === "keep")!.hash.toHex(),
+      sha256(new TextEncoder().encode("old-keep")).toHex(),
+    );
+    assertEquals(
+      manifest.links.find((link) => link.name === "replace")!.hash.toHex(),
+      sha256(new TextEncoder().encode("new-value")).toHex(),
+    );
+    assertGreater(inventory.length, 2);
+    await overlaid.dispose();
+    await base.dispose();
+    await writer.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
 Deno.test("canonical writer reuses pre-chunked shared-store components", async () => {
   const root = await Deno.makeTempDir();
   try {
