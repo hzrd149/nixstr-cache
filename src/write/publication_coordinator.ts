@@ -193,20 +193,23 @@ export class PublicationCoordinator {
       saga.destinations,
       o.now(),
     );
-    o.repository.ensureEndpointWork(
-      saga.batchId,
-      "relay",
-      publicationRelays,
-      o.now(),
-    );
     this.#emitProgress(saga.batchId);
     if (!saga.completeServer) {
+      const eligibleServers = o.repository.endpointWork().filter((work) =>
+        work.batchId === saga!.batchId && work.kind === "replica" &&
+        (work.status === "pending" ||
+          (work.status === "retry" && work.nextAttemptAt <= o.now()))
+      ).map((work) => work.target);
+      if (eligibleServers.length === 0) {
+        this.#emitStage(saga, "replication", "waiting", inventory.length);
+        return;
+      }
       if (o.prepareReplicaAuthorization) {
         this.#emitStage(saga, "authorization", "started", inventory.length);
         try {
           await this.#bounded((signal) =>
             o.prepareReplicaAuthorization!(
-              saga!.destinations,
+              eligibleServers,
               inventory,
               signal,
             )
@@ -224,7 +227,7 @@ export class PublicationCoordinator {
             "failed",
             inventory.length,
           );
-          for (const server of saga.destinations) {
+          for (const server of eligibleServers) {
             this.#recordInitial(saga.batchId, "replica", server, false);
           }
           throw error;
@@ -232,10 +235,10 @@ export class PublicationCoordinator {
       }
       this.#emitStage(saga, "replication", "started", inventory.length);
       try {
-        await this.#replicateInitial(saga, inventory);
+        await this.#replicateInitial(saga, inventory, eligibleServers);
       } catch (error) {
         this.#emitStage(saga, "replication", "failed", inventory.length);
-        for (const server of saga.destinations) {
+        for (const server of eligibleServers) {
           this.#recordInitial(saga.batchId, "replica", server, false);
         }
         throw error;
@@ -295,6 +298,13 @@ export class PublicationCoordinator {
       saga = o.repository.publicationSaga()!;
       this.#emitStage(saga, "root_signing", "complete");
     }
+    o.repository.ensureEndpointWork(
+      saga.batchId,
+      "relay",
+      publicationRelays,
+      o.now(),
+    );
+    this.#emitProgress(saga.batchId);
     if (!saga.acknowledgedRelay) {
       const configured = new Set(publicationRelays);
       const expectedBatch = saga.batchId;
@@ -431,6 +441,7 @@ export class PublicationCoordinator {
   async #replicateInitial(
     saga: import("../persistence/write_repository.ts").PublicationSaga,
     inventory: readonly PendingInventoryEntry[],
+    destinations: readonly string[],
   ): Promise<void> {
     const o = this.options;
     const completed = new AbortController();
@@ -438,7 +449,7 @@ export class PublicationCoordinator {
     let cursor = 0;
     const worker = async () => {
       while (!completed.signal.aborted) {
-        const server = saga.destinations[cursor++];
+        const server = destinations[cursor++];
         if (!server) return;
         const started = Date.now();
         let complete = true;
@@ -490,7 +501,7 @@ export class PublicationCoordinator {
       }
     };
     const concurrency = Math.min(
-      saga.destinations.length,
+      destinations.length,
       this.#retryOptions().concurrency,
     );
     const outcomes = await Promise.allSettled(

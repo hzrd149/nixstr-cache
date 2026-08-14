@@ -106,6 +106,7 @@ Deno.test("one complete replica publishes exact event through normal admission",
     await coordinator.tick();
     assertEquals(signCalls, 0, "split/partial replicas must not sign");
     replica.prove = (server) => Promise.resolve(server.endsWith("9002"));
+    now = 140;
     await coordinator.tick();
     assertEquals(signCalls, 1);
     const saga = f.write.publicationSaga();
@@ -115,12 +116,11 @@ Deno.test("one complete replica publishes exact event through normal admission",
       ["htree", `htree://${saga.candidate.nhash}`],
       ["blossom", "http://127.0.0.1:9001"],
       ["blossom", "http://127.0.0.1:9002"],
-      ["expiration", "3700"],
+      ["expiration", "3740"],
     ]);
     replica.prove = () => Promise.resolve(true);
-    now = 130;
     await coordinator.tick();
-    now = 190;
+    now = 220;
     await coordinator.tick();
     assertEquals(signCalls, 1, "restart/retry must reuse exact signed event");
     assertEquals(
@@ -297,6 +297,60 @@ Deno.test("initial replica workers honor the configured server ceiling", async (
     await tick;
     assertEquals(maximum, 2);
     assertEquals(started.some((server) => server.endsWith("9003")), true);
+    assertEquals(f.write.publicationSaga()?.signedEvent, undefined);
+  } finally {
+    f.selection.dispose();
+    f.state.close();
+    f.write.close();
+    await f.signer.close();
+    await Deno.remove(f.root, { recursive: true });
+  }
+});
+
+Deno.test("incomplete initial replicas honor durable retry backoff", async () => {
+  const f = await fixture();
+  try {
+    let now = 100;
+    let calls = 0;
+    const coordinator = new PublicationCoordinator({
+      repository: f.write,
+      signer: f.signer,
+      selector: f.selection,
+      identity: { kind: 17091, pubkey: f.pubkey, identifier: "" },
+      blossomServers: ["http://127.0.0.1:9001", "http://127.0.0.1:9002"],
+      nixSigKeys: [],
+      publicationRelays: ["ws://127.0.0.1:7447"],
+      lifetimeSeconds: 3600,
+      now: () => now,
+      replica: {
+        prove: () => {
+          calls++;
+          return Promise.resolve(false);
+        },
+      },
+      publishRelays: () => Promise.resolve([]),
+      retry: {
+        baseSeconds: 30,
+        maxSeconds: 60,
+        maxAttempts: 5,
+        concurrency: 2,
+        jitter: () => 0,
+      },
+    });
+    await coordinator.tick();
+    assertEquals(calls, 4);
+    assertEquals(
+      f.write.endpointWork().filter((work) => work.kind === "relay").length,
+      0,
+    );
+    await coordinator.tick();
+    assertEquals(calls, 4, "same-time wake must not repeat replica passes");
+    now = 129;
+    await coordinator.tick();
+    assertEquals(calls, 4, "pre-backoff wake must remain idle");
+    now = 130;
+    await coordinator.tick();
+    assertEquals(calls, 8, "due replica work retries exactly once");
     assertEquals(f.write.publicationSaga()?.signedEvent, undefined);
   } finally {
     f.selection.dispose();
