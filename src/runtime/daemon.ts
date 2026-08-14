@@ -607,12 +607,17 @@ export function createProductionDependencies(
         );
         const nextBatchScheduler = new PublicationBatchScheduler(
           writeRepository,
-          new HashtreeWriter(`${writable!.staging.directory}/candidate-blobs`, {
-            maxLinks: config.limits.linksPerNode,
-            maxInventoryBlobs: config.limits.uniqueManifestNodes +
-              config.limits.linksPerNode,
-            maxInventoryBytes: writable!.staging.aggregateBytes,
-          }, writeRepository),
+          new HashtreeWriter(
+            `${writable!.staging.directory}/candidate-blobs`,
+            {
+              maxLinks: config.limits.linksPerNode,
+              maxInventoryBlobs: config.limits.uniqueManifestNodes +
+                config.limits.linksPerNode,
+              maxInventoryBytes: writable!.staging.aggregateBytes,
+            },
+            writeRepository,
+            blobStore,
+          ),
           undefined,
           diagnostics,
         );

@@ -340,6 +340,10 @@ export class WriteRepository {
     ).run(runId, indexPath, this.#writerSession);
   }
   recordWriterBlob(runId: string, blob: CandidateBlob): void {
+    if (this.#blobStore) {
+      this.#blobStore.acquireOwner(runId, blob.hash);
+      return;
+    }
     this.#db.exec("BEGIN IMMEDIATE");
     try {
       const run = this.#db.prepare("SELECT 1 FROM writer_runs WHERE owner=?")
@@ -364,6 +368,7 @@ export class WriteRepository {
     }
   }
   releaseWriterRun(runId: string): Promise<void> {
+    this.#blobStore?.releaseOwner(runId);
     this.#db.exec("BEGIN IMMEDIATE");
     try {
       this.#db.prepare("DELETE FROM blob_owners WHERE owner=?").run(runId);
@@ -821,7 +826,11 @@ export class WriteRepository {
       if (++count > maxEntries) {
         throw new RangeError("logical entry ceiling exceeded");
       }
-      yield Object.freeze(row);
+      const components = this.#blobStore?.routeComponents(row.route);
+      yield Object.freeze({
+        ...row,
+        ...(components?.length ? { components, path: undefined } : {}),
+      });
     }
   }
   failedBatches(): readonly FrozenBatch[] {

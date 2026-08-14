@@ -2,13 +2,15 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { DatabaseSync } from "node:sqlite";
 import { encodeManifest, type ManifestLink } from "../protocol/hashtree.ts";
 import { encodePlaintextNhash } from "../protocol/nhash.ts";
+import type { BlobStore, RouteComponent } from "../persistence/blob_store.ts";
 
 export const FILE_CHUNK_BYTES = 2_097_152;
 
 export interface LogicalFile {
   readonly route: string;
-  readonly path: string;
+  readonly path?: string;
   readonly size: number;
+  readonly components?: readonly RouteComponent[];
 }
 export interface CandidateBlob {
   readonly hash: string;
@@ -101,6 +103,7 @@ export class HashtreeWriter {
     readonly root: string,
     readonly limits: WriterLimits,
     readonly ownershipRepository?: CandidateOwnershipRepository,
+    readonly blobStore?: BlobStore,
   ) {
     if (limits.maxLinks < 2) {
       throw new RangeError("maxLinks must be at least two");
@@ -181,7 +184,7 @@ export class HashtreeWriter {
     const persist = async (bytes: Uint8Array): Promise<CandidateBlob> => {
       signal?.throwIfAborted();
       const hash = sha256(bytes).toHex();
-      const path = `${this.root}/${hash}`;
+      const path = this.blobStore?.pathFor(hash) ?? `${this.root}/${hash}`;
       const existing = index.prepare(
         "SELECT hash,size,path FROM inventory WHERE hash=?",
       ).get(hash) as unknown as CandidateBlob | undefined;
@@ -198,12 +201,24 @@ export class HashtreeWriter {
           throw new RangeError("candidate inventory ceiling exceeded");
         }
         let createdNow = 0;
-        try {
-          await Deno.writeFile(path, bytes, { createNew: true, mode: 0o600 });
-          created++;
-          createdNow = 1;
-        } catch (error) {
-          if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
+        if (this.blobStore) {
+          const existed = this.blobStore.has(hash);
+          await this.blobStore.admit(bytes, {
+            origin: "write",
+            owner: runOwner,
+            reserveBytes: bytes.length,
+            expectedHash: hash,
+          });
+          if (!existed) created++;
+          createdNow = existed ? 0 : 1;
+        } else {
+          try {
+            await Deno.writeFile(path, bytes, { createNew: true, mode: 0o600 });
+            created++;
+            createdNow = 1;
+          } catch (error) {
+            if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
+          }
         }
         index.prepare(
           "INSERT INTO inventory(hash,size,path,created) VALUES(?,?,?,?)",
@@ -273,7 +288,7 @@ export class HashtreeWriter {
             parent,
             parts.at(-1)!,
             parts.length,
-            file.path,
+            file.path ?? null,
             file.size,
           );
         for (let depth = 0; depth < parts.length; depth++) {
@@ -289,39 +304,76 @@ export class HashtreeWriter {
         }
       }
       const buildFile = async (file: LogicalFile): Promise<Built> => {
-        const handle = await Deno.open(file.path, { read: true });
         const scope = `file:${file.route}`;
         let sequence = 0;
         let observed = 0;
-        try {
-          for (;;) {
+        if (file.components) {
+          for (const component of file.components) {
             signal?.throwIfAborted();
-            const chunk = new Uint8Array(FILE_CHUNK_BYTES);
-            let used = 0;
-            while (used < chunk.length) {
-              signal?.throwIfAborted();
-              const n = await handle.read(chunk.subarray(used));
-              if (n === null) break;
-              used += n;
+            if (component.index !== sequence) {
+              throw new Error("route component order changed");
             }
-            if (!used) break;
-            observed += used;
-            const blob = await persist(chunk.slice(0, used));
+            const lease = this.blobStore?.lookup(component.hash);
+            if (!lease || lease.size !== component.size) {
+              lease?.release();
+              throw new Error("route component unavailable");
+            }
+            lease.release();
+            observed += component.size;
             index.prepare("INSERT INTO work(scope,level,link) VALUES(?,0,?)")
               .run(
                 scope,
-                JSON.stringify({ hash: blob.hash, size: used, type: 0 }),
+                JSON.stringify({
+                  hash: component.hash,
+                  size: component.size,
+                  type: 0,
+                }),
               );
             sequence++;
           }
-        } finally {
-          handle.close();
+        } else {
+          if (!file.path) throw new Error("logical file source unavailable");
+          const handle = await Deno.open(file.path, { read: true });
+          try {
+            for (;;) {
+              signal?.throwIfAborted();
+              const chunk = new Uint8Array(FILE_CHUNK_BYTES);
+              let used = 0;
+              while (used < chunk.length) {
+                signal?.throwIfAborted();
+                const n = await handle.read(chunk.subarray(used));
+                if (n === null) break;
+                used += n;
+              }
+              if (!used) break;
+              observed += used;
+              const blob = await persist(chunk.slice(0, used));
+              index.prepare("INSERT INTO work(scope,level,link) VALUES(?,0,?)")
+                .run(
+                  scope,
+                  JSON.stringify({ hash: blob.hash, size: used, type: 0 }),
+                );
+              sequence++;
+            }
+          } finally {
+            handle.close();
+          }
         }
         if (observed !== file.size) throw new Error("frozen file size changed");
         const built = await collapse(scope, "file", sequence);
+        let builtBytes: Uint8Array;
+        if (this.blobStore) {
+          const lease = this.blobStore.lookup(built.hash);
+          if (!lease) throw new Error("built manifest unavailable");
+          try {
+            builtBytes = await new Response(lease.open()).bytes();
+          } finally {
+            lease.release();
+          }
+        } else builtBytes = await Deno.readFile(built.path);
         return {
           ...built,
-          bytes: await Deno.readFile(built.path),
+          bytes: builtBytes,
           type: built.type,
           count: 1,
         };
@@ -504,13 +556,15 @@ export class HashtreeWriter {
       const rootRow = index.prepare(
         "SELECT hash,size,type FROM nodes WHERE path='' ",
       ).get() as unknown as { hash: string; size: number; type: 2 | 3 };
-      const rootBytes = await Deno.readFile(`${this.root}/${rootRow.hash}`);
+      const rootPath = this.blobStore?.pathFor(rootRow.hash) ??
+        `${this.root}/${rootRow.hash}`;
+      const rootBytes = await Deno.readFile(rootPath);
       const root: Built = {
         hash: rootRow.hash,
         size: rootBytes.length,
         logicalSize: rootRow.size,
         type: rootRow.type,
-        path: `${this.root}/${rootRow.hash}`,
+        path: rootPath,
         bytes: rootBytes,
         count: entries,
       };
