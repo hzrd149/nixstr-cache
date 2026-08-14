@@ -364,14 +364,6 @@ Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are co
       caches: [`17091:${"a".repeat(64)}:`],
     },
     {
-      type: "cache_package",
-      code: "narinfo_loaded",
-      storePathHash: "0123456789abcdfghijklmnpqrsvwxyz",
-      narPath: "nar/demo.nar?secret=hidden",
-      winnerIdentity: `17091:${"a".repeat(64)}:`,
-      providerIdentities: [`17091:${"a".repeat(64)}:`],
-    },
-    {
       type: "hashtree_nar",
       code: "nar_resolution_failed",
       method: "GET",
@@ -416,27 +408,25 @@ Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are co
   assertEquals(lines[10].includes("secret"), false);
   assertEquals(lines[10].includes("hidden"), false);
   assertStringIncludes(
-    lines[14],
+    lines[13],
     "WRITABLE CACHE OWNER MISMATCH — WRITES HAVE BEEN DISABLED",
   );
   assertStringIncludes(
-    lines[14],
+    lines[13],
     `Configured signer: 17091:${"a".repeat(64)}:`,
   );
   assertStringIncludes(
-    lines[14],
+    lines[13],
     `Durable owner:     17091:${"b".repeat(64)}:`,
   );
   assertStringIncludes(lines[11], "cache selection changed");
-  assertStringIncludes(lines[12], "package metadata loaded from cache");
+  assertStringIncludes(lines[12], "NAR resolution failed in Hashtree cache");
+  assertStringIncludes(lines[12], "WARN");
+  assertStringIncludes(lines[12], "route=pinned");
   assertEquals(lines[12].includes("secret"), false);
-  assertStringIncludes(lines[13], "NAR resolution failed in Hashtree cache");
-  assertStringIncludes(lines[13], "WARN");
-  assertStringIncludes(lines[13], "route=pinned");
-  assertEquals(lines[13].includes("secret"), false);
-  assertStringIncludes(lines[14], "writable.enabled was honored");
-  assertStringIncludes(lines[14], "PUT is disabled");
-  assertStringIncludes(lines[14], "Do not delete state casually");
+  assertStringIncludes(lines[13], "writable.enabled was honored");
+  assertStringIncludes(lines[13], "PUT is disabled");
+  assertStringIncludes(lines[13], "Do not delete state casually");
   const failing = createConsoleDiagnosticSink({
     write: () => {
       throw new Error("sink failed");

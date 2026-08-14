@@ -142,14 +142,6 @@ export type OperationalDiagnostic =
     readonly htreeLinks?: readonly string[];
   }
   | {
-    readonly type: "cache_package";
-    readonly code: "narinfo_loaded";
-    readonly storePathHash: string;
-    readonly narPath: string;
-    readonly winnerIdentity: string;
-    readonly providerIdentities: readonly string[];
-  }
-  | {
     readonly type: "hashtree_nar";
     readonly code: "nar_resolution_failed";
     readonly method: "GET" | "HEAD";
@@ -392,15 +384,6 @@ export function formatOperationalDiagnostic(
       if (item.htreeLinks?.length) {
         fields.push(`htrees: ${item.htreeLinks.map(safeHtreeLink).join(",")}`);
       }
-      break;
-    case "cache_package":
-      message = "package metadata loaded from cache";
-      fields.push(
-        `store=${item.storePathHash}`,
-        `nar=${safePath(item.narPath)}`,
-        `winner=${safeIdentity(item.winnerIdentity)}`,
-        `providers=${item.providerIdentities.map(safeIdentity).join(",")}`,
-      );
       break;
     case "hashtree_nar":
       level = "WARN";

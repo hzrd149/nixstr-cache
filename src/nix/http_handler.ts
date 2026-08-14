@@ -343,14 +343,6 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           providers: merged.providers.length,
           winner: cacheIdentity(merged.winner),
         });
-        emitOperational({
-          type: "cache_package",
-          code: "narinfo_loaded",
-          storePathHash: narinfoMatch[1],
-          narPath: merged.record.url,
-          winnerIdentity: cacheIdentity(merged.winner),
-          providerIdentities: merged.providers.map(cacheIdentity),
-        });
         return text(merged.text, request.method);
       }
       const budget = (dependencies.budgetFor ?? defaultBudget)();
