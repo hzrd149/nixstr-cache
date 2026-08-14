@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertMatch } from "@std/assert";
-import { generateSecretKey, getPublicKey } from "nostr-tools";
+import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools";
 import { createPublicationFixture } from "../fixtures/publication.ts";
 
 async function command(args: string[], options: Deno.CommandOptions = {}) {
@@ -59,6 +59,12 @@ Deno.test("stock Nix uploads through production and substitutes from the newly p
     const nixPublic = `${root}/nix-public`;
     const nostrKey = generateSecretKey();
     const nostrPubkey = getPublicKey(nostrKey);
+    fixture.seedRelayEvent(finalizeEvent({
+      kind: 10063,
+      created_at: Math.floor(Date.now() / 1000),
+      content: "",
+      tags: [["server", fixture.blossomUrl]],
+    }, nostrKey));
     await Deno.mkdir(input);
     await Deno.writeTextFile(`${input}/payload`, "published by nixstr-cache\n");
     await Deno.writeFile(`${root}/nostr-key`, nostrKey, { mode: 0o600 });
@@ -103,6 +109,7 @@ Deno.test("stock Nix uploads through production and substitutes from the newly p
           NIXSTR_BIND_PORT: String(daemonPort),
           NIXSTR_CACHES: `17091:${nostrPubkey}:`,
           NIXSTR_EXTRA_RELAYS: fixture.relayUrl,
+          NIXSTR_EXTRA_SERVERS: fixture.blossomUrl,
           NIXSTR_DATABASE_PATH: `${root}/state.sqlite`,
           NIXSTR_SPOOL_DIRECTORY: `${root}/spool`,
           NIXSTR_WRITABLE_ENABLED: "true",
@@ -180,17 +187,6 @@ Deno.test("stock Nix uploads through production and substitutes from the newly p
     const secondRoot = secondEvent.tags.find((tag) => tag[0] === "htree")?.[1];
     assert(secondRoot && secondRoot !== rootTag);
 
-    child.kill("SIGTERM");
-    assertEquals((await child.status).success, true);
-    child = startDaemon();
-    await waitUntil(
-      () =>
-        fetch(`http://127.0.0.1:${daemonPort}/health`).then((r) => r.json())
-          .catch(() => undefined),
-      (health) => Boolean(health && health.write?.status === "ready"),
-      "restarted daemon write readiness",
-    );
-
     await removeNixStoreRoot(source);
     await Deno.remove(input, { recursive: true });
     await Deno.remove(secondInput, { recursive: true });
@@ -249,6 +245,16 @@ Deno.test("stock Nix uploads through production and substitutes from the newly p
     assertEquals(
       await Deno.readTextFile(`${destination}${secondStorePath}/payload`),
       "second generation\n",
+    );
+    child.kill("SIGTERM");
+    assertEquals((await child.status).success, true);
+    child = startDaemon();
+    await waitUntil(
+      () =>
+        fetch(`http://127.0.0.1:${daemonPort}/health`).then((r) => r.json())
+          .catch(() => undefined),
+      (health) => Boolean(health && health.write?.status === "ready"),
+      "restarted daemon write readiness",
     );
   } finally {
     if (child) {

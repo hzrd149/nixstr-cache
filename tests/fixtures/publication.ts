@@ -11,6 +11,7 @@ export interface PublicationFixture {
   readonly uploadedHashes: readonly string[];
   readonly uploadAuthorizations: readonly RawPublication[];
   readonly publishedEvents: readonly RawPublication[];
+  seedRelayEvent(event: RawPublication): void;
   waitForPublication(timeoutMs: number): Promise<RawPublication>;
   close(): Promise<void>;
 }
@@ -57,6 +58,7 @@ export function createPublicationFixture(): PublicationFixture {
   const uploadedHashes: string[] = [];
   const uploadAuthorizations: RawPublication[] = [];
   const publishedEvents: RawPublication[] = [];
+  const seededEvents: RawPublication[] = [];
   const sockets = new Set<WebSocket>();
   const subscriptions = new Map<WebSocket, string>();
   const blossom = Deno.serve(
@@ -139,7 +141,7 @@ export function createPublicationFixture(): PublicationFixture {
         const frame = JSON.parse(String(message.data));
         if (frame[0] === "REQ") {
           subscriptions.set(socket, String(frame[1]));
-          for (const event of publishedEvents) {
+          for (const event of [...seededEvents, ...publishedEvents]) {
             socket.send(JSON.stringify(["EVENT", frame[1], event]));
           }
           socket.send(JSON.stringify(["EOSE", frame[1]]));
@@ -174,6 +176,9 @@ export function createPublicationFixture(): PublicationFixture {
     },
     get publishedEvents() {
       return Object.freeze([...publishedEvents]);
+    },
+    seedRelayEvent(event) {
+      seededEvents.push(event);
     },
     waitForPublication: (timeoutMs) =>
       waitUntil(() => publishedEvents[0], timeoutMs, "signed publication"),

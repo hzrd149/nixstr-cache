@@ -76,10 +76,20 @@ interface WriteBlossomDestination {
 }
 
 function writeBlossomDestinations(
+  config: ValidatedConfig,
   bud03: readonly string[],
 ): readonly WriteBlossomDestination[] {
   const ordered: Array<[string | URL, WriteBlossomDestination["trust"]]> = [];
-  for (const server of bud03) ordered.push([server, "publisher"]);
+  const configuredOrigins = new Set(
+    config.extraServers.map((url) => url.origin),
+  );
+  for (const server of bud03) {
+    let trust: WriteBlossomDestination["trust"] = "publisher";
+    try {
+      if (configuredOrigins.has(new URL(server).origin)) trust = "configured";
+    } catch { /* canonical validation below rejects it */ }
+    ordered.push([server, trust]);
+  }
   const seen = new Set<string>();
   return Object.freeze(ordered.flatMap(([value, trust]) => {
     try {
@@ -515,7 +525,7 @@ export function createProductionDependencies(
         }
         : undefined;
       let eligibility: EligibilityModel | undefined;
-      let writeDestinations = writeBlossomDestinations([]);
+      let writeDestinations = writeBlossomDestinations(config, []);
       let writeRelays: readonly string[] = Object.freeze(
         config.extraRelays.map(String),
       );
@@ -524,7 +534,7 @@ export function createProductionDependencies(
         const next =
           (selection as unknown as import("../nostr/selection.ts").PublicationSelector)
             .blossomServersFor(pubkey);
-        const destinations = writeBlossomDestinations(next);
+        const destinations = writeBlossomDestinations(config, next);
         const encoded = JSON.stringify(destinations);
         if (encoded !== previousWriteDestinations) {
           previousWriteDestinations = encoded;
