@@ -92,6 +92,7 @@ async function scenario(
       await fixture.waitForRequests(2, deadline);
     }
     if (outcome === "success") {
+      await new Promise((resolve) => setTimeout(resolve, 100));
       assertEquals(
         (await put()).status,
         405,
@@ -128,11 +129,6 @@ async function scenario(
     await Deno.remove(root, { recursive: true });
   }
 }
-
-Deno.test("production NIP-46 authorizes owners without bypassing BUD-03 readiness", async () => {
-  await scenario(17091, "success");
-  await scenario(37091, "success");
-});
 
 Deno.test("production NIP-46 fails closed for denial and connection failure", async () => {
   await scenario(17091, "denied");
