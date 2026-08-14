@@ -608,7 +608,7 @@ export function createProductionDependencies(
         const nextBatchScheduler = new PublicationBatchScheduler(
           writeRepository,
           new HashtreeWriter(
-            `${writable!.staging.directory}/candidate-blobs`,
+            `${writable!.staging.directory}/writer-work`,
             {
               maxLinks: config.limits.linksPerNode,
               maxInventoryBlobs: config.limits.uniqueManifestNodes +
