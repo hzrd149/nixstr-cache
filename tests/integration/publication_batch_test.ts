@@ -1,4 +1,5 @@
 import { assertEquals, assertExists } from "@std/assert";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { WriteRepository as BaseWriteRepository } from "../../src/persistence/write_repository.ts";
 class WriteRepository extends BaseWriteRepository {
   constructor(...args: ConstructorParameters<typeof BaseWriteRepository>) {
@@ -10,7 +11,7 @@ import {
   type BatchClock,
   PublicationBatchScheduler,
 } from "../../src/write/batch_scheduler.ts";
-import { HashtreeWriter } from "../../src/hashtree/writer.ts";
+import { FILE_CHUNK_BYTES, HashtreeWriter } from "../../src/hashtree/writer.ts";
 import type { HashtreeBuild } from "../../src/hashtree/writer.ts";
 
 const NHASH_A =
@@ -106,6 +107,60 @@ Deno.test("quiet window builds one unpublished pending candidate", async () => {
       true,
       "disposing the writer run must retain the durable publication owner",
     );
+    repository.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("pending publication inventory includes every staged NAR component", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const repository = new WriteRepository(
+      `${root}/write.db`,
+      `${root}/spool`,
+      {
+        perBodyBytes: FILE_CHUNK_BYTES + 1,
+        aggregateBytes: 16_000_000,
+      },
+    );
+    const store = repository.openBlobStore(`${root}/spool/store`, {
+      capacityBytes: 16_000_000,
+    });
+    const bytes = new Uint8Array(FILE_CHUNK_BYTES + 1).fill(7);
+    await repository.stage("nar/x.nar", new Blob([bytes]).stream());
+    const generation = repository.commitOverlayRoutes(["nar/x.nar"]);
+    const clock = new FakeClock();
+    const writer = new HashtreeWriter(
+      `${root}/trees`,
+      {
+        maxLinks: 174,
+        maxInventoryBlobs: 100,
+        maxInventoryBytes: 16_000_000,
+      },
+      repository,
+      store,
+    );
+    const scheduler = new PublicationBatchScheduler(repository, writer, clock);
+    scheduler.dirty(generation);
+    await clock.advance(5_000);
+    await scheduler.idle();
+    const pending = repository.pendingCandidate();
+    assertExists(pending);
+    const inventory = [...repository.pendingInventory()];
+    assertEquals(pending.blobCount, inventory.length);
+    for (
+      const hash of [
+        sha256(bytes.subarray(0, FILE_CHUNK_BYTES)).toHex(),
+        sha256(bytes.subarray(FILE_CHUNK_BYTES)).toHex(),
+      ]
+    ) {
+      assertEquals(
+        inventory.filter((blob) => blob.hash === hash).length,
+        1,
+      );
+    }
+    await scheduler.close();
     repository.close();
   } finally {
     await Deno.remove(root, { recursive: true });

@@ -1,4 +1,5 @@
 import { assertEquals, assertGreater, assertRejects } from "@std/assert";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { FILE_CHUNK_BYTES, HashtreeWriter } from "../../src/hashtree/writer.ts";
 import { decodeManifest } from "../../src/protocol/hashtree.ts";
 import { WriteRepository as BaseWriteRepository } from "../../src/persistence/write_repository.ts";
@@ -37,10 +38,103 @@ Deno.test("canonical writer reuses pre-chunked shared-store components", async (
       size: 9,
       components: [{ index: 0, hash: component.hash, size: 9 }],
     }]);
-    assertGreater(built.inventory.length, 1);
+    const inventory = [...built.inventory];
+    const manifest = async (hash: string) =>
+      decodeManifest(
+        await Deno.readFile(inventory.find((blob) => blob.hash === hash)!.path),
+        {
+          maxWireBytes: 1_000_000,
+          maxDecodedBytes: 1_000_000,
+          maxLinks: 2,
+        },
+      );
+    const rootManifest = await manifest(built.rootHex);
+    const narLink = rootManifest.links.find((link) => link.name === "nar")!;
+    const narManifest = await manifest(narLink.hash.toHex());
+    const fileLink = narManifest.links.find((link) =>
+      link.name === "component.nar"
+    )!;
+    assertEquals(fileLink.type, 0);
+    assertEquals(fileLink.hash.toHex(), component.hash);
+    assertEquals(
+      inventory.filter((blob) => blob.hash === component.hash).length,
+      1,
+    );
     await built.dispose();
     await writer.close();
     store.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("writer uses raw links through the canonical file chunk boundary", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    for (
+      const size of [
+        0,
+        1,
+        FILE_CHUNK_BYTES - 1,
+        FILE_CHUNK_BYTES,
+        FILE_CHUNK_BYTES + 1,
+      ]
+    ) {
+      const source = `${root}/${size}`;
+      const bytes = new Uint8Array(size).fill(7);
+      await Deno.writeFile(source, bytes);
+      const writer = new HashtreeWriter(`${root}/trees-${size}`, {
+        maxLinks: 174,
+        maxInventoryBlobs: 100,
+        maxInventoryBytes: 8_000_000,
+      });
+      const built = await writer.build([{ route: "x", path: source, size }]);
+      const inventory = [...built.inventory];
+      const rootManifest = decodeManifest(await Deno.readFile(built.rootPath), {
+        maxWireBytes: 1_000_000,
+        maxDecodedBytes: 1_000_000,
+        maxLinks: 174,
+      });
+      const fileLink = rootManifest.links.find((link) => link.name === "x")!;
+      const rawHashes = [
+        sha256(bytes.subarray(0, Math.min(size, FILE_CHUNK_BYTES))).toHex(),
+        ...(size > FILE_CHUNK_BYTES
+          ? [sha256(bytes.subarray(FILE_CHUNK_BYTES)).toHex()]
+          : []),
+      ];
+      for (const hash of rawHashes) {
+        assertEquals(
+          inventory.filter((blob) => blob.hash === hash).length,
+          1,
+        );
+      }
+      if (size <= FILE_CHUNK_BYTES) {
+        assertEquals(fileLink.type, 0);
+        assertEquals(fileLink.hash.toHex(), rawHashes[0]);
+      } else {
+        assertEquals(fileLink.type, 1);
+        const fileManifest = decodeManifest(
+          await Deno.readFile(
+            inventory.find((blob) => blob.hash === fileLink.hash.toHex())!.path,
+          ),
+          {
+            maxWireBytes: 1_000_000,
+            maxDecodedBytes: 1_000_000,
+            maxLinks: 174,
+          },
+        );
+        assertEquals(
+          fileManifest.links.map((link) => [
+            link.hash.toHex(),
+            link.size,
+            link.type,
+          ]),
+          [[rawHashes[0], FILE_CHUNK_BYTES, 0], [rawHashes[1], 1, 0]],
+        );
+      }
+      await built.dispose();
+      await writer.close();
+    }
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -413,13 +507,13 @@ Deno.test("pinned canonical boundary hashes detect chunk grouping drift", async 
   const expected = [
     [
       FILE_CHUNK_BYTES - 1,
-      "a1180087f359125af504ab9bf443ebb5a77d1f9cb0a5f5694dbc1797f3546d21",
-      "nhash1qqs2zxqqsle4jyj675z2hxl5g04mtfmar7wtpf04d9xmc9uh7d2x6ggdkgdax",
+      "9ed4eca2a2ed0eac7c40ce408559eb4120c0d4e55ddc659a58e3c46b09f9af95",
+      "nhash1qqsfa48v523w6r4v03qvusy9t845zgxq6nj4mhr9nfvw83rtp8u6l9g9qp5j3",
     ],
     [
       FILE_CHUNK_BYTES,
-      "26099d59c52cd8963427d31e9116dc52711a4ee884c7b457296c71411d369fa2",
-      "nhash1qqszvzvat8zjekykxsnax853zmw9yug6fm5gf3a52u5kcu2pr5mflgsa7rjfz",
+      "69e9e63b575746d87aaecbde98fd77b2fb444b22bd26d4219644308ad241c7fa",
+      "nhash1qqsxn60x8dt4w3kc02hvhh5cl4mm976yfv3t6fk5yxtygvy26fqu07szntee2",
     ],
     [
       FILE_CHUNK_BYTES + 1,
