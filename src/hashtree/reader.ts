@@ -433,33 +433,62 @@ export class PathResolver {
   ): ReadableStream<Uint8Array> {
     let index = 0;
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let cancelled = false;
+    const abort = new AbortController();
+    const streamSignal = signal
+      ? AbortSignal.any([signal, abort.signal])
+      : abort.signal;
+    const cancelReader = async (reason?: unknown) => {
+      const current = reader;
+      reader = undefined;
+      if (!current) return;
+      try {
+        await current.cancel(reason);
+      } finally {
+        current.releaseLock();
+      }
+    };
     return new ReadableStream<Uint8Array>({
       pull: async (controller) => {
-        while (true) {
-          if (!reader) {
-            const chunk = chunks[index++];
-            if (!chunk) {
-              controller.close();
-              return;
+        try {
+          while (true) {
+            if (!reader) {
+              const chunk = chunks[index++];
+              if (!chunk) {
+                controller.close();
+                return;
+              }
+              const stream = await this.#rawStream(
+                chunk.hash,
+                chunk.size,
+                budget,
+                streamSignal,
+              );
+              if (cancelled) {
+                await stream.cancel();
+                return;
+              }
+              reader = stream.getReader();
             }
-            reader = (await this.#rawStream(
-              chunk.hash,
-              chunk.size,
-              budget,
-              signal,
-            )).getReader();
+            const next = await reader.read();
+            if (next.done) {
+              reader.releaseLock();
+              reader = undefined;
+              continue;
+            }
+            controller.enqueue(next.value);
+            return;
           }
-          const next = await reader.read();
-          if (next.done) {
-            reader.releaseLock();
-            reader = undefined;
-            continue;
-          }
-          controller.enqueue(next.value);
-          return;
+        } catch (error) {
+          await cancelReader(error);
+          controller.error(error);
         }
       },
-      cancel: (reason) => reader?.cancel(reason),
+      async cancel(reason) {
+        cancelled = true;
+        abort.abort(reason);
+        await cancelReader(reason);
+      },
     });
   }
 }
@@ -497,13 +526,22 @@ function cleanupStream(
         budget.debitOutput(next.value.byteLength);
         controller.enqueue(next.value);
       } catch (error) {
-        await finish();
+        try {
+          await reader.cancel(error);
+        } finally {
+          reader.releaseLock();
+          await finish();
+        }
         controller.error(error);
       }
     },
     async cancel(reason) {
-      await reader.cancel(reason);
-      await finish();
+      try {
+        await reader.cancel(reason);
+      } finally {
+        reader.releaseLock();
+        await finish();
+      }
     },
   });
 }
