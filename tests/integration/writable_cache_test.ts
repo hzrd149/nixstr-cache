@@ -155,6 +155,34 @@ Deno.test("owned signer streams one NAR into durable staging", async () => {
   await Deno.remove(root, { recursive: true });
 });
 
+Deno.test("NAR staging records canonical content-addressed route components", async () => {
+  const root = await Deno.makeTempDir({ prefix: "nixstr-write-components-" });
+  try {
+    const repository = new WriteRepository(
+      `${root}/write.sqlite`,
+      `${root}/spool`,
+      { perBodyBytes: 3_000_000, aggregateBytes: 6_000_000 },
+    );
+    const store = repository.openBlobStore(`${root}/store`, {
+      capacityBytes: 6_000_000,
+    });
+    const body = new Uint8Array(2_097_153).fill(7);
+    const staged = await repository.stage(
+      "nar/chunked.nar",
+      new Blob([body]).stream(),
+    );
+    assertEquals(staged.size, body.length);
+    assertEquals(store.routeComponents("nar/chunked.nar").map((x) => x.size), [
+      2_097_152,
+      1,
+    ]);
+    assertEquals(store.inventory().filter((x) => x.origin === "write").length, 2);
+    repository.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
 Deno.test("mismatched signer and failed staging fail closed", async () => {
   const root = await Deno.makeTempDir({ prefix: "nixstr-write-fail-" });
   const secret = generateSecretKey();
