@@ -23,7 +23,7 @@ let
 
       # The daemon reads its whole configuration from NIXSTR_* environment
       # variables, serves HTTP while fetching relays and Blossom servers, and
-      # keeps its SQLite state, spool, and staging directories on disk.
+      # keeps its SQLite state and writable staging directory on disk.
       "--allow-env"
       "--allow-net"
       "--allow-read"

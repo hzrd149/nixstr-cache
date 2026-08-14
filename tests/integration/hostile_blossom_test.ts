@@ -42,7 +42,7 @@ function testBlobStore(root: string): BlobStore {
   return new BlobStore(":memory:", root, { capacityBytes: 1024 * 1024 });
 }
 
-Deno.test("source plan|verified spool|quarantine: preserves event, BUD-03, extra order and canonical dedup", () => {
+Deno.test("source plan|verified admission|quarantine: preserves event, BUD-03, extra order and canonical dedup", () => {
   const plan = buildSourcePlan({
     event: ["https://ONE.test/", "bad", "https://cache.test/prefix"],
     bud03: ["https://one.test", "https://two.test/base/"],
@@ -56,7 +56,7 @@ Deno.test("source plan|verified spool|quarantine: preserves event, BUD-03, extra
   ]);
 });
 
-Deno.test("source plan|verified spool|quarantine: falls back and exposes bytes only after hash verification", async () => {
+Deno.test("source plan|verified admission|quarantine: falls back and exposes bytes only after hash verification", async () => {
   const bytes = new TextEncoder().encode("verified bytes");
   const calls: string[] = [];
   const fetcher = new BlobFetcher({
@@ -87,7 +87,7 @@ Deno.test("source plan|verified spool|quarantine: falls back and exposes bytes o
   await blob.dispose();
 });
 
-Deno.test("source plan|verified spool|quarantine: hash mismatch persists across restart and can be released", async () => {
+Deno.test("source plan|verified admission|quarantine: hash mismatch persists across restart and can be released", async () => {
   const dir = await Deno.makeTempDir();
   const db = `${dir}/state.db`;
   let repository = new StateRepository(db);
@@ -115,7 +115,7 @@ Deno.test("source plan|verified spool|quarantine: hash mismatch persists across 
   repository.close();
 });
 
-Deno.test("source plan|verified spool|quarantine: oversize removes partial spools without quarantine", async () => {
+Deno.test("source plan|verified admission|quarantine: oversize removes partial files without quarantine", async () => {
   const dir = await Deno.makeTempDir();
   let quarantined = 0;
   const fetcher = new BlobFetcher({
@@ -304,8 +304,12 @@ Deno.test("ordered|transfer budget|output budget: nested file manifests preserve
     l: [{ h: hashBytes(parent), n: "nested", s: 4, t: 1 }],
     t: 2,
   });
+  const noncanonicalRoot = manifest({
+    l: [{ h: hashBytes(parent), n: "nested", s: parent.length, t: 1 }],
+    t: 2,
+  });
   const blobs = new Map(
-    [root, parent, child, ...chunks].map((
+    [root, noncanonicalRoot, parent, child, ...chunks].map((
       bytes,
     ) => [hex(hashBytes(bytes)), bytes]),
   );
@@ -334,6 +338,17 @@ Deno.test("ordered|transfer budget|output budget: nested file manifests preserve
     new RequestBudget(traversalLimits()),
   );
   assertEquals(await new Response(result.body).text(), "ABCD");
+  await assertRejects(
+    () =>
+      resolver.resolve(
+        hex(hashBytes(noncanonicalRoot)),
+        "nested",
+        "HEAD",
+        new RequestBudget(traversalLimits()),
+      ),
+    Error,
+    "file manifest size differs from authenticated directory link",
+  );
 });
 
 Deno.test("resolver releases the active raw lease on output validation error", async () => {
@@ -386,119 +401,6 @@ Deno.test("resolver releases the active raw lease on output validation error", a
     await assertRejects(() => Deno.stat(rawPath), Deno.errors.NotFound);
   } finally {
     await Deno.remove(directory, { recursive: true });
-  }
-});
-
-Deno.test("legacy file-link wire sizes derive bounded authenticated plaintext sizes", async () => {
-  const first = new TextEncoder().encode("legacy ");
-  const second = new TextEncoder().encode("readable NAR");
-  const content = new Uint8Array(first.length + second.length);
-  content.set(first);
-  content.set(second, first.length);
-  const child = manifest({
-    l: [{ h: hashBytes(second), s: second.length, t: 0 }],
-    t: 1,
-  });
-  const file = manifest({
-    l: [
-      { h: hashBytes(first), s: first.length, t: 0 },
-      { h: hashBytes(child), s: child.length, t: 1 },
-    ],
-    t: 1,
-  });
-  const invalidFile = manifest({
-    l: [
-      { h: hashBytes(first), s: first.length, t: 0 },
-      { h: hashBytes(child), s: child.length + 1, t: 1 },
-    ],
-    t: 1,
-  });
-  const legacyRoot = manifest({
-    l: [{ h: hashBytes(file), n: "legacy", s: file.length, t: 1 }],
-    t: 2,
-  });
-  const invalidRoot = manifest({
-    l: [{
-      h: hashBytes(invalidFile),
-      n: "invalid",
-      s: invalidFile.length,
-      t: 1,
-    }],
-    t: 2,
-  });
-  const blobs = new Map(
-    [legacyRoot, invalidRoot, file, invalidFile, child, first, second].map((
-      bytes,
-    ) => [
-      hex(hashBytes(bytes)),
-      bytes,
-    ]),
-  );
-  const calls: string[] = [];
-  const spool = await Deno.makeTempDir();
-  try {
-    const resolver = new PathResolver(
-      new BlobFetcher({
-        fetcher: {
-          fetch: (url: string | URL) => {
-            const hash = String(url).split("/").at(-1)!;
-            calls.push(hash);
-            return Promise.resolve(response(blobs.get(hash)!));
-          },
-        },
-        quarantine: {
-          isQuarantined: () => false,
-          quarantine: () => {},
-          releaseQuarantine: () => {},
-        },
-        store: testBlobStore(spool),
-      }),
-      buildSourcePlan({ event: ["http://tree.test"] }),
-      { maxWireBytes: 4096, maxDecodedBytes: 4096, maxLinks: 10 },
-    );
-    const head = await resolver.resolve(
-      hex(hashBytes(legacyRoot)),
-      "legacy",
-      "HEAD",
-      new RequestBudget(traversalLimits()),
-    );
-    assertEquals(head.size, content.length);
-    assertEquals(calls.includes(hex(hashBytes(first))), false);
-    assertEquals(calls.includes(hex(hashBytes(second))), false);
-
-    const get = await resolver.resolve(
-      hex(hashBytes(legacyRoot)),
-      "legacy",
-      "GET",
-      new RequestBudget(traversalLimits()),
-    );
-    assertEquals(get.size, content.length);
-    assertEquals(await new Response(get.body).bytes(), content);
-
-    await assertRejects(
-      () =>
-        resolver.resolve(
-          hex(hashBytes(invalidRoot)),
-          "invalid",
-          "HEAD",
-          new RequestBudget(traversalLimits()),
-        ),
-      Error,
-      "nested file manifest size differs",
-    );
-    await assertRejects(
-      () =>
-        resolver.resolve(
-          hex(hashBytes(legacyRoot)),
-          "legacy",
-          "HEAD",
-          new RequestBudget(traversalLimits({ maxLinks: 3 })),
-        ),
-      Error,
-      "link budget exceeded",
-    );
-  } finally {
-    await Deno.remove(spool, { recursive: true });
   }
 });
 
@@ -632,7 +534,7 @@ Deno.test("deadline|chunked|cancel: total and idle deadlines govern body through
   });
 });
 
-Deno.test("deadline|chunked|cancel: split chunk framing is decoded before spooling", async () => {
+Deno.test("deadline|chunked|cancel: split chunk framing is decoded before admission", async () => {
   const payload = new TextEncoder().encode("Wikipedia");
   await withRawResponse([
     "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r",
@@ -694,7 +596,7 @@ Deno.test("deadline|chunked|cancel: ambiguous and malformed framing fails closed
   }
 });
 
-Deno.test("deadline|chunked|cancel: exceptional spool cancels reader and removes partial file", async () => {
+Deno.test("deadline|chunked|cancel: exceptional admission cancels reader and removes partial file", async () => {
   const dir = await Deno.makeTempDir();
   let cancelled = false;
   const body = new ReadableStream<Uint8Array>({

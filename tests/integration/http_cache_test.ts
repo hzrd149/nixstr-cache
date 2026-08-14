@@ -286,7 +286,6 @@ Deno.test("startup|shutdown restores before binding and releases lifecycle resou
     caches: "a".repeat(64),
     extraRelays: "wss://relay.example",
     databasePath: "/tmp/nixstr-test.sqlite",
-    spoolDirectory: "/tmp/nixstr-test-spool",
   }, {
     openRepository: () => ({ close: () => calls.push("db-close") }),
     createSelection: () => ({ dispose: () => calls.push("selection-dispose") }),
@@ -341,7 +340,6 @@ Deno.test("production launcher validates before side effects and closes after li
       caches: "a".repeat(64),
       extraRelays: "ws://127.0.0.1:1",
       databasePath: `${root}/state.sqlite`,
-      spoolDirectory: `${root}/spool`,
     }, {
       createEventStream: () => {
         calls.push("relay");

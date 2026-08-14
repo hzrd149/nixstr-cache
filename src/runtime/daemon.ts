@@ -1,5 +1,6 @@
 import { NostrConnectSigner } from "applesauce-signers/signers/nostr-connect-signer";
 import { blossomServers } from "applesauce-common/helpers";
+import { dirname } from "node:path";
 import {
   type AppDependencies,
   type Bind,
@@ -132,10 +133,10 @@ export function createProductionDependencies(
   const nostrServices = new WeakMap<object, NostrService>();
   return {
     openRepository(config) {
-      Deno.mkdirSync(config.spoolDirectory, { recursive: true, mode: 0o700 });
-      try {
-        Deno.chmodSync(config.spoolDirectory, 0o700);
-      } catch { /* platform may not support chmod */ }
+      Deno.mkdirSync(dirname(config.databasePath), {
+        recursive: true,
+        mode: 0o700,
+      });
       return new StateRepository(config.databasePath);
     },
     createSelection(repository, config) {
@@ -240,10 +241,7 @@ export function createProductionDependencies(
           `${config.databasePath}.writes`,
           `${config.databasePath}.blobs`,
         );
-      const storeReady = blobStore.migrateLegacy({
-        spoolDirectory: config.spoolDirectory,
-        ...(writable ? { stagingDirectory: writable.staging.directory } : {}),
-      });
+      const storeReady = Promise.resolve();
       let signer: SignerCapability | undefined;
       let signerReady:
         | Promise<{ readonly ok: boolean; readonly pubkey?: string }>

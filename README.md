@@ -29,8 +29,8 @@ cp config.example.json config.json
 deno task dev
 ```
 
-`config.json` is ignored by Git. Relative state, spool, signer, and staging
-paths are resolved relative to the configuration file.
+`config.json` is ignored by Git. Relative state, signer, and staging paths are
+resolved relative to the configuration file.
 
 ## Read a published cache
 
@@ -41,8 +41,7 @@ Create a minimal `config.json`:
   "bindHost": "127.0.0.1",
   "bindPort": 8787,
   "caches": ["npub1PUBLISHER"],
-  "databasePath": "data/state.sqlite",
-  "spoolDirectory": "data/spool"
+  "databasePath": "data/state.sqlite"
 }
 ```
 
@@ -120,7 +119,6 @@ cache in `config.json`:
   "bindHost": "127.0.0.1",
   "bindPort": 8787,
   "databasePath": "data/state.sqlite",
-  "spoolDirectory": "data/spool",
   "writable": {
     "enabled": true,
     "type": "root",

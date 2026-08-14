@@ -7,7 +7,6 @@ import { blobFailureSources } from "../blossom/blob_fetcher.ts";
 import type { SourceCandidate } from "../blossom/source_plan.ts";
 import {
   decodeValidatedManifest,
-  encodeManifest,
   type Manifest,
   type ManifestLimits,
   type ManifestLink,
@@ -371,7 +370,6 @@ export class PathResolver {
       depth: number,
     ): Promise<{
       readonly size: number;
-      readonly wireSize: number;
       readonly chunks: readonly {
         readonly hash: string;
         readonly size: number;
@@ -398,7 +396,7 @@ export class PathResolver {
           chunks.push({ hash: link.hash.toHex(), size: link.size });
         } else if (link.type === 1) {
           const child = await visit(link.hash.toHex(), depth + 1);
-          if (link.size !== child.size && link.size !== child.wireSize) {
+          if (link.size !== child.size) {
             throw new Error(
               "nested file manifest size differs from authenticated link",
             );
@@ -414,12 +412,11 @@ export class PathResolver {
       }
       return Object.freeze({
         size: total,
-        wireSize: encodeManifest(manifest).length,
         chunks: Object.freeze(chunks),
       });
     };
     const plan = await visit(hash, 1);
-    if (expectedSize !== plan.size && expectedSize !== plan.wireSize) {
+    if (expectedSize !== plan.size) {
       throw new Error(
         "file manifest size differs from authenticated directory link",
       );

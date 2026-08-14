@@ -138,7 +138,6 @@ function ncryptsecRaw(root: string, encrypted: string): RawConfig {
     caches: "a".repeat(64),
     extraRelays: "wss://relay.example",
     databasePath: `${root}/state.sqlite`,
-    spoolDirectory: `${root}/spool`,
     writable: {
       enabled: true,
       type: "root",

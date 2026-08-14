@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertThrows } from "@std/assert";
 import { parseConfig, type RawConfig } from "../../src/config/config.ts";
 import {
   collectRawConfigFromEnvironment,
@@ -24,7 +24,6 @@ const JSON_CONFIG = {
   caches: [`17091:${PUBKEY}:`],
   extraRelays: ["wss://relay.example"],
   databasePath: "state.sqlite",
-  spoolDirectory: "spool",
   bindPort: 9876,
   writable: { enabled: false },
   limits: { maxRedirects: 5, sourceAttempts: 12 },
@@ -35,7 +34,6 @@ function validRaw(overrides: Partial<RawConfig> = {}): RawConfig {
     caches: PUBKEY,
     extraRelays: "wss://relay.example",
     databasePath: "/tmp/nixstr-operator.sqlite",
-    spoolDirectory: "/tmp/nixstr-operator-spool",
     ...overrides,
   };
 }
@@ -56,7 +54,6 @@ Deno.test("startup loader reads native JSON and resolves file-owned paths", asyn
       readEnvironment: () => undefined,
     });
     assertEquals(raw.databasePath, `${root}/operator/state.sqlite`);
-    assertEquals(raw.spoolDirectory, `${root}/operator/spool`);
     assertEquals(raw.writable?.enabled, false);
     const parsed = parseConfig(raw);
     assert(parsed.ok); // Disabled mode ignores every other writable member.
@@ -77,7 +74,6 @@ Deno.test("startup loader applies environment overrides member-wise", async () =
   });
   assertEquals(raw.bindPort, "8788");
   assertEquals(raw.databasePath, "/env/state.sqlite");
-  assertEquals(raw.spoolDirectory, "/etc/nixstr/spool");
   assertEquals(raw.limits?.maxRedirects, "7");
   assertEquals(raw.limits?.sourceAttempts, 12);
   const parsed = parseConfig(raw);
@@ -153,36 +149,11 @@ Deno.test("extra Blossom servers preserve order and reject invalid entries", () 
   }
 });
 
-Deno.test("legacy preferred Blossom configuration is rejected", async () => {
-  await assertRejects(
-    () =>
-      loadStartupConfig(["--config", "/tmp/config.json"], {
-        readTextFile: () =>
-          Promise.resolve(JSON.stringify({
-            ...JSON_CONFIG,
-            preferredBlossomUrl: "https://blossom.example",
-          })),
-        readEnvironment: () => undefined,
-      }),
-    Error,
-    "unknown config field preferredBlossomUrl",
-  );
-  assertThrows(
-    () =>
-      rawConfigFromEnvironment({
-        NIXSTR_PREFERRED_BLOSSOM_URL: "https://blossom.example",
-      }),
-    Error,
-    "use NIXSTR_EXTRA_SERVERS",
-  );
-});
-
 Deno.test("startup loader retains environment-only operation and absolute env paths", async () => {
   const environment: Record<string, string> = {
     NIXSTR_CACHES: `17091:${PUBKEY}:`,
     NIXSTR_EXTRA_RELAYS: "wss://relay.example",
     NIXSTR_DATABASE_PATH: "/env/state.sqlite",
-    NIXSTR_SPOOL_DIRECTORY: "/env/spool",
   };
   const raw = await loadStartupConfig([], {
     readEnvironment: (name) => environment[name],
@@ -275,7 +246,6 @@ Deno.test("invalid loaded config reaches no daemon startup side effects", async 
       Promise.resolve(JSON.stringify({
         ...JSON_CONFIG,
         databasePath: "state.sqlite",
-        spoolDirectory: "spool",
         limits: { maxRedirects: 0 },
       })),
     readEnvironment: () => undefined,
@@ -357,7 +327,6 @@ Deno.test("empty read-only config keeps bootstrap relays and serves 503", async 
   try {
     const parsed = parseConfig({
       databasePath: `${root}/state.sqlite`,
-      spoolDirectory: `${root}/spool`,
     });
     assert(parsed.ok);
     assertEquals(parsed.value.identities, []);
@@ -369,7 +338,6 @@ Deno.test("empty read-only config keeps bootstrap relays and serves 503", async 
 
     const noBootstrap = parseConfig({
       databasePath: `${root}/other.sqlite`,
-      spoolDirectory: `${root}/other-spool`,
       bootstrapRelays: [],
     });
     assert(!noBootstrap.ok);
@@ -381,7 +349,6 @@ Deno.test("empty read-only config keeps bootstrap relays and serves 503", async 
 
     const result = await launchDaemon({
       databasePath: `${root}/daemon.sqlite`,
-      spoolDirectory: `${root}/daemon-spool`,
     }, {
       createEventStream: () => ({
         events: new Subject<RawPublication>(),
@@ -424,8 +391,6 @@ Deno.test("JSON and environment cache identities share normalization and priorit
         ? "wss://relay.example"
         : name === "NIXSTR_DATABASE_PATH"
         ? "/tmp/state.sqlite"
-        : name === "NIXSTR_SPOOL_DIRECTORY"
-        ? "/tmp/spool"
         : undefined,
   });
   for (const raw of [fileRaw, environmentRaw]) {
@@ -517,15 +482,6 @@ Deno.test("environment mapper preserves ordered cache identities", () => {
       NIXSTR_PUBLISHER_PUBKEYS: PUBKEY,
     }).caches,
     undefined,
-  );
-});
-
-Deno.test("removed local Blossom inputs are not part of operator config", () => {
-  const removed = ["NIXSTR", "LOCAL", "BLOSSOM", "URL"].join("_");
-  assertThrows(
-    () => rawConfigFromEnvironment({ [removed]: "http://127.0.0.1:24242" }),
-    Error,
-    `${removed} is no longer supported`,
   );
 });
 
@@ -783,7 +739,6 @@ Deno.test("production environment collector maps every supported limit", () => {
     NIXSTR_CACHES: PUBKEY,
     NIXSTR_EXTRA_RELAYS: "wss://relay.example",
     NIXSTR_DATABASE_PATH: "/tmp/nixstr-limit-state.sqlite",
-    NIXSTR_SPOOL_DIRECTORY: "/tmp/nixstr-limit-spool",
     NIXSTR_LIMIT_MANIFEST_WIRE_BYTES: "1000001",
     NIXSTR_LIMIT_DECODED_METADATA_BYTES: "100002",
     NIXSTR_LIMIT_BLOB_TRANSFER_BYTES: "10000003",
@@ -837,7 +792,6 @@ Deno.test("invalid collected production limit stops before startup", async () =>
     NIXSTR_CACHES: PUBKEY,
     NIXSTR_EXTRA_RELAYS: "wss://relay.example",
     NIXSTR_DATABASE_PATH: `${root}/state.sqlite`,
-    NIXSTR_SPOOL_DIRECTORY: `${root}/spool`,
     NIXSTR_LIMIT_MAX_REDIRECTS: "not-an-integer",
   };
   const calls: string[] = [];
@@ -872,7 +826,6 @@ Deno.test("partial environment write intent stops before startup side effects", 
   const result = await launchDaemon({
     ...validRaw({
       databasePath: `${root}/state.sqlite`,
-      spoolDirectory: `${root}/spool`,
     }),
     ...rawConfigFromEnvironment({
       NIXSTR_WRITABLE_ENABLED: "true",
@@ -904,7 +857,6 @@ Deno.test("extra Blossom servers do not make configured writes ready", async () 
     const result = await launchDaemon(
       validRaw({
         databasePath: `${root}/state.sqlite`,
-        spoolDirectory: `${root}/spool`,
         extraServers: ["http://127.0.0.1:9"],
         writable: {
           enabled: true,
@@ -986,7 +938,6 @@ Deno.test("writable-only signer NIP-65 discovery enables an empty cache", async 
     const result = await launchDaemon({
       bootstrapRelays: [relayUrl],
       databasePath: `${root}/state.sqlite`,
-      spoolDirectory: `${root}/spool`,
       writable: {
         enabled: true,
         type: "root",

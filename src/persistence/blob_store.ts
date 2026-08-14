@@ -1,6 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { FILE_CHUNK_BYTES } from "../hashtree/writer.ts";
 
 export const DEFAULT_BLOB_STORE_BYTES = 16 * 1024 * 1024 * 1024;
 export type BlobOrigin = "write" | "remote" | "mixed";
@@ -27,16 +26,6 @@ export interface BlobInventoryEntry {
   readonly origin: BlobOrigin;
   readonly lastAccessed: number;
   readonly owners: number;
-}
-export interface LegacyMigrationOptions {
-  readonly stagingDirectory?: string;
-  readonly spoolDirectory?: string;
-}
-export interface LegacyMigrationReport {
-  readonly routesMigrated: number;
-  readonly candidateBlobsMigrated: number;
-  readonly removedSpools: number;
-  readonly quarantined: number;
 }
 export interface RouteComponent {
   readonly index: number;
@@ -142,10 +131,6 @@ export class BlobStore {
       CREATE TABLE IF NOT EXISTS blob_store_tombstones(
         hash TEXT PRIMARY KEY,retry_at INTEGER NOT NULL,last_error TEXT NOT NULL DEFAULT ''
       );
-      CREATE TABLE IF NOT EXISTS blob_store_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS blob_store_migrations(
-        route TEXT PRIMARY KEY,completed_at INTEGER NOT NULL
-      );
       CREATE TABLE IF NOT EXISTS blob_store_routes(
         route TEXT PRIMARY KEY,size INTEGER NOT NULL,component_count INTEGER NOT NULL
       );
@@ -153,7 +138,6 @@ export class BlobStore {
         route TEXT NOT NULL,component_index INTEGER NOT NULL,hash TEXT NOT NULL,size INTEGER NOT NULL,
         PRIMARY KEY(route,component_index),FOREIGN KEY(hash) REFERENCES blob_store_catalog(hash)
       );
-      INSERT OR IGNORE INTO blob_store_meta(key,value) VALUES('schema_version','1');
     `);
     this.reconcile();
   }
@@ -531,163 +515,6 @@ export class BlobStore {
     }
   }
 
-  async migrateLegacy(
-    options: LegacyMigrationOptions,
-  ): Promise<LegacyMigrationReport> {
-    this.#assertOpen();
-    let routesMigrated = 0;
-    let candidateBlobsMigrated = 0;
-    let removedSpools = 0;
-    let quarantined = 0;
-
-    if (this.#tableExists("content_blobs")) {
-      const rows = this.#db.prepare(
-        "SELECT hash,size,path FROM content_blobs ORDER BY hash",
-      )
-        .all() as unknown as { hash: string; size: number; path: string }[];
-      for (const row of rows) {
-        if (this.has(row.hash)) continue;
-        const owners = this.#tableExists("blob_owners")
-          ? (this.#db.prepare(
-            "SELECT owner FROM blob_owners WHERE hash=? ORDER BY owner",
-          ).all(row.hash) as unknown as { owner: string }[])
-          : [];
-        await this.admitVerifiedFile(row.path, row.hash, Number(row.size), {
-          origin: "write",
-          ...(owners[0] ? { owner: owners[0].owner } : {}),
-        });
-        for (const owner of owners.slice(1)) {
-          this.acquireOwner(owner.owner, row.hash);
-        }
-        candidateBlobsMigrated++;
-      }
-    }
-
-    if (this.#tableExists("staged_blobs")) {
-      const rows = this.#db.prepare(
-        `SELECT route,size,path FROM staged_blobs s WHERE NOT EXISTS(
-          SELECT 1 FROM blob_store_migrations m WHERE m.route=s.route) ORDER BY route`,
-      ).all() as unknown as { route: string; size: number; path: string }[];
-      for (const row of rows) {
-        const components = await this.#importLegacyRoute(
-          row.route,
-          row.path,
-          Number(row.size),
-        );
-        this.#db.exec("BEGIN IMMEDIATE");
-        try {
-          this.#db.prepare(
-            "DELETE FROM blob_store_route_components WHERE route=?",
-          ).run(row.route);
-          const insert = this.#db.prepare(
-            "INSERT INTO blob_store_route_components(route,component_index,hash,size) VALUES(?,?,?,?)",
-          );
-          for (const item of components) {
-            insert.run(row.route, item.index, item.hash, item.size);
-          }
-          this.#db.prepare(
-            "INSERT OR REPLACE INTO blob_store_routes(route,size,component_count) VALUES(?,?,?)",
-          ).run(row.route, row.size, components.length);
-          this.#db.prepare(
-            "INSERT INTO blob_store_migrations(route,completed_at) VALUES(?,?)",
-          ).run(row.route, this.#now());
-          this.#db.exec("COMMIT");
-        } catch (error) {
-          this.#db.exec("ROLLBACK");
-          throw error;
-        }
-        try {
-          this.#remove(row.path);
-        } catch (error) {
-          if (!(error instanceof Deno.errors.NotFound)) {
-            // The durable route swap already committed; cleanup is retryable on restart.
-          }
-        }
-        routesMigrated++;
-      }
-    }
-
-    if (options.spoolDirectory) {
-      try {
-        for (const entry of Deno.readDirSync(options.spoolDirectory)) {
-          if (!entry.isFile) continue;
-          const source = `${options.spoolDirectory}/${entry.name}`;
-          if (/^\.nixstr-spool-[A-Za-z0-9-]+$/.test(entry.name)) {
-            this.#remove(source);
-            removedSpools++;
-          } else {
-            Deno.renameSync(
-              source,
-              `${this.#root}/quarantine/legacy-${crypto.randomUUID()}`,
-            );
-            quarantined++;
-          }
-        }
-      } catch (error) {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-      }
-    }
-    this.#db.prepare(
-      "INSERT OR REPLACE INTO blob_store_meta(key,value) VALUES('legacy_migration',?)",
-    )
-      .run(String(this.#now()));
-    return Object.freeze({
-      routesMigrated,
-      candidateBlobsMigrated,
-      removedSpools,
-      quarantined,
-    });
-  }
-  async #importLegacyRoute(
-    route: string,
-    path: string,
-    declaredSize: number,
-  ): Promise<RouteComponent[]> {
-    const file = await Deno.open(path, { read: true });
-    const result: RouteComponent[] = [];
-    let total = 0;
-    try {
-      while (true) {
-        const buffer = new Uint8Array(FILE_CHUNK_BYTES);
-        let length = 0;
-        while (length < buffer.length) {
-          const read = await file.read(buffer.subarray(length));
-          if (read === null) break;
-          length += read;
-        }
-        if (!length) break;
-        total += length;
-        if (total > declaredSize) {
-          throw new Error(`legacy route size changed: ${route}`);
-        }
-        const admitted = await this.admit(buffer.slice(0, length), {
-          origin: "write",
-          owner: `route:${route}`,
-          reserveBytes: length,
-        });
-        result.push(
-          Object.freeze({
-            index: result.length,
-            hash: admitted.hash,
-            size: length,
-          }),
-        );
-      }
-    } finally {
-      file.close();
-    }
-    if (total !== declaredSize) {
-      throw new Error(`legacy route size changed: ${route}`);
-    }
-    return result;
-  }
-  #tableExists(name: string): boolean {
-    return Boolean(
-      this.#db.prepare(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-      ).get(name),
-    );
-  }
   #entry(hash: string): BlobInventoryEntry | undefined {
     return this.inventory().find((item) => item.hash === hash);
   }

@@ -39,7 +39,6 @@ async function scenario(
       caches: expectedOwner,
       extraRelays: fixture.relayUrl,
       databasePath: `${root}/state.sqlite`,
-      spoolDirectory: `${root}/spool`,
       writable: {
         enabled: true,
         type: kind === 17091 ? "root" : "named",
@@ -219,7 +218,6 @@ Deno.test("durable owner mismatch prints a prominent warning before closing nbun
       caches: fixture.remoteOwner,
       extraRelays: fixture.relayUrl,
       databasePath,
-      spoolDirectory: `${root}/spool`,
       writable: {
         enabled: true,
         type: "root",

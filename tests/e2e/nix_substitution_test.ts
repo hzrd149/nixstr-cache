@@ -30,11 +30,10 @@ Deno.test("stock Nix substitutes cold and reuses the shared store after restart"
   const source = `${root}/source`,
     cache = `${root}/cache`,
     input = `${root}/input`;
-  const spool = `${root}/spool`,
-    secret = `${root}/secret`,
+  const secret = `${root}/secret`,
     publicKey = `${root}/public`;
   await Promise.all(
-    [input, spool].map((path) => Deno.mkdir(path, { recursive: true })),
+    [input].map((path) => Deno.mkdir(path, { recursive: true })),
   );
   await Deno.writeTextFile(
     `${input}/payload`,
@@ -175,7 +174,6 @@ Deno.test("stock Nix substitutes cold and reuses the shared store after restart"
           NIXSTR_EXTRA_RELAYS: `ws://127.0.0.1:${relayAddress.port}`,
           NIXSTR_EXTRA_SERVERS: blossomUrl,
           NIXSTR_DATABASE_PATH: `${root}/state.sqlite`,
-          NIXSTR_SPOOL_DIRECTORY: spool,
         },
       }).spawn();
       for (let attempt = 0; attempt < 200; attempt++) {
@@ -271,7 +269,6 @@ Deno.test("stock Nix substitutes cold and reuses the shared store after restart"
     child.kill("SIGTERM");
     assertEquals((await child.status).success, true);
     child = undefined;
-    assertEquals(await Array.fromAsync(Deno.readDir(spool)), []);
   } finally {
     if (child) {
       try {

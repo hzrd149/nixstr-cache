@@ -57,8 +57,8 @@ in
         kind-37091 `naddr` for a named cache. The application supplies default
         discovery relays when `NIXSTR_BOOTSTRAP_RELAYS` is omitted; an explicit
         value must contain at least one relay. The
-        module defaults `NIXSTR_BIND_HOST`, `NIXSTR_BIND_PORT`,
-        `NIXSTR_DATABASE_PATH`, and `NIXSTR_SPOOL_DIRECTORY`.
+        module defaults `NIXSTR_BIND_HOST`, `NIXSTR_BIND_PORT`, and
+        `NIXSTR_DATABASE_PATH`.
 
         Enabling the writable overlay additionally requires
         `NIXSTR_WRITABLE_ENABLED=true`, `NIXSTR_WRITABLE_TYPE` (`root` or
@@ -82,7 +82,6 @@ in
       NIXSTR_BIND_HOST = lib.mkDefault "127.0.0.1";
       NIXSTR_BIND_PORT = lib.mkDefault "8787";
       NIXSTR_DATABASE_PATH = lib.mkDefault "/var/lib/nixstr-cache/state.sqlite";
-      NIXSTR_SPOOL_DIRECTORY = lib.mkDefault "/var/lib/nixstr-cache/spool";
     };
 
     networking.firewall.allowedTCPPorts = lib.optional cfg.openFirewall (

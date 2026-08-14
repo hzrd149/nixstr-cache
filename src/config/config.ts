@@ -30,7 +30,6 @@ export interface RawConfig {
   readonly bootstrapRelays?: string | readonly string[];
   readonly extraServers?: string | readonly string[];
   readonly databasePath?: string;
-  readonly spoolDirectory?: string;
   readonly writable?: RawWritableConfig;
   /** Process-local CLI input. Never accepted from JSON or environment. */
   readonly signerOverride?: SignerOverride;
@@ -146,7 +145,6 @@ export interface ValidatedConfig {
   readonly bootstrapRelays: readonly URL[];
   readonly extraServers: readonly URL[];
   readonly databasePath: string;
-  readonly spoolDirectory: string;
   readonly identities: readonly string[];
   readonly writeIntent: WriteIntent;
   readonly writable: ValidatedWritableConfig;
@@ -377,11 +375,6 @@ export function parseConfig(
   const databasePath = parseOwnerPath(
     raw.databasePath,
     "databasePath",
-    diagnostics,
-  );
-  const spoolDirectory = parseOwnerPath(
-    raw.spoolDirectory,
-    "spoolDirectory",
     diagnostics,
   );
   const writableRaw = raw.writable;
@@ -722,7 +715,6 @@ export function parseConfig(
       bootstrapRelays: Object.freeze(bootstrapRelays),
       extraServers: Object.freeze(extraServers),
       databasePath: databasePath!,
-      spoolDirectory: spoolDirectory!,
       identities: Object.freeze(normalizedIdentities),
       writeIntent,
       writable,
@@ -762,7 +754,6 @@ function normalizeRawConfig(
     const field of [
       "bindHost",
       "databasePath",
-      "spoolDirectory",
     ]
   ) {
     const value = normalized[field];

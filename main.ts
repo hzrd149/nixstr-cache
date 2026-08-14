@@ -13,9 +13,7 @@ const SUPPORTED_ENVIRONMENT_NAMES = [
   "NIXSTR_EXTRA_RELAYS",
   "NIXSTR_BOOTSTRAP_RELAYS",
   "NIXSTR_EXTRA_SERVERS",
-  "NIXSTR_PREFERRED_BLOSSOM_URL",
   "NIXSTR_DATABASE_PATH",
-  "NIXSTR_SPOOL_DIRECTORY",
   "NIXSTR_WRITABLE_ENABLED",
   "NIXSTR_WRITABLE_TYPE",
   "NIXSTR_WRITABLE_NAME",
@@ -64,7 +62,6 @@ export interface StartupArguments {
 
 const OWNER_PATH_FIELDS = [
   "databasePath",
-  "spoolDirectory",
 ] as const;
 
 const JSON_CONFIG_FIELDS = new Set([
@@ -75,7 +72,6 @@ const JSON_CONFIG_FIELDS = new Set([
   "bootstrapRelays",
   "extraServers",
   "databasePath",
-  "spoolDirectory",
   "writable",
   "limits",
 ]);
@@ -114,17 +110,6 @@ export function collectRawConfigFromEnvironment(
 export function rawConfigFromEnvironment(
   environment: Record<string, string>,
 ): RawConfig {
-  const removedLocalBlossom = ["NIXSTR", "LOCAL", "BLOSSOM", "URL"].join("_");
-  if (environment[removedLocalBlossom] !== undefined) {
-    throw new Error(
-      `${removedLocalBlossom} is no longer supported; verified blobs are cached directly in the shared store`,
-    );
-  }
-  if (environment.NIXSTR_PREFERRED_BLOSSOM_URL !== undefined) {
-    throw new Error(
-      "NIXSTR_PREFERRED_BLOSSOM_URL is no longer supported; use NIXSTR_EXTRA_SERVERS",
-    );
-  }
   return {
     bindHost: environment.NIXSTR_BIND_HOST,
     bindPort: environment.NIXSTR_BIND_PORT,
@@ -133,7 +118,6 @@ export function rawConfigFromEnvironment(
     bootstrapRelays: environment.NIXSTR_BOOTSTRAP_RELAYS,
     extraServers: environment.NIXSTR_EXTRA_SERVERS,
     databasePath: environment.NIXSTR_DATABASE_PATH,
-    spoolDirectory: environment.NIXSTR_SPOOL_DIRECTORY,
     writable: writableFromEnvironment(environment),
     limits: {
       manifestWireBytes: environment.NIXSTR_LIMIT_MANIFEST_WIRE_BYTES,
@@ -306,7 +290,6 @@ function validateJsonTopLevel(config: Record<string, unknown>): void {
     const field of [
       "bindHost",
       "databasePath",
-      "spoolDirectory",
     ]
   ) {
     if (config[field] !== undefined && typeof config[field] !== "string") {

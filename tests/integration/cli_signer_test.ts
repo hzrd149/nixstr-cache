@@ -16,7 +16,6 @@ const WRITABLE_JSON = {
   caches: [PUBKEY],
   extraRelays: ["wss://relay.example"],
   databasePath: "/tmp/nixstr-cli-state.sqlite",
-  spoolDirectory: "/tmp/nixstr-cli-spool",
   writable: {
     enabled: true,
     type: "root",
@@ -125,7 +124,6 @@ Deno.test("inline nsec starts and signs without requesting a password", async ()
           NIXSTR_CACHES: PUBKEY,
           NIXSTR_EXTRA_RELAYS: "wss://relay.example",
           NIXSTR_DATABASE_PATH: "/tmp/nixstr-cli-state.sqlite",
-          NIXSTR_SPOOL_DIRECTORY: "/tmp/nixstr-cli-spool",
           NIXSTR_WRITABLE_ENABLED: "true",
           NIXSTR_WRITABLE_TYPE: "root",
           NIXSTR_WRITABLE_STAGING_DIRECTORY: "/tmp/nixstr-cli-staging",

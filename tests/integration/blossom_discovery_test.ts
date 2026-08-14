@@ -108,7 +108,6 @@ Deno.test("production BUD-03 wiring feeds event, server list, then extra sources
         "https://fallback.example/base",
       ],
       databasePath: `${root}/state.sqlite`,
-      spoolDirectory: `${root}/spool`,
     });
     if (!parsed.ok) throw new Error("fixture config invalid");
     const dependencies = createProductionDependencies({
@@ -229,7 +228,6 @@ Deno.test("production event stream exposes dynamic signer BUD-03 follow", () => 
     caches: publisher,
     extraRelays: "ws://127.0.0.1:9000",
     databasePath: "/tmp/nixstr-unused.sqlite",
-    spoolDirectory: "/tmp/nixstr-unused-spool",
   });
   if (!parsed.ok) throw new Error("fixture config invalid");
   const stream = createPublicationEventStream(parsed.value);

@@ -111,7 +111,6 @@ Deno.test("stock Nix uploads through production and substitutes from the newly p
           NIXSTR_EXTRA_RELAYS: fixture.relayUrl,
           NIXSTR_EXTRA_SERVERS: fixture.blossomUrl,
           NIXSTR_DATABASE_PATH: `${root}/state.sqlite`,
-          NIXSTR_SPOOL_DIRECTORY: `${root}/spool`,
           NIXSTR_WRITABLE_ENABLED: "true",
           NIXSTR_WRITABLE_TYPE: "root",
           NIXSTR_WRITABLE_SIGNER_TYPE: "local",

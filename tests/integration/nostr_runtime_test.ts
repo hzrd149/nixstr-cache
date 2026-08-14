@@ -14,7 +14,6 @@ Deno.test("shared Nostr service derives publisher outboxes plus extra relays", a
     extraRelays: "wss://fallback.example",
     bootstrapRelays: "wss://bootstrap.example",
     databasePath: "/tmp/nixstr-unused.sqlite",
-    spoolDirectory: "/tmp/nixstr-unused-spool",
   });
   assert(parsed.ok);
   const runtime = createNostrService(parsed.value);
@@ -51,7 +50,6 @@ Deno.test("cache publications require the guarded accepted-event gateway", () =>
     caches: pubkey,
     extraRelays: "wss://fallback.example",
     databasePath: "/tmp/nixstr-unused.sqlite",
-    spoolDirectory: "/tmp/nixstr-unused-spool",
   });
   assert(parsed.ok);
   const runtime = createNostrService(parsed.value);
@@ -82,7 +80,6 @@ Deno.test("cache publications require the guarded accepted-event gateway", () =>
 Deno.test("empty publisher stream creates no metadata or relay subscription", () => {
   const parsed = parseConfig({
     databasePath: "/tmp/nixstr-empty-publishers.sqlite",
-    spoolDirectory: "/tmp/nixstr-empty-publishers-spool",
   });
   assert(parsed.ok);
   let metadataCalls = 0;

@@ -16,7 +16,6 @@
     "https://blossom-two.example.com"
   ],
   "databasePath": "data/state.sqlite",
-  "spoolDirectory": "data/spool",
   "writable": {
     "enabled": false,
     "signer": {
