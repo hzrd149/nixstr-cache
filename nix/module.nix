@@ -7,11 +7,6 @@ self:
 }:
 let
   cfg = config.services.nixstr-cache;
-
-  # An empty value here means "not configured in the Nix store"; the setting may
-  # still arrive from environmentFile, which this module cannot read.
-  setting = name: cfg.settings.${name} or "";
-  configuredOutOfStore = cfg.environmentFile != null;
 in
 {
   options.services.nixstr-cache = {
@@ -57,11 +52,11 @@ in
         its entire configuration from this namespace and refuses to start with a
         printed diagnostic when a value is missing or invalid.
 
-        At minimum `NIXSTR_CACHES` and `NIXSTR_EXTRA_RELAYS` are required.
-        Cache identities accept a bare lowercase hex pubkey or `npub` for a
-        default cache, and a kind-37091 `naddr` for a named cache. The
-        application supplies default discovery relays when
-        `NIXSTR_BOOTSTRAP_RELAYS` is omitted. The
+        `NIXSTR_CACHES` and `NIXSTR_EXTRA_RELAYS` are optional. Cache identities
+        accept a bare lowercase hex pubkey or `npub` for a default cache, and a
+        kind-37091 `naddr` for a named cache. The application supplies default
+        discovery relays when `NIXSTR_BOOTSTRAP_RELAYS` is omitted; an explicit
+        value must contain at least one relay. The
         module defaults `NIXSTR_BIND_HOST`, `NIXSTR_BIND_PORT`,
         `NIXSTR_DATABASE_PATH`, and `NIXSTR_SPOOL_DIRECTORY`.
 
@@ -89,27 +84,6 @@ in
       NIXSTR_DATABASE_PATH = lib.mkDefault "/var/lib/nixstr-cache/state.sqlite";
       NIXSTR_SPOOL_DIRECTORY = lib.mkDefault "/var/lib/nixstr-cache/spool";
     };
-
-    assertions = [
-      {
-        assertion = configuredOutOfStore || setting "NIXSTR_EXTRA_RELAYS" != "";
-        message = ''
-          services.nixstr-cache.settings.NIXSTR_EXTRA_RELAYS must list at least
-          one wss:// or ws:// relay URL, or be supplied through
-          services.nixstr-cache.environmentFile.
-        '';
-      }
-      {
-        assertion =
-          configuredOutOfStore
-          || setting "NIXSTR_CACHES" != "";
-        message = ''
-          services.nixstr-cache requires at least one cache identity in
-          settings.NIXSTR_CACHES, or an
-          services.nixstr-cache.environmentFile that supplies one.
-        '';
-      }
-    ];
 
     networking.firewall.allowedTCPPorts = lib.optional cfg.openFirewall (
       lib.toInt cfg.settings.NIXSTR_BIND_PORT

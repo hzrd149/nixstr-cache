@@ -15,20 +15,17 @@
       NIXSTR_BIND_HOST = "0.0.0.0";
       NIXSTR_BIND_PORT = "8787";
 
-      # Placeholder default-cache identity (kind 17091, empty identifier).
-      # Replace the all-zero pubkey with a publisher you actually trust; until
-      # then the daemon serves a valid but permanently empty merged cache.
-      NIXSTR_CACHES = "0000000000000000000000000000000000000000000000000000000000000000";
-
-      NIXSTR_EXTRA_RELAYS = "wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net";
+      # Add NIXSTR_CACHES when this VM should read trusted published caches.
+      # Add NIXSTR_EXTRA_RELAYS only for relays beyond discovered NIP-65 outboxes.
+      # With neither setting, cache-path requests return 503 until writes are
+      # configured and the signer overlay contains data.
     };
   };
 
   # Wire the daemon in as a substituter the way a real consumer would. Nix only
   # accepts store paths whose signatures it trusts, so a publication's exact
   # `<cache-name>:<base64-public-key>` has to be appended to trusted-public-keys
-  # before anything substitutes; with the placeholder identity above there is
-  # nothing to trust yet.
+  # before anything substitutes; this empty example has nothing to trust yet.
   nix.settings = {
     substituters = [ "http://127.0.0.1:${config.services.nixstr-cache.settings.NIXSTR_BIND_PORT}" ];
     fallback = true;

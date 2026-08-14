@@ -41,7 +41,6 @@ Create a minimal `config.json`:
   "bindHost": "127.0.0.1",
   "bindPort": 8787,
   "caches": ["npub1PUBLISHER"],
-  "extraRelays": ["wss://relay.example.com"],
   "databasePath": "data/state.sqlite",
   "spoolDirectory": "data/spool"
 }
@@ -54,9 +53,12 @@ Create a minimal `config.json`:
 - A kind `37091` `naddr` for a named cache.
 - Multiple identities, ordered from highest to lowest priority.
 
-The daemon discovers publisher outbox relays and BUD-03 Blossom servers. Use
-`extraRelays` for additional Nostr relays and `extraServers` for ordered,
-read-only Blossom fallbacks.
+The daemon discovers publisher outbox relays and BUD-03 Blossom servers through
+the default bootstrap relays. `caches` and `extraRelays` are optional; use
+`extraRelays` only for additional Nostr relays and `extraServers` for ordered,
+read-only Blossom fallbacks. `bootstrapRelays` defaults to public discovery
+relays, but an explicitly configured list must not be empty. With no read-cache
+identities, cache-path requests return `503` until a writable overlay is ready.
 
 Check that the local cache is available:
 
@@ -117,8 +119,6 @@ cache in `config.json`:
 {
   "bindHost": "127.0.0.1",
   "bindPort": 8787,
-  "caches": ["npub1YOUR_SIGNER"],
-  "extraRelays": ["wss://relay.example.com"],
   "databasePath": "data/state.sqlite",
   "spoolDirectory": "data/spool",
   "writable": {
@@ -137,6 +137,14 @@ cache in `config.json`:
   }
 }
 ```
+
+The writable cache does not need to be repeated in `caches`, and publication
+relays do not need to be repeated in `extraRelays`. After the signer connects,
+the daemon queries its kind `10002` NIP-65 relay list through the bootstrap
+relays. Writes become ready only after that effective relay set and at least one
+valid BUD-03 Blossom destination are both available. A write-ready cache returns
+`404` for misses until content is uploaded, then serves admitted content from
+the signer overlay.
 
 The local signer file contains the raw 32-byte Nostr secret key and should be
 readable only by the daemon. `nip46`, `ncryptsec`, and `nbunksec` signers are
@@ -173,10 +181,8 @@ The flake exports `nixosModules.default`. A minimal read-only service is:
         {
           services.nixstr-cache = {
             enable = true;
-            settings = {
-              NIXSTR_CACHES = "npub1PUBLISHER";
-              NIXSTR_EXTRA_RELAYS = "wss://relay.example.com";
-            };
+            # Add settings.NIXSTR_CACHES to read trusted published caches.
+            # The empty service starts successfully and returns 503 for misses.
           };
         }
       ];
