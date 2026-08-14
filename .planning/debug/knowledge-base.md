@@ -23,3 +23,13 @@ Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypothe
 - **Why not caught:** Existing golden vectors pinned the noncanonical wrapped roots, the pre-chunked test asserted only a coarse inventory count, and no publication test named every reachable raw component hash.
 - **Recurrence guard:** Boundary/direct-link and staged-component tests in tests/protocol/hashtree_writer_test.ts; durable pending-inventory closure in tests/integration/publication_batch_test.ts; dual type-0/type-1 HEAD, ordered GET, and hash-mismatch coverage in tests/integration/hostile_blossom_test.ts.
 ---
+
+## put-http-logging-missing — PUT requests bypassed normal HTTP access logging
+- **Date:** 2026-08-14
+- **Error patterns:** PUT absent from access logs, DEBUG HTTP traces, request_handled, GET HEAD only
+- **Root cause(s):** The HTTP handler and operational diagnostic schema restricted normal access-log emission to GET and HEAD even though the handler accepted PUT and other methods.
+- **Fix:** Accept the actual HTTP method in operational diagnostics and emit the existing immediate access diagnostic for every handled method; keep `nixstr:http:*` lifecycle traces on their separate DEBUG-gated facade.
+- **Files changed:** src/nix/http_handler.ts, src/operations/diagnostics.ts, tests/integration/debug_logging_test.ts, tests/integration/health_diagnostics_test.ts
+- **Why not caught:** No integration test exercised a successful non-GET request through the rendered console sink with HTTP debug namespaces disabled.
+- **Recurrence guard:** Regression test `operator access lines are rendered independently from HTTP debug traces` in tests/integration/debug_logging_test.ts asserts timestamped PUT INFO and POST WARN access lines while capturing zero HTTP debug calls.
+---
