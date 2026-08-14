@@ -90,14 +90,32 @@ function text(body: string, method: string, status = 200): Response {
   });
 }
 
-function mapped(error: unknown): Response {
+function textError(
+  body: string,
+  method: string,
+  status: number,
+  headers: HeadersInit = {},
+): Response {
+  const bounded = `${body.slice(0, 1023).replace(/[\r\n]+/g, " ").trim()}\n`;
+  const bytes = new TextEncoder().encode(bounded);
+  return new Response(method === "HEAD" ? null : bytes, {
+    status,
+    headers: {
+      ...Object.fromEntries(new Headers(headers)),
+      "content-type": "text/plain; charset=utf-8",
+      "content-length": String(bytes.length),
+    },
+  });
+}
+
+function mapped(error: unknown, method: string): Response {
   if (error instanceof VerifiedAbsent) {
-    return new Response("not found\n", { status: 404 });
+    return textError("not found", method, 404);
   }
   if (
     error instanceof BudgetExceeded && /deadline|timeout/i.test(error.message)
-  ) return new Response("upstream timeout\n", { status: 504 });
-  return new Response("bad gateway\n", { status: 502 });
+  ) return textError("upstream timeout", method, 504);
+  return textError("bad gateway", method, 502);
 }
 
 export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
@@ -119,7 +137,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
   ): Promise<Response> => {
     if (closed) {
       debugHttpRoute("handler closed", { requestId: trace });
-      return new Response("service unavailable\n", { status: 503 });
+      return textError("service unavailable", request.method, 503);
     }
     const pathname = new URL(request.url).pathname;
     if (
@@ -128,7 +146,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
     ) {
       if (!dependencies.health) {
         debugHttpRoute("health route unavailable", { requestId: trace });
-        return new Response("not found\n", { status: 404 });
+        return textError("not found", request.method, 404);
       }
       debugHttpRoute("serving health snapshot", { requestId: trace });
       const bytes = new TextEncoder().encode(
@@ -150,9 +168,8 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
         debugHttpRoute("PUT rejected: write capability unavailable", {
           requestId: trace,
         });
-        return new Response("method not allowed\n", {
-          status: 405,
-          headers: { allow: "GET, HEAD" },
+        return textError("method not allowed", request.method, 405, {
+          allow: "GET, HEAD",
         });
       }
       try {
@@ -161,20 +178,19 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
         debugHttpRoute("PUT rejected: signer authorization failed", {
           requestId: trace,
         });
-        return new Response("method not allowed\n", {
-          status: 405,
-          headers: { allow: "GET, HEAD" },
+        return textError("method not allowed", request.method, 405, {
+          allow: "GET, HEAD",
         });
       }
       const url = new URL(request.url);
       if (
         url.search || url.hash || url.pathname.includes("%") ||
         request.body === null
-      ) return new Response("not found\n", { status: 404 });
+      ) return textError("not found", request.method, 404);
       if (
         (request.headers.get("content-encoding") ?? "identity")
           .toLowerCase() !== "identity"
-      ) return new Response("unsupported content encoding\n", { status: 415 });
+      ) return textError("unsupported content encoding", request.method, 415);
       const narinfoMatch = /^\/([0-9a-z]{32})\.narinfo$/.exec(url.pathname);
       const narMatch = /^\/(nar\/[A-Za-z0-9._+-]+)$/.exec(url.pathname);
       if (!narinfoMatch && !narMatch) {
@@ -182,7 +198,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           requestId: trace,
           path: debugPath(url.pathname),
         });
-        return new Response("not found\n", { status: 404 });
+        return textError("not found", request.method, 404);
       }
       const route = narinfoMatch ? `${narinfoMatch[1]}.narinfo` : narMatch![1];
       try {
@@ -225,7 +241,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
             routeClass,
             status: 409,
           });
-          return new Response("immutable route conflict\n", { status: 409 });
+          return textError("immutable route conflict", request.method, 409);
         }
         if (error instanceof RangeError) {
           emitOperational({
@@ -234,7 +250,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
             routeClass,
             status: 413,
           });
-          return new Response("payload too large\n", { status: 413 });
+          return textError("payload too large", request.method, 413);
         }
         if (error instanceof TypeError) {
           emitOperational({
@@ -243,7 +259,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
             routeClass,
             status: 400,
           });
-          return new Response("invalid narinfo\n", { status: 400 });
+          return textError("invalid narinfo", request.method, 400);
         }
         emitOperational({
           type: "staging_failure",
@@ -251,20 +267,19 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           routeClass,
           status: 503,
         });
-        return new Response("staging unavailable\n", { status: 503 });
+        return textError("staging unavailable", request.method, 503);
       }
     }
     if (request.method !== "GET" && request.method !== "HEAD") {
-      return new Response("method not allowed\n", {
-        status: 405,
-        headers: { allow: "GET, HEAD" },
+      return textError("method not allowed", request.method, 405, {
+        allow: "GET, HEAD",
       });
     }
     if (pathname === "/nix-cache-info") return text(CACHE_INFO, request.method);
     const narinfoMatch = /^\/([0-9a-z]{32})\.narinfo$/.exec(pathname);
     const narMatch = /^\/(nar\/[A-Za-z0-9._+\/-]+)$/.exec(pathname);
     if (!narinfoMatch && !narMatch) {
-      return new Response("not found\n", { status: 404 });
+      return textError("not found", request.method, 404);
     }
     if (
       snapshot.length === 0 && !overlaySnapshot?.entries.has(pathname.slice(1))
@@ -274,9 +289,9 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       // cache, or Nix aborts before issuing the first PUT.
       if (dependencies.write?.current().ready) {
         debugHttpRoute("empty writable cache miss", { requestId: trace });
-        return new Response("not found\n", { status: 404 });
+        return textError("not found", request.method, 404);
       }
-      return new Response("cache unavailable\n", { status: 503 });
+      return textError("cache unavailable", request.method, 503);
     }
     const path = narinfoMatch ? `${narinfoMatch[1]}.narinfo` : narMatch![1];
     let releaseOverlay: (() => void) | undefined;
@@ -440,7 +455,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           ? "budget_exceeded"
           : "upstream_failure",
       });
-      return mapped(error);
+      return mapped(error, request.method);
     }
   };
   const handler = async (
@@ -486,7 +501,7 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
         method: request.method,
         path: debugPath(url.pathname),
       });
-      const response = await handleRequest(
+      let response = await handleRequest(
         request,
         trace,
         cancellation?.signal ?? request.signal,
@@ -499,6 +514,14 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           ...health.read.reasons,
           ...health.write.reasons,
         ];
+        if (reasons.length > 0) {
+          response = textError(
+            `cache unavailable: ${reasons.join(", ")}`,
+            request.method,
+            503,
+            response.headers,
+          );
+        }
       }
       return response;
     } catch (error) {

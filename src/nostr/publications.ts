@@ -1,4 +1,5 @@
 import { type Observable, Subject, type Subscription } from "rxjs";
+import type { Filter } from "nostr-tools";
 import type { ValidatedConfig } from "../config/config.ts";
 import type { RawPublication } from "../protocol/publication.ts";
 import { createNostrService, type NostrService } from "./runtime.ts";
@@ -6,6 +7,11 @@ import { createNostrService, type NostrService } from "./runtime.ts";
 export interface PublicationEventStream {
   readonly events: Observable<RawPublication>;
   followBlossomPublisher?(pubkey: string): void;
+  followWritableCache?(
+    pubkey: string,
+    kind: 17091 | 37091,
+    identifier: string,
+  ): void;
   close(): void;
 }
 
@@ -18,6 +24,7 @@ export function createPublicationEventStream(
   const events = new Subject<RawPublication>();
   const subscriptions: Subscription[] = [];
   const followed = new Set(config.publisherPubkeys);
+  const followedCaches = new Set(config.identities);
   let closed = false;
 
   const forward = (observable: Observable<RawPublication>) => {
@@ -47,6 +54,20 @@ export function createPublicationEventStream(
         kinds: [10063],
         authors: [pubkey],
       }]) as Observable<RawPublication>);
+    },
+    followWritableCache(pubkey, kind, identifier) {
+      const identity = `${kind}:${pubkey}:${identifier}`;
+      if (closed || followedCaches.has(identity)) return;
+      followedCaches.add(identity);
+      const filter: Filter = {
+        kinds: [kind],
+        authors: [pubkey],
+      };
+      if (kind === 37091) filter["#d"] = [identifier];
+      forward(nostr.pool.subscription(
+        nostr.relaySetFor([pubkey]),
+        [filter],
+      ) as Observable<RawPublication>);
     },
     close() {
       if (closed) return;

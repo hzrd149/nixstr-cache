@@ -245,10 +245,11 @@ export function startPublicationSelection(
     accept,
     authorizePublicationPublisher(pubkey, identity) {
       publishers.add(pubkey);
-      if (!identitySet.has(identity)) {
-        identitySet.add(identity);
-        identityOrder.unshift(identity);
-      }
+      identitySet.add(identity);
+      const previousIndex = identityOrder.indexOf(identity);
+      if (previousIndex >= 0) identityOrder.splice(previousIndex, 1);
+      identityOrder.unshift(identity);
+      refresh.next();
     },
     authorizeBlossomPublisher(pubkey) {
       blossomPublishers.add(pubkey);

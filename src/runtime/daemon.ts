@@ -91,6 +91,9 @@ function writeBlossomDestinations(
     } catch { /* canonical validation below rejects it */ }
     ordered.push([server, trust]);
   }
+  for (const server of config.extraServers) {
+    ordered.push([server, "configured"]);
+  }
   const seen = new Set<string>();
   return Object.freeze(ordered.flatMap(([value, trust]) => {
     try {
@@ -337,6 +340,7 @@ export function createProductionDependencies(
         signer,
         signerReady,
         followBlossomPublisher: stream.followBlossomPublisher,
+        followWritableCache: stream.followWritableCache,
         localRelay,
         async readyBeforeBind() {
           await storeReady;
@@ -435,6 +439,13 @@ export function createProductionDependencies(
       const followBlossomPublisher = (selection as typeof selection & {
         followBlossomPublisher?: (pubkey: string) => void;
       }).followBlossomPublisher;
+      const followWritableCache = (selection as typeof selection & {
+        followWritableCache?: (
+          pubkey: string,
+          kind: 17091 | 37091,
+          identifier: string,
+        ) => void;
+      }).followWritableCache;
       const writable = config.writable.enabled ? config.writable : undefined;
       const configuredBlossomOrigins = blossomServers(
         [],
@@ -558,6 +569,11 @@ export function createProductionDependencies(
           `${config.writeIntent.identity.kind}:${pubkey}:${config.writeIntent.identity.identifier}`,
         );
         publicationSelector.authorizeBlossomPublisher(pubkey);
+        followWritableCache?.(
+          pubkey,
+          config.writeIntent.identity.kind,
+          config.writeIntent.identity.identifier,
+        );
         followBlossomPublisher?.(pubkey);
         nostr.followUserMetadata([pubkey]);
         const configuredWriteRelays = new Set(config.extraRelays.map(String));
