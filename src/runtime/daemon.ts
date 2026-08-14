@@ -516,6 +516,9 @@ export function createProductionDependencies(
         : undefined;
       let eligibility: EligibilityModel | undefined;
       let writeDestinations = writeBlossomDestinations([]);
+      let writeRelays: readonly string[] = Object.freeze(
+        config.extraRelays.map(String),
+      );
       let previousWriteDestinations = "";
       const refreshWriteBlossomServers = (pubkey: string) => {
         const next =
@@ -548,10 +551,12 @@ export function createProductionDependencies(
         );
         publicationSelector.authorizeBlossomPublisher(pubkey);
         followBlossomPublisher?.(pubkey);
+        nostr.followUserMetadata([pubkey]);
         const configuredWriteRelays = new Set(config.extraRelays.map(String));
         let writeRelayListSeen = false;
         const writeRelaySubscription = nostr.relaySetFor([pubkey]).subscribe(
           (relays) => {
+            writeRelays = Object.freeze([...relays]);
             const configuredCount =
               relays.filter((relay) => configuredWriteRelays.has(relay)).length;
             diagnostics.emit({
@@ -695,7 +700,7 @@ export function createProductionDependencies(
             return Object.freeze(writeDestinations.map((item) => item.url));
           },
           nixSigKeys: writable!.publication.nixSigKeys,
-          publicationRelays: () => nostr.currentRelaySet([pubkey]),
+          publicationRelays: () => writeRelays,
           lifetimeSeconds: writable!.publication.lifetimeSeconds,
           now: () => Math.floor(Date.now() / 1000),
           replica: {
@@ -897,7 +902,7 @@ export function createProductionDependencies(
                     signerState.code !== "identity_changed"),
                 activationStatus: writeActivationStatus,
                 destinations,
-                relays: config.extraRelays.length,
+                relays: writeRelays.length,
                 publication,
               },
           };
@@ -913,7 +918,7 @@ export function createProductionDependencies(
                   config.writeIntent.mode !== "disabled" &&
                   writeRepository.boundIdentity() ===
                     `${config.writeIntent.identity.kind}:${state.pubkey}:${config.writeIntent.identity.identifier}` &&
-                  config.extraRelays.length > 0 && hasDestination,
+                  writeRelays.length > 0 && hasDestination,
                 repository: writeRepository,
                 authorize: () => signer.assertIdentity().then(() => {}),
                 onStaged: async (route) => {
