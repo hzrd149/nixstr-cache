@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: Quick task 260813-tzo — Unified bounded content-addressed blob storage
 Plan: 04 of 04 — Runtime/config cleanup and stock-Nix verification
 Status: Complete
-Last activity: 2026-08-14 - Added verified Blossom existence preflights in dcb70cd
+Last activity: 2026-08-14 - Completed quick task 260814-iu8: Add HTML landing and status page at GET /
 
 ## Performance Metrics
 
@@ -186,6 +186,7 @@ None for the shipped v1.0 milestone.
 | 260814-i3y | Suppress redundant final publication progress | 2026-08-14 | 3210414 | [260814-i3y-suppress-redundant-final-publication-pro](./quick/260814-i3y-suppress-redundant-final-publication-pro/) |
 | 260814-ikl | Make the publication quiet delay configurable and log when the publication window expires and Hashtree publication begins | 2026-08-14 | 1927ff7 | [260814-ikl-make-the-publication-quiet-delay-configu](./quick/260814-ikl-make-the-publication-quiet-delay-configu/) |
 | 260814-jcz | Check whether each Blossom blob already exists before uploading | 2026-08-14 | dcb70cd | [260814-jcz-check-whether-each-blossom-blob-already-](./quick/260814-jcz-check-whether-each-blossom-blob-already-/) |
+| 260814-iu8 | Add HTML landing and status page at GET / | 2026-08-14 | c39da3d | [260814-iu8-add-html-landing-and-status-page-at-get](./quick/260814-iu8-add-html-landing-and-status-page-at-get/) |
 
 ## Deferred Items
 
