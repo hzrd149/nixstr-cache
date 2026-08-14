@@ -192,7 +192,7 @@ export interface ConsoleDiagnosticSinkOptions {
   };
 }
 
-function endpoint(value: string): string | undefined {
+export function safeEndpoint(value: string): string | undefined {
   try {
     const url = new URL(value);
     if (!["http:", "https:", "ws:", "wss:"].includes(url.protocol)) {
@@ -213,7 +213,7 @@ function safePath(value: string): string {
   return path.replace(/[^A-Za-z0-9._+\/-]/g, "?");
 }
 
-function safeIdentity(value: string): string {
+export function safeIdentity(value: string): string {
   if (value.length > 136 || /\s/.test(value)) return "invalid";
   for (const character of value) {
     const code = character.charCodeAt(0);
@@ -288,8 +288,8 @@ export function formatOperationalDiagnostic(
     case "upstream_failure":
       level = "WARN";
       message = `upstream request failed: ${item.code}`;
-      if (item.endpoint && endpoint(item.endpoint)) {
-        fields.push(`endpoint=${endpoint(item.endpoint)}`);
+      if (item.endpoint && safeEndpoint(item.endpoint)) {
+        fields.push(`endpoint=${safeEndpoint(item.endpoint)}`);
       }
       if (item.attempt !== undefined) fields.push(`attempt=${item.attempt}`);
       if (item.durationMs !== undefined) {
@@ -331,7 +331,7 @@ export function formatOperationalDiagnostic(
         item.ok ? "succeeded" : "failed"
       }: ${item.code}`;
       fields.push(
-        `endpoint=${endpoint(item.endpoint) ?? "invalid"}`,
+        `endpoint=${safeEndpoint(item.endpoint) ?? "invalid"}`,
         `attempt=${item.attempt}`,
       );
       if (item.cacheIdentity) fields.push(`cache=${item.cacheIdentity}`);
@@ -345,7 +345,7 @@ export function formatOperationalDiagnostic(
         item.ok ? "acknowledged" : "failed"
       }: ${item.code}`;
       fields.push(
-        `endpoint=${endpoint(item.endpoint) ?? "invalid"}`,
+        `endpoint=${safeEndpoint(item.endpoint) ?? "invalid"}`,
         `attempt=${item.attempt}`,
       );
       if (item.eventId) fields.push(`event=${item.eventId}`);
@@ -395,9 +395,10 @@ export function formatOperationalDiagnostic(
       if (item.endpoints.length) {
         fields.push(
           `endpoints=${
-            item.endpoints.map((value) => endpoint(value) ?? "invalid").join(
-              ",",
-            )
+            item.endpoints.map((value) => safeEndpoint(value) ?? "invalid")
+              .join(
+                ",",
+              )
           }`,
         );
       }
@@ -414,9 +415,10 @@ export function formatOperationalDiagnostic(
       if (item.endpoints.length) {
         fields.push(
           `endpoints=${
-            item.endpoints.map((value) => endpoint(value) ?? "invalid").join(
-              ",",
-            )
+            item.endpoints.map((value) => safeEndpoint(value) ?? "invalid")
+              .join(
+                ",",
+              )
           }`,
         );
       }
@@ -664,7 +666,7 @@ export function createConsoleDiagnosticSink(
             `${timestamp} ${item.ok ? "INFO " : "WARN "} ${
               item.ok ? "Uploaded" : "Blossom upload failed for"
             } ${uploadSummary(item)} ${item.ok ? "to" : "at"} ${
-              endpoint(item.endpoint) ?? "invalid"
+              safeEndpoint(item.endpoint) ?? "invalid"
             }`,
           );
           return;

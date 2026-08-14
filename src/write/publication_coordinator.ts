@@ -10,6 +10,7 @@ import { validatePublication } from "../protocol/publication.ts";
 import type { SignerCapability } from "../signer/capability.ts";
 import type { PublicationSelector } from "../nostr/selection.ts";
 import type { OperationalDiagnosticSink } from "../operations/diagnostics.ts";
+import { summarizeEndpointWork } from "../operations/status.ts";
 
 export interface ReplicaPublisher {
   prove(
@@ -459,24 +460,8 @@ export class PublicationCoordinator {
     const rows = this.options.repository.endpointWork().filter((row) =>
       row.batchId === batchId
     );
-    const summarize = (kind: "replica" | "relay") => {
-      const selected = rows.filter((row) => row.kind === kind);
-      return {
-        total: selected.length,
-        succeeded: selected.filter((row) => row.status === "complete").length,
-        failed:
-          selected.filter((row) =>
-            row.attempts > 0 && row.status !== "complete"
-          ).length,
-        retries: selected.reduce(
-          (sum, row) => sum + Math.max(0, row.attempts - 1),
-          0,
-        ),
-        exhausted: selected.filter((row) => row.status === "exhausted").length,
-      };
-    };
-    const replicas = summarize("replica");
-    const relays = summarize("relay");
+    const replicas = summarizeEndpointWork(rows, "replica");
+    const relays = summarizeEndpointWork(rows, "relay");
     this.options.diagnostics?.emit({
       type: "publication_progress",
       code: "publication_progress",
