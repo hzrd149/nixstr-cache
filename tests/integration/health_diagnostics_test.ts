@@ -10,18 +10,7 @@ import {
 } from "../../src/operations/health.ts";
 import { createNixHttpHandler } from "../../src/nix/http_handler.ts";
 import type { WriteRepository } from "../../src/persistence/write_repository.ts";
-
-const secretCorpus = [
-  "Bearer authorization-secret",
-  "cookie-secret",
-  "nbunksec1bunker-secret",
-  "private-key-deadbeef",
-  "full-nar-marker",
-  "narinfo-secret-body",
-  "stack-secret",
-  "cause-secret",
-  "query-secret",
-];
+import { secretCorpus } from "../support/secret_corpus.ts";
 
 Deno.test("publication window claim is visible in normal console output", () => {
   const lines: string[] = [];
