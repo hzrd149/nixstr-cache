@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Ready for next task
-stopped_at: Completed quick task 260813-tzo
-last_updated: "2026-08-14T12:26:00.000Z"
+stopped_at: Completed quick task 260814-jcz
+last_updated: "2026-08-14T13:00:00.000Z"
 last_activity: 2026-08-14
-last_activity_desc: "Completed quick task 260814-ikl: Make the publication quiet delay configurable and log publication startup"
+last_activity_desc: "Completed quick task 260814-jcz: Skip uploads for blobs already present on Blossom"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -23,14 +23,14 @@ current_phase_name: Availability-Gated Publication Loop
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** An unmodified Nix client can reliably read and publish a decentralized binary cache while preserving NIP.md trust, integrity, freshness, and bounded-resource guarantees.
-**Current focus:** Quick task 260814-ikl is complete; select the next planned task or milestone.
+**Current focus:** Quick task 260814-jcz is complete; select the next planned task or milestone.
 
 ## Current Position
 
 Phase: Quick task 260813-tzo — Unified bounded content-addressed blob storage
 Plan: 04 of 04 — Runtime/config cleanup and stock-Nix verification
 Status: Complete
-Last activity: 2026-08-14 - Completed configurable publication quiet delay and startup logging in 1927ff7
+Last activity: 2026-08-14 - Added verified Blossom existence preflights in dcb70cd
 
 ## Performance Metrics
 
@@ -185,6 +185,7 @@ None for the shipped v1.0 milestone.
 | 260814-hud | Redesign publication logging as clear bounded progress | 2026-08-14 | 4e859f0 | [260814-hud-redesign-publication-logging-into-clear-](./quick/260814-hud-redesign-publication-logging-into-clear-/) |
 | 260814-i3y | Suppress redundant final publication progress | 2026-08-14 | 3210414 | [260814-i3y-suppress-redundant-final-publication-pro](./quick/260814-i3y-suppress-redundant-final-publication-pro/) |
 | 260814-ikl | Make the publication quiet delay configurable and log when the publication window expires and Hashtree publication begins | 2026-08-14 | 1927ff7 | [260814-ikl-make-the-publication-quiet-delay-configu](./quick/260814-ikl-make-the-publication-quiet-delay-configu/) |
+| 260814-jcz | Check whether each Blossom blob already exists before uploading | 2026-08-14 | dcb70cd | [260814-jcz-check-whether-each-blossom-blob-already-](./quick/260814-jcz-check-whether-each-blossom-blob-already-/) |
 
 ## Deferred Items
 
