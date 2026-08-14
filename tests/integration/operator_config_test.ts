@@ -460,29 +460,12 @@ Deno.test("environment mapper preserves ordered cache identities", () => {
   );
 });
 
-Deno.test("local cache configuration is optional exact and side-effect free", () => {
-  const absent = parseConfig(validRaw());
-  assert(absent.ok);
-  assertEquals(absent.value.localBlossomUrl, undefined);
-
-  const mapped = rawConfigFromEnvironment({
-    NIXSTR_LOCAL_BLOSSOM_URL: "http://127.0.0.1:24242",
-  });
-  assertEquals(mapped.localBlossomUrl, "http://127.0.0.1:24242");
-  const present = parseConfig(validRaw({
-    localBlossomUrl: mapped.localBlossomUrl,
-  }));
-  assert(present.ok);
-  assertEquals(present.value.localBlossomUrl?.origin, "http://127.0.0.1:24242");
-
-  let sideEffects = 0;
-  const invalid = parseConfig(
-    validRaw({ localBlossomUrl: "http://secret@127.0.0.1:24242" }),
-    { onSideEffect: () => sideEffects++ },
+Deno.test("removed local Blossom inputs are not part of operator config", () => {
+  assertThrows(
+    () => rawConfigFromEnvironment({ NIXSTR_LOCAL_BLOSSOM_URL: "http://127.0.0.1:24242" }),
+    Error,
+    "NIXSTR_LOCAL_BLOSSOM_URL is no longer supported",
   );
-  assert(!invalid.ok);
-  assertEquals(sideEffects, 0);
-  assertEquals(invalid.diagnostics[0].field, "localBlossomUrl");
 });
 
 Deno.test("operator config defaults to explicit read-only write intent", () => {

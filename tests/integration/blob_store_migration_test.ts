@@ -43,6 +43,9 @@ Deno.test("legacy migration rehashes routes, is idempotent, and quarantines unkn
     assertEquals(await exists(`${spool}/.nixstr-spool-dead`), false);
     assertEquals(await exists(`${spool}/operator-note`), false);
     assertEquals(first.quarantined, 1);
+    const lease = store.lookup(store.routeComponents("nix-cache-info")[0].hash);
+    assertEquals(Boolean(lease), true);
+    lease!.release();
     store.close();
   } finally {
     await Deno.remove(root, { recursive: true });
