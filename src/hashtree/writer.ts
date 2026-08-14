@@ -176,77 +176,99 @@ export class HashtreeWriter {
     }
     index.exec(`
       CREATE TABLE inventory(hash TEXT PRIMARY KEY,size INTEGER NOT NULL,path TEXT NOT NULL,created INTEGER NOT NULL);
-      CREATE TABLE nodes(path TEXT PRIMARY KEY,parent TEXT NOT NULL,name TEXT NOT NULL,depth INTEGER NOT NULL,hash TEXT,size INTEGER,type INTEGER,source_path TEXT,source_size INTEGER);
+      CREATE TABLE nodes(path TEXT PRIMARY KEY,parent TEXT NOT NULL,name TEXT NOT NULL,depth INTEGER NOT NULL,is_file INTEGER NOT NULL DEFAULT 0,component_source INTEGER NOT NULL DEFAULT 0,hash TEXT,size INTEGER,type INTEGER,source_path TEXT,source_size INTEGER);
+      CREATE TABLE file_components(path TEXT NOT NULL,component_index INTEGER NOT NULL,hash TEXT NOT NULL,size INTEGER NOT NULL,PRIMARY KEY(path,component_index));
       CREATE TABLE work(scope TEXT NOT NULL,level INTEGER NOT NULL,seq INTEGER PRIMARY KEY AUTOINCREMENT,link TEXT NOT NULL);
       CREATE INDEX work_level ON work(scope,level,seq);
     `);
     let created = 0, total = 0, maxBufferedLinks = 0;
+    const inventoryBlob = (hash: string) =>
+      index.prepare(
+        "SELECT hash,size,path FROM inventory WHERE hash=?",
+      ).get(hash) as unknown as CandidateBlob | undefined;
+    const checkedExisting = (
+      existing: CandidateBlob,
+      expected: CandidateBlob,
+    ): CandidateBlob => {
+      if (
+        existing.size !== expected.size || existing.path !== expected.path
+      ) throw new Error("candidate blob identity changed");
+      return Object.freeze(existing);
+    };
+    const ensureInventoryRoom = (size: number) => {
+      if (
+        Number(
+                (index.prepare("SELECT COUNT(*) n FROM inventory").get() as {
+                  n: number;
+                }).n,
+              ) + 1 > this.limits.maxInventoryBlobs ||
+        total + size > this.limits.maxInventoryBytes
+      ) {
+        throw new RangeError("candidate inventory ceiling exceeded");
+      }
+    };
+    const recordCandidate = (
+      blob: CandidateBlob,
+      createdNow: number,
+    ): CandidateBlob => {
+      total += blob.size;
+      index.prepare(
+        "INSERT INTO inventory(hash,size,path,created) VALUES(?,?,?,?)",
+      ).run(blob.hash, blob.size, blob.path, createdNow);
+      if (ownershipRepository) {
+        ownershipRepository.recordWriterBlob(runOwner, blob);
+      } else {
+        owners!.exec("BEGIN IMMEDIATE");
+        try {
+          owners!.prepare(
+            "INSERT OR IGNORE INTO content_blobs(hash,size,path) VALUES(?,?,?)",
+          ).run(blob.hash, blob.size, blob.path);
+          owners!.prepare(
+            "INSERT OR IGNORE INTO blob_owners(owner,hash) VALUES(?,?)",
+          ).run(runOwner, blob.hash);
+          owners!.exec("COMMIT");
+        } catch (error) {
+          owners!.exec("ROLLBACK");
+          throw error;
+        }
+      }
+      return Object.freeze(blob);
+    };
+    const registerCandidate = (blob: CandidateBlob): CandidateBlob => {
+      const existing = inventoryBlob(blob.hash);
+      if (existing) return checkedExisting(existing, blob);
+      ensureInventoryRoom(blob.size);
+      return recordCandidate(blob, 0);
+    };
     const persist = async (bytes: Uint8Array): Promise<CandidateBlob> => {
       signal?.throwIfAborted();
       const hash = sha256(bytes).toHex();
       const path = this.blobStore?.pathFor(hash) ?? `${this.root}/${hash}`;
-      const existing = index.prepare(
-        "SELECT hash,size,path FROM inventory WHERE hash=?",
-      ).get(hash) as unknown as CandidateBlob | undefined;
-      if (!existing) {
-        total += bytes.length;
-        if (
-          Number(
-                  (index.prepare("SELECT COUNT(*) n FROM inventory").get() as {
-                    n: number;
-                  }).n,
-                ) + 1 > this.limits.maxInventoryBlobs ||
-          total > this.limits.maxInventoryBytes
-        ) {
-          throw new RangeError("candidate inventory ceiling exceeded");
-        }
-        let createdNow = 0;
-        if (this.blobStore) {
-          const existed = this.blobStore.has(hash);
-          await this.blobStore.admit(bytes, {
-            origin: "write",
-            owner: runOwner,
-            reserveBytes: bytes.length,
-            expectedHash: hash,
-          });
-          if (!existed) created++;
-          createdNow = existed ? 0 : 1;
-        } else {
-          try {
-            await Deno.writeFile(path, bytes, { createNew: true, mode: 0o600 });
-            created++;
-            createdNow = 1;
-          } catch (error) {
-            if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
-          }
-        }
-        index.prepare(
-          "INSERT INTO inventory(hash,size,path,created) VALUES(?,?,?,?)",
-        )
-          .run(hash, bytes.length, path, createdNow);
-        if (ownershipRepository) {
-          ownershipRepository.recordWriterBlob(runOwner, {
-            hash,
-            size: bytes.length,
-            path,
-          });
-        } else {
-          owners!.exec("BEGIN IMMEDIATE");
-          try {
-            owners!.prepare(
-              "INSERT OR IGNORE INTO content_blobs(hash,size,path) VALUES(?,?,?)",
-            ).run(hash, bytes.length, path);
-            owners!.prepare(
-              "INSERT OR IGNORE INTO blob_owners(owner,hash) VALUES(?,?)",
-            ).run(runOwner, hash);
-            owners!.exec("COMMIT");
-          } catch (error) {
-            owners!.exec("ROLLBACK");
-            throw error;
-          }
+      const blob = { hash, size: bytes.length, path };
+      const existing = inventoryBlob(hash);
+      if (existing) return checkedExisting(existing, blob);
+      ensureInventoryRoom(bytes.length);
+      let createdNow = 0;
+      if (this.blobStore) {
+        const existed = this.blobStore.has(hash);
+        await this.blobStore.admit(bytes, {
+          origin: "write",
+          owner: runOwner,
+          reserveBytes: bytes.length,
+          expectedHash: hash,
+        });
+        if (!existed) created++;
+        createdNow = existed ? 0 : 1;
+      } else {
+        try {
+          await Deno.writeFile(path, bytes, { createNew: true, mode: 0o600 });
+          created++;
+          createdNow = 1;
+        } catch (error) {
+          if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
         }
       }
-      return Object.freeze({ hash, size: bytes.length, path });
+      return recordCandidate(blob, createdNow);
     };
     try {
       let previousRoute: string | undefined;
@@ -281,16 +303,30 @@ export class HashtreeWriter {
         previousRoute = file.route;
         const parent = parts.slice(0, -1).join("/");
         index.prepare(
-          "INSERT INTO nodes(path,parent,name,depth,source_path,source_size) VALUES(?,?,?,?,?,?)",
+          "INSERT INTO nodes(path,parent,name,depth,is_file,component_source,source_path,source_size) VALUES(?,?,?,?,1,?,?,?)",
         )
           .run(
             file.route,
             parent,
             parts.at(-1)!,
             parts.length,
+            file.components === undefined ? 0 : 1,
             file.path ?? null,
             file.size,
           );
+        if (file.components !== undefined) {
+          const insert = index.prepare(
+            "INSERT INTO file_components(path,component_index,hash,size) VALUES(?,?,?,?)",
+          );
+          for (const component of file.components) {
+            insert.run(
+              file.route,
+              component.index,
+              component.hash,
+              component.size,
+            );
+          }
+        }
         for (let depth = 0; depth < parts.length; depth++) {
           const path = parts.slice(0, depth).join("/");
           const directoryParent = parts.slice(0, Math.max(0, depth - 1)).join(
@@ -303,22 +339,47 @@ export class HashtreeWriter {
             .run(path, directoryParent, name, depth);
         }
       }
-      const buildFile = async (file: LogicalFile): Promise<Built> => {
+      const buildFile = async (file: {
+        route: string;
+        path?: string;
+        size: number;
+        componentSource: number;
+      }): Promise<Built> => {
         const scope = `file:${file.route}`;
         let sequence = 0;
         let observed = 0;
-        if (file.components) {
-          for (const component of file.components) {
+        let directBlob: CandidateBlob | undefined;
+        if (file.componentSource) {
+          let previousSize: number | undefined;
+          for (
+            const component of index.prepare(
+              "SELECT component_index 'index',hash,size FROM file_components WHERE path=? ORDER BY component_index",
+            ).iterate(file.route) as unknown as Iterable<RouteComponent>
+          ) {
             signal?.throwIfAborted();
             if (component.index !== sequence) {
               throw new Error("route component order changed");
             }
+            if (
+              component.size <= 0 || component.size > FILE_CHUNK_BYTES ||
+              (previousSize !== undefined &&
+                previousSize !== FILE_CHUNK_BYTES)
+            ) throw new Error("route component chunking changed");
             const lease = this.blobStore?.lookup(component.hash);
             if (!lease || lease.size !== component.size) {
               lease?.release();
               throw new Error("route component unavailable");
             }
-            lease.release();
+            let blob: CandidateBlob;
+            try {
+              blob = registerCandidate({
+                hash: component.hash,
+                size: component.size,
+                path: lease.path,
+              });
+            } finally {
+              lease.release();
+            }
             observed += component.size;
             index.prepare("INSERT INTO work(scope,level,link) VALUES(?,0,?)")
               .run(
@@ -329,6 +390,8 @@ export class HashtreeWriter {
                   type: 0,
                 }),
               );
+            directBlob = sequence === 0 ? blob : undefined;
+            previousSize = component.size;
             sequence++;
           }
         } else {
@@ -353,6 +416,7 @@ export class HashtreeWriter {
                   scope,
                   JSON.stringify({ hash: blob.hash, size: used, type: 0 }),
                 );
+              directBlob = sequence === 0 ? blob : undefined;
               sequence++;
             }
           } finally {
@@ -360,6 +424,27 @@ export class HashtreeWriter {
           }
         }
         if (observed !== file.size) throw new Error("frozen file size changed");
+        if (sequence === 0) directBlob = await persist(new Uint8Array());
+        if (sequence <= 1) {
+          index.prepare("DELETE FROM work WHERE scope=?").run(scope);
+          let builtBytes: Uint8Array;
+          if (this.blobStore) {
+            const lease = this.blobStore.lookup(directBlob!.hash);
+            if (!lease) throw new Error("built raw blob unavailable");
+            try {
+              builtBytes = await new Response(lease.open()).bytes();
+            } finally {
+              lease.release();
+            }
+          } else builtBytes = await Deno.readFile(directBlob!.path);
+          return {
+            ...directBlob!,
+            bytes: builtBytes,
+            logicalSize: observed,
+            type: 0,
+            count: 1,
+          };
+        }
         const built = await collapse(scope, "file", sequence);
         let builtBytes: Uint8Array;
         if (this.blobStore) {
@@ -509,8 +594,13 @@ export class HashtreeWriter {
       };
       for (
         const file of index.prepare(
-          "SELECT path route,source_path path,source_size size FROM nodes WHERE source_path IS NOT NULL ORDER BY CAST(path AS BLOB)",
-        ).iterate() as unknown as Iterable<LogicalFile>
+          "SELECT path route,source_path path,source_size size,component_source componentSource FROM nodes WHERE is_file=1 ORDER BY CAST(path AS BLOB)",
+        ).iterate() as unknown as Iterable<{
+          route: string;
+          path?: string;
+          size: number;
+          componentSource: number;
+        }>
       ) {
         const built = await buildFile(file);
         index.prepare("UPDATE nodes SET hash=?,size=?,type=? WHERE path=?").run(
@@ -522,7 +612,7 @@ export class HashtreeWriter {
       }
       for (
         const directory of index.prepare(
-          "SELECT path,depth FROM nodes WHERE hash IS NULL ORDER BY depth DESC,path",
+          "SELECT path,depth FROM nodes WHERE is_file=0 AND hash IS NULL ORDER BY depth DESC,path",
         ).iterate() as unknown as Iterable<{ path: string; depth: number }>
       ) {
         const scope = `dir:${directory.path}`;
@@ -531,7 +621,7 @@ export class HashtreeWriter {
           const child of index.prepare(
             "SELECT name,hash,size,type FROM nodes WHERE parent=? AND path<>? ORDER BY CAST(name AS BLOB)",
           ).iterate(directory.path, directory.path) as unknown as Iterable<
-            { name: string; hash: string; size: number; type: 1 | 2 | 3 }
+            { name: string; hash: string; size: number; type: 0 | 1 | 2 | 3 }
           >
         ) {
           index.prepare("INSERT INTO work(scope,level,link) VALUES(?,0,?)").run(
