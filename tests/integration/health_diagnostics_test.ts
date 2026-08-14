@@ -146,7 +146,10 @@ Deno.test("publication diagnostics render bounded plain progress and one complet
   });
   progress(2, 1);
   progress(2, 1);
-  assertEquals(lines.some((line) => /[\u001b\r]/.test(line)), false);
+  assertEquals(
+    lines.some((line) => line.includes("\u001b") || line.includes("\r")),
+    false,
+  );
   assertEquals(
     lines.some((line) =>
       line.includes("Blossom replicas:") &&
