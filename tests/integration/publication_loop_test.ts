@@ -141,6 +141,16 @@ Deno.test("one complete replica publishes exact event through normal admission",
         "selection_admission_complete",
       ],
     );
+    const progress = diagnostics.filter((item) =>
+      item.type === "publication_progress"
+    );
+    const final = progress.at(-1);
+    assert(final?.type === "publication_progress");
+    assertEquals(final.replicaTotal, 2);
+    assertEquals(final.replicaSucceeded, 2);
+    assertEquals(final.relayTotal, 1);
+    assertEquals(final.relaySucceeded, 1);
+    assertEquals(final.fullyPublished, true);
   } finally {
     f.selection.dispose();
     f.state.close();
@@ -179,7 +189,9 @@ Deno.test("authorization failures are backoff-eligible and stage-visible", async
     });
     await assertRejects(() => coordinator.tick());
     assertEquals(
-      diagnostics.map((item) => item.code),
+      diagnostics.filter((item) => item.type !== "publication_progress").map((
+        item,
+      ) => item.code),
       [
         "batch_claimed",
         "authorization_started",
