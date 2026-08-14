@@ -23,6 +23,7 @@ import {
 } from "../../src/network/safe_fetcher.ts";
 import { encode } from "@msgpack/msgpack";
 import {
+  NarResolutionFailed,
   PathResolver,
   RequestBudget,
   VerifiedAbsent,
@@ -349,6 +350,156 @@ Deno.test("ordered|transfer budget|output budget: nested file manifests preserve
     Error,
     "file manifest size differs from authenticated directory link",
   );
+});
+
+Deno.test("canonical type-0 and nested type-1 files preserve HEAD size and verified GET order", async () => {
+  const directBytes = new TextEncoder().encode("RAW");
+  const directHash = hex(hashBytes(directBytes));
+  const directRoot = manifest({
+    l: [{ h: hashBytes(directBytes), n: "raw", s: directBytes.length, t: 0 }],
+    t: 2,
+  });
+
+  const chunks = ["A", "B", "C", "D"].map((text) =>
+    new TextEncoder().encode(text)
+  );
+  const child = manifest({
+    l: chunks.slice(1, 3).map((bytes) => ({
+      h: hashBytes(bytes),
+      s: bytes.length,
+      t: 0,
+    })),
+    t: 1,
+  });
+  const parent = manifest({
+    l: [
+      { h: hashBytes(chunks[0]), s: chunks[0].length, t: 0 },
+      { h: hashBytes(child), s: chunks[1].length + chunks[2].length, t: 1 },
+      { h: hashBytes(chunks[3]), s: chunks[3].length, t: 0 },
+    ],
+    t: 1,
+  });
+  const nestedRoot = manifest({
+    l: [{ h: hashBytes(parent), n: "nested", s: 4, t: 1 }],
+    t: 2,
+  });
+  const nestedBytes = new TextEncoder().encode("ABCD");
+  const nestedHashes = chunks.map((bytes) => hex(hashBytes(bytes)));
+
+  const cases = [
+    {
+      root: directRoot,
+      path: "raw",
+      type: 0 as const,
+      bytes: directBytes,
+      rawOrder: [directHash],
+      corruptHash: directHash,
+      blobs: new Map(
+        [directRoot, directBytes].map((bytes) => [
+          hex(hashBytes(bytes)),
+          bytes,
+        ]),
+      ),
+    },
+    {
+      root: nestedRoot,
+      path: "nested",
+      type: 1 as const,
+      bytes: nestedBytes,
+      rawOrder: nestedHashes,
+      corruptHash: nestedHashes[2],
+      blobs: new Map(
+        [nestedRoot, parent, child, ...chunks].map((bytes) => [
+          hex(hashBytes(bytes)),
+          bytes,
+        ]),
+      ),
+    },
+  ];
+
+  const fixture = async (blobs: ReadonlyMap<string, Uint8Array>) => {
+    const calls: string[] = [];
+    const store = testBlobStore(await Deno.makeTempDir());
+    const resolver = new PathResolver(
+      new BlobFetcher({
+        fetcher: {
+          fetch: (url: string | URL) => {
+            const hash = String(url).split("/").at(-1)!;
+            calls.push(hash);
+            return Promise.resolve(response(blobs.get(hash)!));
+          },
+        },
+        quarantine: {
+          isQuarantined: () => false,
+          quarantine: () => {},
+          releaseQuarantine: () => {},
+        },
+        store,
+      }),
+      buildSourcePlan({ event: ["http://tree.test"] }),
+      { maxWireBytes: 4096, maxDecodedBytes: 4096, maxLinks: 10 },
+    );
+    return { calls, resolver, store };
+  };
+
+  for (const item of cases) {
+    const valid = await fixture(item.blobs);
+    try {
+      const head = await valid.resolver.resolve(
+        hex(hashBytes(item.root)),
+        item.path,
+        "HEAD",
+        new RequestBudget(traversalLimits()),
+      );
+      assertEquals([head.type, head.size], [item.type, item.bytes.length]);
+      const beforeGet = valid.calls.length;
+      const get = await valid.resolver.resolve(
+        hex(hashBytes(item.root)),
+        item.path,
+        "GET",
+        new RequestBudget(traversalLimits()),
+      );
+      assertEquals(await new Response(get.body).bytes(), item.bytes);
+      assertEquals(valid.calls.slice(beforeGet), item.rawOrder);
+    } finally {
+      valid.store.close();
+    }
+
+    const corruptedBlobs = new Map(item.blobs);
+    corruptedBlobs.set(
+      item.corruptHash,
+      new Uint8Array(item.blobs.get(item.corruptHash)!.length).fill(0xff),
+    );
+    const corrupt = await fixture(corruptedBlobs);
+    try {
+      if (item.type === 0) {
+        const error = await assertRejects(
+          () =>
+            corrupt.resolver.resolve(
+              hex(hashBytes(item.root)),
+              item.path,
+              "GET",
+              new RequestBudget(traversalLimits()),
+            ),
+          NarResolutionFailed,
+        );
+        assertEquals(error.cause instanceof HashMismatch, true);
+      } else {
+        const get = await corrupt.resolver.resolve(
+          hex(hashBytes(item.root)),
+          item.path,
+          "GET",
+          new RequestBudget(traversalLimits()),
+        );
+        await assertRejects(
+          () => new Response(get.body).bytes(),
+          HashMismatch,
+        );
+      }
+    } finally {
+      corrupt.store.close();
+    }
+  }
 });
 
 Deno.test("resolver releases the active raw lease on output validation error", async () => {
