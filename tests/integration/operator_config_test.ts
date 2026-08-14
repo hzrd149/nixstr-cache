@@ -7,7 +7,12 @@ import {
 } from "../../main.ts";
 import { launchDaemon } from "../../src/runtime/daemon.ts";
 import { Subject } from "rxjs";
-import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
+import {
+  finalizeEvent,
+  generateSecretKey,
+  getPublicKey,
+  nip19,
+} from "nostr-tools";
 import { encrypt } from "nostr-tools/nip49";
 import { NostrConnectSigner } from "applesauce-signers";
 import type { RawPublication } from "../../src/protocol/publication.ts";
@@ -933,5 +938,100 @@ Deno.test("extra Blossom servers do not make configured writes ready", async () 
     await result.shutdown();
   } finally {
     await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("writable-only signer NIP-65 discovery enables an empty cache", async () => {
+  const root = await Deno.makeTempDir({ prefix: "nixstr-writable-only-" });
+  const secret = new Uint8Array(32).fill(3);
+  const pubkey = getPublicKey(secret);
+  const relayEvent = finalizeEvent({
+    kind: 10002,
+    created_at: 1,
+    content: "",
+    tags: [["r", "ws://127.0.0.1:1", "write"]],
+  }, secret);
+  let sawSignerQuery!: () => void;
+  const signerQuery = new Promise<void>((resolve) => sawSignerQuery = resolve);
+  const sockets = new Set<WebSocket>();
+  const relay = Deno.serve(
+    { hostname: "127.0.0.1", port: 0, onListen: () => {} },
+    (request) => {
+      const { socket, response } = Deno.upgradeWebSocket(request);
+      socket.onopen = () => sockets.add(socket);
+      socket.onclose = () => sockets.delete(socket);
+      socket.onmessage = (message) => {
+        const frame = JSON.parse(String(message.data));
+        if (
+          frame[0] === "REQ" && frame.slice(2).some((filter: unknown) =>
+            typeof filter === "object" && filter !== null &&
+            (filter as { kinds?: number[] }).kinds?.includes(10002) &&
+            (filter as { authors?: string[] }).authors?.includes(pubkey)
+          )
+        ) {
+          sawSignerQuery();
+          socket.send(JSON.stringify(["EVENT", frame[1], relayEvent]));
+          socket.send(JSON.stringify(["EOSE", frame[1]]));
+        }
+      };
+      return response;
+    },
+  );
+  const relayUrl = `ws://127.0.0.1:${(relay.addr as Deno.NetAddr).port}`;
+  const events = new Subject<RawPublication>();
+  let handler: ((request: Request) => Response | Promise<Response>) | undefined;
+  try {
+    await Deno.writeFile(`${root}/key`, secret, { mode: 0o600 });
+    const result = await launchDaemon({
+      bootstrapRelays: [relayUrl],
+      databasePath: `${root}/state.sqlite`,
+      spoolDirectory: `${root}/spool`,
+      writable: {
+        enabled: true,
+        type: "root",
+        signer: { type: "local", path: `${root}/key` },
+        staging: { directory: `${root}/staging` },
+      },
+    }, {
+      createEventStream: () => ({ events, close() {} }),
+      bind: (createdHandler) => {
+        handler = createdHandler;
+        return { shutdown: () => Promise.resolve() };
+      },
+      signals: [],
+    });
+    assert(result.ok);
+    assert(handler);
+    await Promise.race([
+      signerQuery,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("signer NIP-65 query timed out")), 2000)
+      ),
+    ]);
+    events.next(finalizeEvent({
+      kind: 10063,
+      created_at: 2,
+      content: "",
+      tags: [["server", "http://127.0.0.1:24242"]],
+    }, secret));
+
+    let health: { write?: { status?: string } } = {};
+    for (let attempt = 0; attempt < 100; attempt++) {
+      health = await (await handler(new Request("http://cache/health"))).json();
+      if (health.write?.status === "ready") break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assertEquals(health.write?.status, "ready");
+    assertEquals(
+      (await handler(new Request(`http://cache/${"0".repeat(32)}.narinfo`)))
+        .status,
+      404,
+    );
+    await result.shutdown();
+  } finally {
+    for (const socket of sockets) socket.close();
+    await relay.shutdown();
+    await Deno.remove(root, { recursive: true });
+    secret.fill(0);
   }
 });
