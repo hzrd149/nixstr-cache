@@ -198,6 +198,7 @@ export class PublicationCoordinator {
       publicationRelays,
       o.now(),
     );
+    this.#emitProgress(saga.batchId);
     if (!saga.completeServer) {
       if (o.prepareReplicaAuthorization) {
         this.#emitStage(saga, "authorization", "started", inventory.length);
@@ -451,6 +452,48 @@ export class PublicationCoordinator {
       code: exhausted ? "attempt_limit" : code,
       nextAttemptAt: this.options.now() + delay +
         retry.jitter(work.kind, work.target),
+    });
+    this.#emitProgress(work.batchId);
+  }
+  #emitProgress(batchId: number): void {
+    const rows = this.options.repository.endpointWork().filter((row) =>
+      row.batchId === batchId
+    );
+    const summarize = (kind: "replica" | "relay") => {
+      const selected = rows.filter((row) => row.kind === kind);
+      return {
+        total: selected.length,
+        succeeded: selected.filter((row) => row.status === "complete").length,
+        failed:
+          selected.filter((row) =>
+            row.attempts > 0 && row.status !== "complete"
+          ).length,
+        retries: selected.reduce(
+          (sum, row) => sum + Math.max(0, row.attempts - 1),
+          0,
+        ),
+        exhausted: selected.filter((row) => row.status === "exhausted").length,
+      };
+    };
+    const replicas = summarize("replica");
+    const relays = summarize("relay");
+    this.options.diagnostics?.emit({
+      type: "publication_progress",
+      code: "publication_progress",
+      batchId,
+      replicaTotal: replicas.total,
+      replicaSucceeded: replicas.succeeded,
+      replicaFailed: replicas.failed,
+      replicaRetries: replicas.retries,
+      replicaExhausted: replicas.exhausted,
+      relayTotal: relays.total,
+      relaySucceeded: relays.succeeded,
+      relayFailed: relays.failed,
+      relayRetries: relays.retries,
+      relayExhausted: relays.exhausted,
+      fullyPublished: replicas.total > 0 && relays.total > 0 &&
+        replicas.succeeded === replicas.total &&
+        relays.succeeded === relays.total,
     });
   }
   #emitEndpoint(

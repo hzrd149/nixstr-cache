@@ -75,6 +75,7 @@ Deno.test("one complete replica publishes exact event through normal admission",
   const f = await fixture();
   const diagnostics: OperationalDiagnostic[] = [];
   try {
+    let now = 100;
     let signCalls = 0;
     const original = f.signer.signEvent.bind(f.signer);
     f.signer.signEvent = async (template) => {
@@ -95,7 +96,7 @@ Deno.test("one complete replica publishes exact event through normal admission",
       nixSigKeys: [],
       publicationRelays: ["ws://127.0.0.1:7447"],
       lifetimeSeconds: 3600,
-      now: () => 100,
+      now: () => now,
       replica,
       publishRelays: (
         _event,
@@ -116,13 +117,17 @@ Deno.test("one complete replica publishes exact event through normal admission",
       ["blossom", "http://127.0.0.1:9002"],
       ["expiration", "3700"],
     ]);
+    replica.prove = () => Promise.resolve(true);
+    now = 130;
+    await coordinator.tick();
+    now = 190;
     await coordinator.tick();
     assertEquals(signCalls, 1, "restart/retry must reuse exact signed event");
     assertEquals(
       diagnostics.filter((item) => item.type === "batch_transition").map((
         item,
       ) => item.code),
-      ["batch_claimed", "batch_resumed", "batch_resumed"],
+      ["batch_claimed", "batch_resumed", "batch_resumed", "batch_resumed"],
     );
     assertEquals(
       diagnostics.filter((item) => item.type === "publication_stage").map((
@@ -144,8 +149,10 @@ Deno.test("one complete replica publishes exact event through normal admission",
     const progress = diagnostics.filter((item) =>
       item.type === "publication_progress"
     );
-    const final = progress.at(-1);
-    assert(final?.type === "publication_progress");
+    const final = progress.find((item) =>
+      item.type === "publication_progress" && item.fullyPublished
+    );
+    assert(final?.type === "publication_progress", JSON.stringify(progress));
     assertEquals(final.replicaTotal, 2);
     assertEquals(final.replicaSucceeded, 2);
     assertEquals(final.relayTotal, 1);
