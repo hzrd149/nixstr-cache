@@ -363,6 +363,73 @@ Deno.test("incomplete initial replicas are never retried", async () => {
   }
 });
 
+Deno.test("a newer batch cancels and supersedes an in-flight upload", async () => {
+  const f = await fixture();
+  try {
+    let started!: () => void;
+    const uploading = new Promise<void>((resolve) => started = resolve);
+    const replica: ReplicaPublisher = {
+      prove: (_server, _entry, signal) => {
+        started();
+        return new Promise<boolean>((_resolve, reject) => {
+          const abort = () => reject(signal?.reason);
+          if (signal?.aborted) abort();
+          else signal?.addEventListener("abort", abort, { once: true });
+        });
+      },
+    };
+    const coordinator = new PublicationCoordinator({
+      repository: f.write,
+      signer: f.signer,
+      selector: f.selection,
+      identity: { kind: 17091, pubkey: f.pubkey, identifier: "" },
+      blossomServers: ["http://127.0.0.1:9001"],
+      nixSigKeys: [],
+      publicationRelays: ["ws://127.0.0.1:7447"],
+      lifetimeSeconds: 3600,
+      now: () => 100,
+      replica,
+      publishRelays: () =>
+        Promise.resolve([{ relay: "ws://127.0.0.1:7447", ok: true }]),
+    });
+    const oldUpload = coordinator.tick();
+    await uploading;
+    assertEquals(coordinator.cancelReplicaUpload(), true);
+    await oldUpload;
+    assertEquals(coordinator.cancelReplicaUpload(), false);
+
+    const nextNhash = bech32.encode(
+      "nhash",
+      bech32.toWords(Uint8Array.from([0, 32, ...new Uint8Array(32).fill(4)])),
+      200,
+    );
+    f.write.recordPending({ id: 8, token: 8, generation: 2, entryCount: 0 }, {
+      batchId: 8,
+      generation: 2,
+      rootHex: "44".repeat(32),
+      nhash: nextNhash,
+      blobCount: 1,
+      totalBytes: 1,
+    }, [{ hash: "55".repeat(32), size: 1, path: `${f.root}/a` }]);
+    replica.prove = () => Promise.resolve(true);
+    await coordinator.tick();
+
+    assertEquals(f.write.publicationSaga()?.candidate.generation, 2);
+    assert(f.write.publicationSaga()?.committed);
+    assertEquals(
+      f.write.publicationHistory().some((item) => item.batchId === 7),
+      true,
+    );
+    await coordinator.close();
+  } finally {
+    f.selection.dispose();
+    f.state.close();
+    f.write.close();
+    await f.signer.close();
+    await Deno.remove(f.root, { recursive: true });
+  }
+});
+
 Deno.test("authorization failures exhaust replica work and stay visible", async () => {
   const f = await fixture();
   const diagnostics: OperationalDiagnostic[] = [];

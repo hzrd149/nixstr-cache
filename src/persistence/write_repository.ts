@@ -991,9 +991,13 @@ export class WriteRepository {
       }
     }
     const candidate = this.pendingCandidate();
+    const supersedesUnsigned = Boolean(
+      current && candidate && !current.signedEvent &&
+        candidate.generation > current.candidate.generation,
+    );
     if (
       current &&
-      (!current.admitted || !candidate ||
+      ((!current.admitted && !supersedesUnsigned) || !candidate ||
         candidate.generation <= current.candidate.generation)
     ) return current;
     if (!candidate || destinations.length === 0) return undefined;
@@ -1001,7 +1005,7 @@ export class WriteRepository {
     try {
       const existing = this.publicationSaga();
       if (
-        existing?.admitted &&
+        existing && (existing.admitted || !existing.signedEvent) &&
         candidate.generation > existing.candidate.generation
       ) {
         this.#db.prepare(
@@ -1016,7 +1020,7 @@ export class WriteRepository {
           existing.batchId,
         );
       }
-      if (!existing || existing.admitted) {
+      if (!existing || existing.admitted || !existing.signedEvent) {
         this.#db.prepare(
           "INSERT INTO publication_sagas(batch_id,candidate_json,destinations_json) VALUES(?,?,?)",
         )

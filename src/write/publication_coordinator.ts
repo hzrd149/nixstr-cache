@@ -75,17 +75,23 @@ export class PublicationCoordinator {
   #serial: Promise<void> = Promise.resolve();
   #timer?: ReturnType<typeof setTimeout>;
   #subscription?: { unsubscribe(): void };
+  #replicaAbort?: AbortController;
   #closed = false;
   readonly #abort = new AbortController();
   constructor(readonly options: PublicationCoordinatorOptions) {}
 
   async #bounded<T>(
     operation: (signal: AbortSignal) => Promise<T>,
+    cancellation?: AbortSignal,
   ): Promise<T> {
     const timeout = AbortSignal.timeout(
       this.options.operationTimeoutMs ?? 30_000,
     );
-    const signal = AbortSignal.any([this.#abort.signal, timeout]);
+    const signal = AbortSignal.any([
+      this.#abort.signal,
+      ...(cancellation ? [cancellation] : []),
+      timeout,
+    ]);
     signal.throwIfAborted();
     return await Promise.race([
       operation(signal),
@@ -103,6 +109,14 @@ export class PublicationCoordinator {
     return work;
   }
 
+  cancelReplicaUpload(): boolean {
+    if (!this.#replicaAbort || this.#replicaAbort.signal.aborted) return false;
+    this.#replicaAbort.abort(
+      new DOMException("superseded by a newer Hashtree batch", "AbortError"),
+    );
+    return true;
+  }
+
   start(): void {
     if (this.#closed || this.#subscription) return;
     this.#subscription = this.options.repository.changes$.subscribe(() =>
@@ -114,6 +128,7 @@ export class PublicationCoordinator {
     if (this.#closed) return;
     this.#closed = true;
     this.#abort.abort("publication coordinator closed");
+    this.#replicaAbort?.abort("publication coordinator closed");
     const errors: unknown[] = [];
     try {
       this.#subscription?.unsubscribe();
@@ -195,52 +210,63 @@ export class PublicationCoordinator {
     );
     this.#emitProgress(saga.batchId);
     if (!saga.completeServer) {
+      const replicaAbort = new AbortController();
+      this.#replicaAbort = replicaAbort;
       const eligibleServers = o.repository.endpointWork().filter((work) =>
         work.batchId === saga!.batchId && work.kind === "replica" &&
         work.status === "pending"
       ).map((work) => work.target);
       if (eligibleServers.length === 0) {
+        if (this.#replicaAbort === replicaAbort) this.#replicaAbort = undefined;
         this.#emitStage(saga, "replication", "waiting", inventory.length);
         return;
       }
-      if (o.prepareReplicaAuthorization) {
-        this.#emitStage(saga, "authorization", "started", inventory.length);
+      try {
+        if (o.prepareReplicaAuthorization) {
+          this.#emitStage(saga, "authorization", "started", inventory.length);
+          try {
+            await this.#bounded((signal) =>
+              o.prepareReplicaAuthorization!(
+                eligibleServers,
+                inventory,
+                signal,
+              ), replicaAbort.signal);
+            this.#emitStage(
+              saga,
+              "authorization",
+              "complete",
+              inventory.length,
+            );
+          } catch (error) {
+            this.#emitStage(
+              saga,
+              "authorization",
+              "failed",
+              inventory.length,
+            );
+            for (const server of eligibleServers) {
+              this.#recordInitial(saga.batchId, "replica", server, false);
+            }
+            throw error;
+          }
+        }
+        this.#emitStage(saga, "replication", "started", inventory.length);
         try {
-          await this.#bounded((signal) =>
-            o.prepareReplicaAuthorization!(
-              eligibleServers,
-              inventory,
-              signal,
-            )
-          );
-          this.#emitStage(
+          await this.#replicateInitial(
             saga,
-            "authorization",
-            "complete",
-            inventory.length,
+            inventory,
+            eligibleServers,
+            replicaAbort.signal,
           );
         } catch (error) {
-          this.#emitStage(
-            saga,
-            "authorization",
-            "failed",
-            inventory.length,
-          );
+          this.#emitStage(saga, "replication", "failed", inventory.length);
           for (const server of eligibleServers) {
             this.#recordInitial(saga.batchId, "replica", server, false);
           }
           throw error;
         }
-      }
-      this.#emitStage(saga, "replication", "started", inventory.length);
-      try {
-        await this.#replicateInitial(saga, inventory, eligibleServers);
-      } catch (error) {
-        this.#emitStage(saga, "replication", "failed", inventory.length);
-        for (const server of eligibleServers) {
-          this.#recordInitial(saga.batchId, "replica", server, false);
-        }
-        throw error;
+      } finally {
+        if (this.#replicaAbort === replicaAbort) this.#replicaAbort = undefined;
       }
       saga = o.repository.publicationSaga()!;
       if (!saga.completeServer) {
@@ -441,10 +467,15 @@ export class PublicationCoordinator {
     saga: import("../persistence/write_repository.ts").PublicationSaga,
     inventory: readonly PendingInventoryEntry[],
     destinations: readonly string[],
+    cancellation: AbortSignal,
   ): Promise<void> {
     const o = this.options;
     const completed = new AbortController();
-    const signal = AbortSignal.any([this.#abort.signal, completed.signal]);
+    const signal = AbortSignal.any([
+      this.#abort.signal,
+      cancellation,
+      completed.signal,
+    ]);
     let cursor = 0;
     const worker = async () => {
       while (!completed.signal.aborted) {

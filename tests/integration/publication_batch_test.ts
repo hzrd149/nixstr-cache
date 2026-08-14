@@ -125,6 +125,7 @@ Deno.test("configured quiet delay logs one successful publication claim", async 
     const generation = repository.commitOverlayRoutes(["one"]);
     const clock = new FakeClock();
     const seen: unknown[] = [];
+    const started: number[] = [];
     const scheduler = new PublicationBatchScheduler(
       repository,
       new HashtreeWriter(`${root}/trees`, {
@@ -136,6 +137,8 @@ Deno.test("configured quiet delay logs one successful publication claim", async 
       { emit: (item) => seen.push(item) },
       undefined,
       9_000,
+      undefined,
+      (batch) => started.push(batch.id),
     );
     scheduler.dirty(generation);
     await clock.advance(8_999);
@@ -151,6 +154,7 @@ Deno.test("configured quiet delay logs one successful publication claim", async 
       generation,
       count: 1,
     }]);
+    assertEquals(started, [1]);
     await scheduler.close();
     repository.close();
   } finally {

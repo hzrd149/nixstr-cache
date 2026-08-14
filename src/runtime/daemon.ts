@@ -651,6 +651,7 @@ export function createProductionDependencies(
             },
           },
         );
+        const publicationControl: { coordinator?: PublicationCoordinator } = {};
         const nextBatchScheduler = new PublicationBatchScheduler(
           writeRepository,
           new HashtreeWriter(
@@ -696,6 +697,7 @@ export function createProductionDependencies(
               signal,
             );
           },
+          () => publicationControl.coordinator?.cancelReplicaUpload(),
         );
         let lastDirtiedGeneration = writeRepository.activePublicationWindow()
           ?.generation ?? 0;
@@ -849,6 +851,7 @@ export function createProductionDependencies(
           },
           diagnostics,
         });
+        publicationControl.coordinator = coordinator;
         let subscription: { unsubscribe(): void } | undefined;
         try {
           await nextEligibility.reconcile(onCommitted);

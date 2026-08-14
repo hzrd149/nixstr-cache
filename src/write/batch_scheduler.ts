@@ -55,6 +55,7 @@ export class PublicationBatchScheduler {
       root: string,
       signal: AbortSignal,
     ) => Promise<HashtreeBuild>,
+    readonly onBatchStarted?: (batch: FrozenBatch) => void,
   ) {
     const pending = repository.pendingCandidate();
     if (pending) this.#logPending(pending);
@@ -100,6 +101,9 @@ export class PublicationBatchScheduler {
           count: batch.entryCount,
         });
       } catch { /* diagnostics are non-authoritative */ }
+      try {
+        this.onBatchStarted?.(batch);
+      } catch { /* cancellation notification is best-effort */ }
       this.#enqueue(batch);
     }
   }
