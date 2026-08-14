@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Executing quick task 260813-tzo
-stopped_at: Completed 260813-tzo-02; Plan 03 is next
+stopped_at: Completed 260813-tzo-03; Plan 04 is next
 last_updated: "2026-08-14T09:59:27.000Z"
 last_activity: 2026-08-14
 last_activity_desc: "Completed quick task 260813-lgb: Add CLI signer overrides with pre-bind ncryptsec unlocking"
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: Quick task 260813-tzo — Unified bounded content-addressed blob storage
-Plan: 02 of 04 — Persistent remote read cache and resolver leases
-Status: Plan 02 complete; Plan 03 ready
-Last activity: 2026-08-14 - Completed resolver lease lifecycle hardening in 779a90b
+Plan: 03 of 04 — Chunked writes, overlay, Hashtree building, and publication
+Status: Plan 03 complete; Plan 04 ready
+Last activity: 2026-08-14 - Completed unified writable BlobStore integration in 65b5c84
 
 ## Performance Metrics
 
@@ -190,7 +190,7 @@ None for the shipped v1.0 milestone.
 ## Session Continuity
 
 Last session: 2026-08-14T09:59:27.000Z
-Stopped at: Completed 260813-tzo-02; Plan 03 is next
+Stopped at: Completed 260813-tzo-03; Plan 04 is next
 Resume file: .planning/.continue-here.md
 
 ## Operator Next Steps

@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 12
+open_count: 13
 waived_count: 0
 fixed_count: 0
-total_count: 12
-last_updated: 2026-08-12T16:03:51.936Z
+total_count: 13
+last_updated: 2026-08-14T10:07:41.292Z
 ---
 
 # Broken Windows Ledger
@@ -27,6 +27,7 @@ last_updated: 2026-08-12T16:03:51.936Z
 | 10 | 04 | deviation | src/persistence/write_repository.ts |  | Added repository-level signed-event verification as critical defense in depth | open |  | 2026-08-12T15:35:02.273Z |  |
 | 11 | 04 | deviation | src/nix/http_handler.ts |  | Empty write-ready cache now returns route absence for stock Nix upload probes | open |  | 2026-08-12T16:03:51.827Z |  |
 | 12 | 04 | deviation | src/nostr/selection.ts |  | Long publication expiration timers clamp to the runtime timer ceiling | open |  | 2026-08-12T16:03:51.936Z |  |
+| 13 | 260813-tzo | deviation | src/write/overlay.ts |  | Added multi-component overlay lease streaming required for correct large NAR responses | open |  | 2026-08-14T10:07:41.292Z |  |
 
 ````json
 [
@@ -172,6 +173,18 @@ last_updated: 2026-08-12T16:03:51.936Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T16:03:51.936Z",
+    "resolved_at": null
+  },
+  {
+    "id": 13,
+    "kind": "deviation",
+    "phase": "260813-tzo",
+    "file": "src/write/overlay.ts",
+    "line": null,
+    "description": "Added multi-component overlay lease streaming required for correct large NAR responses",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-14T10:07:41.292Z",
     "resolved_at": null
   }
 ]
