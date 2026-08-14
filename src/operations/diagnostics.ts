@@ -127,7 +127,7 @@ export type OperationalDiagnostic =
   | {
     readonly type: "http_request";
     readonly code: "request_handled";
-    readonly method: "GET" | "HEAD";
+    readonly method: string;
     readonly path: string;
     readonly status: number;
     readonly durationMs: number;

@@ -15,6 +15,8 @@ import {
   VerifiedAbsent,
 } from "../../src/hashtree/reader.ts";
 import type { SelectedPublication } from "../../src/nostr/selection.ts";
+import { createConsoleDiagnosticSink } from "../../src/operations/diagnostics.ts";
+import type { WriteRepository } from "../../src/persistence/write_repository.ts";
 
 const NHASH_A =
   "nhash1qqsg2g2kl6dmsqxmgfgwrnpq794qd0h2zcn4r4q4qcvn9jcq0m7792cf2764x";
@@ -67,6 +69,61 @@ Deno.test("HTTP debug correlation identifiers are positive and distinct", () => 
   assertEquals(second > 0, true);
   assertEquals(first === second, false);
   assertEquals(outbound, 1);
+});
+
+Deno.test("operator access lines are rendered independently from HTTP debug traces", async () => {
+  const lines: string[] = [];
+  const debugCalls: unknown[][] = [];
+  const originalDebug = console.debug;
+  const originalRequestDebug = debugHttpRequest.enabled;
+  const originalRouteDebug = debugHttpRoute.enabled;
+  const repository = {
+    stage: () => Promise.resolve({}),
+  } as unknown as WriteRepository;
+  const handler = createNixHttpHandler({
+    decodedMetadataBytes: 4096,
+    selection: { current: () => Object.freeze([]) },
+    resolverFor: () => ({ resolve: () => Promise.reject(new Error("unused")) }),
+    operationalDiagnostics: createConsoleDiagnosticSink({
+      write: (line) => lines.push(line),
+      now: () => 0,
+    }),
+    write: { current: () => ({ ready: true, repository }) },
+  });
+
+  console.debug = (...args: unknown[]) => debugCalls.push(args);
+  debugHttpRequest.enabled = false;
+  debugHttpRoute.enabled = false;
+  try {
+    const put = await handler(
+      new Request("http://cache/nar/logging.nar", {
+        method: "PUT",
+        body: "x",
+      }),
+    );
+    const post = await handler(
+      new Request("http://cache/nar/logging.nar", { method: "POST" }),
+    );
+
+    assertEquals(put.status, 200);
+    assertEquals(post.status, 405);
+    assertEquals(lines.length, 2);
+    assertEquals(
+      /^1970-01-01T00:00:00\.000Z INFO[ ]{2}PUT \/nar\/logging\.nar -> 200 duration=\d+ms$/
+        .test(lines[0]),
+      true,
+    );
+    assertEquals(
+      /^1970-01-01T00:00:00\.000Z WARN[ ]{2}POST \/nar\/logging\.nar -> 405 duration=\d+ms$/
+        .test(lines[1]),
+      true,
+    );
+    assertEquals(debugCalls, []);
+  } finally {
+    debugHttpRequest.enabled = originalRequestDebug;
+    debugHttpRoute.enabled = originalRouteDebug;
+    console.debug = originalDebug;
+  }
 });
 
 Deno.test("cache state debug emits one ordered compact nhash snapshot", () => {

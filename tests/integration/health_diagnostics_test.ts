@@ -280,8 +280,13 @@ Deno.test("staging failure diagnostic is typed secret-safe and non-authoritative
     }),
   );
   assertEquals(response.status, 503);
-  assertEquals(lines.length, 1);
+  assertEquals(lines.length, 2);
   assertStringIncludes(lines[0], "upload staging failed: staging_unavailable");
+  assertEquals(
+    /^1970-01-01T00:00:00\.000Z ERROR PUT \/nar\/fail\.nar -> 503 duration=\d+ms$/
+      .test(lines[1]),
+    true,
+  );
   assertEquals(lines.some((line) => line.includes("secret")), false);
 
   const throwing = createNixHttpHandler({

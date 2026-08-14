@@ -520,16 +520,14 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
       finalize();
       throw error;
     } finally {
-      if (request.method === "GET" || request.method === "HEAD") {
-        emitOperational({
-          type: "http_request",
-          code: "request_handled",
-          method: request.method,
-          path: url.pathname,
-          status,
-          durationMs: Math.max(0, Date.now() - started),
-        });
-      }
+      emitOperational({
+        type: "http_request",
+        code: "request_handled",
+        method: request.method,
+        path: url.pathname,
+        status,
+        durationMs: Math.max(0, Date.now() - started),
+      });
       if (info) {
         // A handler return only starts delivery for streaming responses. Deno's
         // completion promise is the lifecycle boundary for successful delivery
