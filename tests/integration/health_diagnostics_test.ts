@@ -3,6 +3,7 @@ import {
   createConsoleDiagnosticSink,
   type OperationalDiagnostic,
 } from "../../src/operations/diagnostics.ts";
+import { debugWritePublication } from "../../src/operations/debug.ts";
 import {
   createHealthSnapshotProvider,
   type HealthInputs,
@@ -112,60 +113,117 @@ Deno.test("blocked publication is observable without side effects or secrets", a
   assertEquals(reads, 3);
 });
 
-Deno.test("publication diagnostics render bounded plain progress and one completion", () => {
+Deno.test("publication diagnostics render only real state transitions", () => {
+  const originalDebug = console.debug;
+  const debugCalls: unknown[][] = [];
+  console.debug = (...args: unknown[]) => debugCalls.push(args);
+  debugWritePublication.enabled = true;
+  try {
+    for (const terminal of [
+      { tty: false, color: false, width: 80 },
+      { tty: true, color: true, width: 80 },
+    ]) {
+      const lines: string[] = [];
+      let clock = 0;
+      const sink = createConsoleDiagnosticSink({
+        write: (line) => lines.push(line),
+        now: () => clock,
+        terminal,
+      });
+      const progress = (
+        batchId: number,
+        replicaSucceeded: number,
+        relaySucceeded: number,
+      ) => sink.emit({
+        type: "publication_progress",
+        code: "publication_progress",
+        batchId,
+        replicaTotal: 2,
+        replicaSucceeded,
+        replicaFailed: 2 - replicaSucceeded,
+        replicaRetries: replicaSucceeded === 0 ? 1 : 0,
+        replicaExhausted: 0,
+        relayTotal: 1,
+        relaySucceeded,
+        relayFailed: 1 - relaySucceeded,
+        relayRetries: 0,
+        relayExhausted: 0,
+        fullyPublished: replicaSucceeded === 2 && relaySucceeded === 1,
+      });
+
+      progress(7, 0, 0);
+      assertEquals(lines.length, 2);
+      progress(7, 0, 0);
+      assertEquals(lines.length, 2);
+      clock += 60_000;
+      assertEquals(lines.length, 2);
+
+      progress(7, 1, 0);
+      assertEquals(lines.length, 3);
+      assertStringIncludes(lines[2], "Blossom replicas:");
+      progress(7, 2, 1);
+      assertEquals(lines.length, 4);
+      assertStringIncludes(lines[3], "Fully published to every configured target");
+      assertEquals(lines[3].includes("Blossom replicas:"), false);
+      assertEquals(lines[3].includes("Publication relays:"), false);
+      progress(7, 2, 1);
+      assertEquals(lines.length, 4);
+
+      progress(8, 0, 0);
+      assertEquals(lines.length, 6);
+      assertEquals(lines.every((line) => !line.includes("{")), true);
+      assertEquals(lines.every((line) => !line.includes("\r")), true);
+      if (!terminal.tty) {
+        assertEquals(lines.every((line) => !line.includes("\u001b")), true);
+      }
+    }
+    assertEquals(debugCalls.length, 10);
+    assertEquals(
+      debugCalls.every((call) => call.every((value) => typeof value === "string")),
+      true,
+    );
+  } finally {
+    debugWritePublication.enabled = false;
+    console.debug = originalDebug;
+  }
+});
+
+Deno.test("replica attempt output says what was uploaded and sanitized where", () => {
   const lines: string[] = [];
   const sink = createConsoleDiagnosticSink({
     write: (line) => lines.push(line),
     now: () => 0,
-    terminal: { tty: false, color: false, width: 80 },
   });
-  const progress = (replicaSucceeded: number, relaySucceeded: number) =>
-    sink.emit({
-      type: "publication_progress",
-      code: "publication_progress",
-      batchId: 7,
-      replicaTotal: 2,
-      replicaSucceeded,
-      replicaFailed: 2 - replicaSucceeded,
-      replicaRetries: 1,
-      replicaExhausted: 0,
-      relayTotal: 1,
-      relaySucceeded,
-      relayFailed: 1 - relaySucceeded,
-      relayRetries: 0,
-      relayExhausted: 0,
-      fullyPublished: replicaSucceeded === 2 && relaySucceeded === 1,
-    });
-  progress(1, 0);
+  const rootHash = "abcdef0123456789".repeat(4);
+  const destination =
+    "https://user:password@example.test/upload?token=query-secret#fragment";
   sink.emit({
-    type: "promotion",
-    code: "publication_promoted",
-    batchId: 7,
-    eventId: "e".repeat(64),
-    rootHash: "r".repeat(64),
+    type: "replica_attempt",
+    code: "replica_complete",
+    rootHash,
+    endpoint: destination,
+    attempt: 1,
+    count: 5,
+    durationMs: 3,
+    ok: true,
   });
-  progress(2, 1);
-  progress(2, 1);
-  assertEquals(
-    lines.some((line) => line.includes("\u001b") || line.includes("\r")),
-    false,
-  );
-  assertEquals(
-    lines.some((line) =>
-      line.includes("Blossom replicas:") &&
-      line.includes("1/2 ok, 1 failed, 1 retry")
-    ),
-    true,
-  );
-  assertEquals(
-    lines.some((line) => line.includes("Cache available and published")),
-    true,
-  );
-  assertEquals(
-    lines.filter((line) => line.includes("Fully published")).length,
-    1,
-  );
-  assertEquals(lines.some((line) => line.includes("eeee")), false);
+  sink.emit({
+    type: "replica_attempt",
+    code: "replica_unavailable",
+    rootHash,
+    endpoint: destination,
+    attempt: 2,
+    count: 5,
+    durationMs: 4,
+    ok: false,
+  });
+  assertEquals(lines.length, 2);
+  assertStringIncludes(lines[0], "Uploaded root abcdef012345");
+  assertStringIncludes(lines[0], "5 blobs");
+  assertStringIncludes(lines[0], "https://example.test/upload");
+  assertStringIncludes(lines[1], "Blossom upload failed");
+  assertStringIncludes(lines[1], "https://example.test/upload");
+  assertEquals(lines.some((line) => /user|password|query-secret|fragment/.test(line)), false);
   assertEquals(lines.every((line) => !line.includes("{")), true);
 });
 
