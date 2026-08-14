@@ -6,7 +6,7 @@ status: Ready for next task
 stopped_at: Completed quick task 260813-tzo
 last_updated: "2026-08-14T10:24:00.000Z"
 last_activity: 2026-08-14
-last_activity_desc: "Completed quick task 260814-ff8: Remove startup requirements for non-empty caches and extraRelays"
+last_activity_desc: "Completed quick task 260814-hud: Redesign publication logging as clear bounded progress"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -23,14 +23,14 @@ current_phase_name: Availability-Gated Publication Loop
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** An unmodified Nix client can reliably read and publish a decentralized binary cache while preserving NIP.md trust, integrity, freshness, and bounded-resource guarantees.
-**Current focus:** Quick task 260813-tzo is complete; select the next planned task or milestone.
+**Current focus:** Quick task 260814-hud is complete; select the next planned task or milestone.
 
 ## Current Position
 
 Phase: Quick task 260813-tzo — Unified bounded content-addressed blob storage
 Plan: 04 of 04 — Runtime/config cleanup and stock-Nix verification
 Status: Complete
-Last activity: 2026-08-14 - Completed unified BlobStore runtime and stock-Nix verification in 61e5638
+Last activity: 2026-08-14 - Completed publication progress diagnostics in 4e859f0
 
 ## Performance Metrics
 
@@ -182,6 +182,7 @@ None for the shipped v1.0 milestone.
 | 260813-tzo | Implement unified bounded content-addressed blob storage | 2026-08-14 | 61e5638 | [260813-tzo-implement-unified-bounded-content-addres](./quick/260813-tzo-implement-unified-bounded-content-addres/) |
 | 260814-ff8 | Remove startup requirements for non-empty caches and extraRelays | 2026-08-14 | 33b97b8 | [260814-ff8-remove-startup-requirements-for-non-empt](./quick/260814-ff8-remove-startup-requirements-for-non-empt/) |
 | 260814-g2r | Remove all pre-release legacy compatibility functionality | 2026-08-14 | 25e0d67 | [260814-g2r-remove-all-legacy-compatibility-function](./quick/260814-g2r-remove-all-legacy-compatibility-function/) |
+| 260814-hud | Redesign publication logging as clear bounded progress | 2026-08-14 | 4e859f0 | [260814-hud-redesign-publication-logging-into-clear-](./quick/260814-hud-redesign-publication-logging-into-clear-/) |
 
 ## Deferred Items
 
@@ -192,8 +193,8 @@ None for the shipped v1.0 milestone.
 
 ## Session Continuity
 
-Last session: 2026-08-14T10:41:00.000Z
-Stopped at: Completed quick task 260814-g2r
+Last session: 2026-08-14T12:00:00.000Z
+Stopped at: Completed quick task 260814-hud
 Resume file: None
 
 ## Operator Next Steps
