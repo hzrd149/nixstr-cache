@@ -3,6 +3,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools";
 import { filter, firstValueFrom } from "rxjs";
 import { parseConfig } from "../../src/config/config.ts";
 import { createNostrService } from "../../src/nostr/runtime.ts";
+import { createPublicationEventStream } from "../../src/nostr/publications.ts";
 import { bech32 } from "@scure/base";
 
 Deno.test("shared Nostr service derives publisher outboxes plus extra relays", async () => {
@@ -75,5 +76,39 @@ Deno.test("cache publications require the guarded accepted-event gateway", () =>
     assertEquals(runtime.store.hasEvent(publication.id), true);
   } finally {
     runtime.close();
+  }
+});
+
+Deno.test("empty publisher stream creates no metadata or relay subscription", () => {
+  const parsed = parseConfig({
+    databasePath: "/tmp/nixstr-empty-publishers.sqlite",
+    spoolDirectory: "/tmp/nixstr-empty-publishers-spool",
+  });
+  assert(parsed.ok);
+  let metadataCalls = 0;
+  let subscriptionCalls = 0;
+  const service = {
+    followUserMetadata() {
+      metadataCalls++;
+    },
+    relaySetFor() {
+      throw new Error("relaySetFor must not be called for no publishers");
+    },
+    pool: {
+      subscription() {
+        subscriptionCalls++;
+        throw new Error("subscription must not be called for no publishers");
+      },
+    },
+  };
+  const stream = createPublicationEventStream(
+    parsed.value,
+    service as unknown as Parameters<typeof createPublicationEventStream>[1],
+  );
+  try {
+    assertEquals(metadataCalls, 0);
+    assertEquals(subscriptionCalls, 0);
+  } finally {
+    stream.close();
   }
 });

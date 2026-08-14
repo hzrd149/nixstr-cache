@@ -346,6 +346,58 @@ Deno.test("operator can override bootstrap relays independently", () => {
   ]);
 });
 
+Deno.test("empty read-only config keeps bootstrap relays and serves 503", async () => {
+  const root = await Deno.makeTempDir({ prefix: "nixstr-empty-read-" });
+  let handler: ((request: Request) => Response | Promise<Response>) | undefined;
+  try {
+    const parsed = parseConfig({
+      databasePath: `${root}/state.sqlite`,
+      spoolDirectory: `${root}/spool`,
+    });
+    assert(parsed.ok);
+    assertEquals(parsed.value.identities, []);
+    assertEquals(parsed.value.publisherPubkeys, []);
+    assertEquals(parsed.value.extraRelays, []);
+    assert(Object.isFrozen(parsed.value.identities));
+    assert(Object.isFrozen(parsed.value.publisherPubkeys));
+    assert(Object.isFrozen(parsed.value.extraRelays));
+
+    const noBootstrap = parseConfig({
+      databasePath: `${root}/other.sqlite`,
+      spoolDirectory: `${root}/other-spool`,
+      bootstrapRelays: [],
+    });
+    assert(!noBootstrap.ok);
+    assert(noBootstrap.diagnostics.some((item) =>
+      item.field === "bootstrapRelays" && item.code === "required"
+    ));
+
+    const result = await launchDaemon({
+      databasePath: `${root}/daemon.sqlite`,
+      spoolDirectory: `${root}/daemon-spool`,
+    }, {
+      createEventStream: () => ({
+        events: new Subject<RawPublication>(),
+        close() {},
+      }),
+      bind: (createdHandler) => {
+        handler = createdHandler;
+        return { shutdown: () => Promise.resolve() };
+      },
+      signals: [],
+    });
+    assert(result.ok);
+    assert(handler);
+    assertEquals(
+      (await handler(new Request("http://cache/nix-cache-info"))).status,
+      503,
+    );
+    await result.shutdown();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
 Deno.test("JSON and environment cache identities share normalization and priority", async () => {
   const npub = nip19.npubEncode(SECOND_PUBKEY);
   const fileRaw = await loadStartupConfig(["--config", "/tmp/config.json"], {
