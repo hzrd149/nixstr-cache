@@ -11,6 +11,8 @@ import { classifyEndorsements, parseNarInfo } from "../protocol/narinfo.ts";
 import type { SignerOverlay, SignerOverlaySnapshot } from "../write/overlay.ts";
 import type { HealthSnapshotProvider } from "../operations/health.ts";
 import type { OperationalDiagnosticSink } from "../operations/diagnostics.ts";
+import type { StatusSnapshotProvider } from "../operations/status.ts";
+import { renderStatusPage } from "../operations/status_page.ts";
 import {
   debugEndpoint,
   debugHttpRequest,
@@ -53,6 +55,7 @@ export interface NixHandlerDependencies {
     current(): SignerOverlaySnapshot | undefined;
   };
   readonly health?: HealthSnapshotProvider;
+  readonly status?: StatusSnapshotProvider;
   readonly write?: {
     current(): {
       readonly ready: boolean;
@@ -108,6 +111,28 @@ function textError(
   });
 }
 
+// No status parameter, unlike text()/textError(): 200 is hardcoded. The
+// 503-rewrite wrapper at the bottom of createNixHttpHandler (search for
+// `if (status === 503 && dependencies.health)`) replaces any 503 body with
+// plain text and would clobber this HTML, so nobody should add a status
+// parameter here "for symmetry with text()" — the / route's catch handler
+// always returns 500, never 503.
+function html(body: string, method: string): Response {
+  const bytes = new TextEncoder().encode(body);
+  return new Response(method === "HEAD" ? null : bytes, {
+    status: 200,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "content-length": String(bytes.length),
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "no-referrer",
+      "content-security-policy":
+        "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    },
+  });
+}
+
 function mapped(error: unknown, method: string): Response {
   if (error instanceof VerifiedAbsent) {
     return textError("not found", method, 404);
@@ -159,6 +184,31 @@ export function createNixHttpHandler(dependencies: NixHandlerDependencies) {
           "content-length": String(bytes.length),
         },
       });
+    }
+    // Placement here is load-bearing for three reasons:
+    // - Before the selection read below, so `/` controls its own reads and
+    //   the `/health` no-side-effect test is untouched.
+    // - Before the `snapshot.length === 0` -> 503 gate (search for
+    //   `return textError("cache unavailable"`), so the page still renders
+    //   with zero caches — the exact state an operator most needs to see.
+    // - The catch returns 500, not 503, because the 503-rewrite wrapper
+    //   below would replace an HTML 503 body with plain text.
+    if (
+      pathname === "/" &&
+      (request.method === "GET" || request.method === "HEAD")
+    ) {
+      if (!dependencies.status) {
+        debugHttpRoute("status page unavailable", { requestId: trace });
+        return textError("not found", request.method, 404);
+      }
+      try {
+        const page = renderStatusPage(dependencies.status.current());
+        debugHttpRoute("serving status page", { requestId: trace });
+        return html(page, request.method);
+      } catch {
+        debugHttpRoute("status page render failed", { requestId: trace });
+        return textError("status unavailable", request.method, 500);
+      }
     }
     const snapshot = dependencies.selection.current();
     const overlaySnapshot = dependencies.overlay?.current();

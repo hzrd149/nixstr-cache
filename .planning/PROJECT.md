@@ -41,7 +41,7 @@ An unmodified Nix client can reliably read and publish a decentralized binary ca
 
 ### Out of Scope
 
-- Graphical user interface — v1 is a headless background daemon configured and observed through daemon-oriented interfaces.
+- A configuration graphical user interface — v1 is a headless background daemon configured through daemon-oriented interfaces. The read-only HTML status page at `GET /` is an observation surface, not a configuration interface.
 - Multi-user hosted tenancy — v1 targets one operator and one optional connected signer; per-user authentication and isolation are deferred.
 - Arbitrary write targets selected per HTTP URL — v1 writes to one explicitly configured default or named cache identity.
 - Replacing or extending the Nix client — compatibility is provided through the existing HTTP binary-cache protocol.

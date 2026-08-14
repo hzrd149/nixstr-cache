@@ -47,6 +47,7 @@ import {
 } from "../nostr/runtime.ts";
 import { StateRepository } from "../persistence/state_repository.ts";
 import {
+  type EndpointWork,
   WriteIdentityMismatch,
   WriteRepository,
 } from "../persistence/write_repository.ts";
@@ -66,6 +67,10 @@ import {
 } from "../operations/diagnostics.ts";
 import { debugCacheState } from "../operations/debug.ts";
 import { createHealthSnapshotProvider } from "../operations/health.ts";
+import {
+  createStatusSnapshotProvider,
+  type StatusInputs,
+} from "../operations/status.ts";
 import {
   createPasswordRequest,
   type PasswordRequest,
@@ -862,6 +867,136 @@ export function createProductionDependencies(
           }).finally(() => supervisor.tasks.delete(activationTask))
         : Promise.resolve();
       supervisor.tasks.add(activationTask);
+      // Hoisted so `/` and `/health` read the exact same provider and can
+      // never disagree.
+      const healthProvider = createHealthSnapshotProvider(() => {
+        const selected = (selection as unknown as SelectionView).current();
+        const signerState = signer?.current();
+        const saga = writesActivated
+          ? writeRepository?.publicationSaga()
+          : undefined;
+        const endpointWork = writesActivated
+          ? writeRepository?.endpointWork() ?? []
+          : [];
+        const repairing = Boolean(
+          saga?.committed &&
+            endpointWork.some((item) => item.status !== "complete"),
+        );
+        const publication = !saga
+          ? { phase: "idle" as const, completeReplica: true }
+          : repairing
+          ? {
+            phase: "repairing" as const,
+            completeReplica: Boolean(saga.completeServer),
+          }
+          : !saga.completeServer
+          ? { phase: "replicating" as const, completeReplica: false }
+          : !saga.acknowledgedRelay
+          ? { phase: "awaiting_relay" as const, completeReplica: true }
+          : { phase: "idle" as const, completeReplica: true };
+        const destinations = writeDestinations.length;
+        return {
+          process: { repositoryHealthy: writeRepository?.health() ?? true },
+          read: {
+            selectedPublications: selected.length,
+            overlayEntries: overlay?.current()?.entries.size ?? 0,
+          },
+          write: config.writeIntent.mode === "disabled" ? { enabled: false } : {
+            enabled: true,
+            repositoryHealthy: writeRepository?.health() ?? false,
+            signerStatus: signerState?.status ?? "disconnected",
+            signerOwned: signerState?.status === "ready" ||
+              (signerState?.status === "failed" &&
+                signerState.code !== "identity_changed"),
+            activationStatus: writeActivationStatus,
+            destinations,
+            relays: writeRelays.length,
+            publication,
+          },
+        };
+      });
+      // Hoisted so `/` reports acceptingUploads from the exact same
+      // compound predicate the PUT route uses, rather than a drifting copy.
+      const writeReadiness = signer && writeRepository
+        ? {
+          current: () => {
+            const state = signer.current();
+            const hasDestination = writeDestinations.length > 0;
+            return {
+              ready: state.status === "ready" && writeRepository.health() &&
+                writesActivated &&
+                config.writeIntent.mode !== "disabled" &&
+                writeRepository.boundIdentity() ===
+                  `${config.writeIntent.identity.kind}:${state.pubkey}:${config.writeIntent.identity.identifier}` &&
+                writeRelays.length > 0 && hasDestination,
+              repository: writeRepository,
+              authorize: () => signer.assertIdentity().then(() => {}),
+              onStaged: async (route: string) => {
+                await signer.assertIdentity();
+                return await (eligibility?.changed(route) ?? false);
+              },
+            };
+          },
+        }
+        : undefined;
+      const statusProvider = createStatusSnapshotProvider(() => {
+        const selected = (selection as unknown as SelectionView).current();
+        const signerState = signer?.current();
+        const signerPubkey = signerState?.status === "ready"
+          ? signerState.pubkey
+          : undefined;
+        let storage: StatusInputs["storage"];
+        try {
+          const blobHealth = blobStore.health();
+          storage = {
+            ok: blobHealth.ok,
+            readyBytes: blobHealth.usage.readyBytes,
+            reservedBytes: blobHealth.usage.reservedBytes,
+            capacityBytes: blobHealth.usage.capacityBytes,
+            tombstones: blobHealth.tombstones,
+          };
+        } catch {
+          storage = undefined;
+        }
+        let batchId: number | undefined;
+        let endpointWork: readonly EndpointWork[] | undefined;
+        try {
+          if (writesActivated && writeRepository) {
+            batchId = writeRepository.publicationSaga()?.batchId;
+            endpointWork = writeRepository.endpointWork();
+          }
+        } catch {
+          batchId = undefined;
+          endpointWork = undefined;
+        }
+        let acceptingUploads = false;
+        try {
+          acceptingUploads = writeReadiness?.current().ready ?? false;
+        } catch {
+          acceptingUploads = false;
+        }
+        return {
+          health: healthProvider.current(),
+          endpoint: { host: config.bindHost, port: config.bindPort },
+          caches: selected,
+          writableIdentity: config.writeIntent.mode === "disabled" ||
+              !signerPubkey
+            ? undefined
+            : `${config.writeIntent.identity.kind}:${signerPubkey}:${config.writeIntent.identity.identifier}`,
+          overlayEntries: overlay?.current()?.entries.size ?? 0,
+          storage,
+          write: {
+            enabled: config.writeIntent.mode !== "disabled",
+            acceptingUploads,
+            signerStatus: signerState?.status,
+            signerPubkey,
+            destinations: writeDestinations.length,
+            relays: writeRelays.length,
+            batchId,
+            endpointWork,
+          },
+        } satisfies StatusInputs;
+      });
       const nixHandler = createNixHttpHandler({
         decodedMetadataBytes: config.limits.decodedMetadataBytes,
         selection: {
@@ -885,76 +1020,9 @@ export function createProductionDependencies(
             }),
         },
         operationalDiagnostics: diagnostics,
-        health: createHealthSnapshotProvider(() => {
-          const selected = (selection as unknown as SelectionView).current();
-          const signerState = signer?.current();
-          const saga = writesActivated
-            ? writeRepository?.publicationSaga()
-            : undefined;
-          const endpointWork = writesActivated
-            ? writeRepository?.endpointWork() ?? []
-            : [];
-          const repairing = Boolean(
-            saga?.committed &&
-              endpointWork.some((item) => item.status !== "complete"),
-          );
-          const publication = !saga
-            ? { phase: "idle" as const, completeReplica: true }
-            : repairing
-            ? {
-              phase: "repairing" as const,
-              completeReplica: Boolean(saga.completeServer),
-            }
-            : !saga.completeServer
-            ? { phase: "replicating" as const, completeReplica: false }
-            : !saga.acknowledgedRelay
-            ? { phase: "awaiting_relay" as const, completeReplica: true }
-            : { phase: "idle" as const, completeReplica: true };
-          const destinations = writeDestinations.length;
-          return {
-            process: { repositoryHealthy: writeRepository?.health() ?? true },
-            read: {
-              selectedPublications: selected.length,
-              overlayEntries: overlay?.current()?.entries.size ?? 0,
-            },
-            write: config.writeIntent.mode === "disabled"
-              ? { enabled: false }
-              : {
-                enabled: true,
-                repositoryHealthy: writeRepository?.health() ?? false,
-                signerStatus: signerState?.status ?? "disconnected",
-                signerOwned: signerState?.status === "ready" ||
-                  (signerState?.status === "failed" &&
-                    signerState.code !== "identity_changed"),
-                activationStatus: writeActivationStatus,
-                destinations,
-                relays: writeRelays.length,
-                publication,
-              },
-          };
-        }),
-        write: signer && writeRepository
-          ? {
-            current: () => {
-              const state = signer.current();
-              const hasDestination = writeDestinations.length > 0;
-              return {
-                ready: state.status === "ready" && writeRepository.health() &&
-                  writesActivated &&
-                  config.writeIntent.mode !== "disabled" &&
-                  writeRepository.boundIdentity() ===
-                    `${config.writeIntent.identity.kind}:${state.pubkey}:${config.writeIntent.identity.identifier}` &&
-                  writeRelays.length > 0 && hasDestination,
-                repository: writeRepository,
-                authorize: () => signer.assertIdentity().then(() => {}),
-                onStaged: async (route) => {
-                  await signer.assertIdentity();
-                  return await (eligibility?.changed(route) ?? false);
-                },
-              };
-            },
-          }
-          : undefined,
+        health: healthProvider,
+        status: statusProvider,
+        write: writeReadiness,
         resolverFor(snapshot) {
           return publisherResolver(snapshot);
         },
