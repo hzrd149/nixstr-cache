@@ -147,9 +147,21 @@ Deno.test("publication diagnostics render bounded plain progress and one complet
   progress(2, 1);
   progress(2, 1);
   assertEquals(lines.some((line) => /[\u001b\r]/.test(line)), false);
-  assertEquals(lines.some((line) => line.includes("Blossom replicas: 1/2 ok, 1 failed, 1 retry")), true);
-  assertEquals(lines.some((line) => line.includes("Cache available and published")), true);
-  assertEquals(lines.filter((line) => line.includes("Fully published")).length, 1);
+  assertEquals(
+    lines.some((line) =>
+      line.includes("Blossom replicas:") &&
+      line.includes("1/2 ok, 1 failed, 1 retry")
+    ),
+    true,
+  );
+  assertEquals(
+    lines.some((line) => line.includes("Cache available and published")),
+    true,
+  );
+  assertEquals(
+    lines.filter((line) => line.includes("Fully published")).length,
+    1,
+  );
   assertEquals(lines.some((line) => line.includes("eeee")), false);
   assertEquals(lines.every((line) => !line.includes("{")), true);
 });
@@ -423,52 +435,47 @@ Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are co
     },
   ];
   for (const event of events) sink.emit(event);
-  assertEquals(lines.length, events.length);
+  assertEquals(lines.length, events.length - 2);
   assertStringIncludes(lines[0], "Nostr event rejected: invalid_event");
   assertStringIncludes(lines[1], "narinfo publisher conflict");
   assertStringIncludes(lines[2], "upstream request failed: upstream_timeout");
   assertStringIncludes(lines[3], "signer ready: signer_ready");
-  assertStringIncludes(lines[4], "publication batch: batch_pending");
+  assertStringIncludes(lines[4], "Blossom replicas: 1/1 ok");
+  assertStringIncludes(lines[5], "Publication relays: 1/1 ok");
+  assertStringIncludes(lines[6], "Cache available and published");
+  assertStringIncludes(lines[7], "write Blossom server list changed");
+  assertStringIncludes(lines[7], "endpoints=https://example.test/base");
+  assertEquals(lines[7].includes("secret"), false);
+  assertEquals(lines[7].includes("hidden"), false);
+  assertStringIncludes(lines[8], "write relay list found");
+  assertStringIncludes(lines[8], "configured=1");
+  assertStringIncludes(lines[8], "outboxes=1");
   assertStringIncludes(
-    lines[5],
-    "publication authorization failed: authorization_failed",
-  );
-  assertStringIncludes(lines[6], "Blossom replica succeeded: replica_complete");
-  assertStringIncludes(lines[7], "relay publication acknowledged");
-  assertStringIncludes(lines[8], "cache publication promoted");
-  assertStringIncludes(lines[9], "write Blossom server list changed");
-  assertStringIncludes(lines[9], "endpoints=https://example.test/base");
-  assertEquals(lines[9].includes("secret"), false);
-  assertEquals(lines[9].includes("hidden"), false);
-  assertStringIncludes(lines[10], "write relay list found");
-  assertStringIncludes(lines[10], "configured=1");
-  assertStringIncludes(lines[10], "outboxes=1");
-  assertStringIncludes(
-    lines[10],
+    lines[8],
     "endpoints=wss://relay.test/path,wss://outbox.test",
   );
-  assertEquals(lines[10].includes("secret"), false);
-  assertEquals(lines[10].includes("hidden"), false);
+  assertEquals(lines[8].includes("secret"), false);
+  assertEquals(lines[8].includes("hidden"), false);
   assertStringIncludes(
-    lines[13],
+    lines[11],
     "WRITABLE CACHE OWNER MISMATCH — WRITES HAVE BEEN DISABLED",
   );
   assertStringIncludes(
-    lines[13],
+    lines[11],
     `Configured signer: 17091:${"a".repeat(64)}:`,
   );
   assertStringIncludes(
-    lines[13],
+    lines[11],
     `Durable owner:     17091:${"b".repeat(64)}:`,
   );
-  assertStringIncludes(lines[11], "cache selection changed");
-  assertStringIncludes(lines[12], "NAR resolution failed in Hashtree cache");
-  assertStringIncludes(lines[12], "WARN");
-  assertStringIncludes(lines[12], "route=pinned");
-  assertEquals(lines[12].includes("secret"), false);
-  assertStringIncludes(lines[13], "writable.enabled was honored");
-  assertStringIncludes(lines[13], "PUT is disabled");
-  assertStringIncludes(lines[13], "Do not delete state casually");
+  assertStringIncludes(lines[9], "cache selection changed");
+  assertStringIncludes(lines[10], "NAR resolution failed in Hashtree cache");
+  assertStringIncludes(lines[10], "WARN");
+  assertStringIncludes(lines[10], "route=pinned");
+  assertEquals(lines[10].includes("secret"), false);
+  assertStringIncludes(lines[11], "writable.enabled was honored");
+  assertStringIncludes(lines[11], "PUT is disabled");
+  assertStringIncludes(lines[11], "Do not delete state casually");
   const failing = createConsoleDiagnosticSink({
     write: () => {
       throw new Error("sink failed");

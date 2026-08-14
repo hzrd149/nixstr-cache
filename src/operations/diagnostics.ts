@@ -1,4 +1,22 @@
+import { debugEndpoint, debugWritePublication } from "./debug.ts";
+
 export type OperationalDiagnostic =
+  | {
+    readonly type: "publication_progress";
+    readonly code: "publication_progress";
+    readonly batchId: number;
+    readonly replicaTotal: number;
+    readonly replicaSucceeded: number;
+    readonly replicaFailed: number;
+    readonly replicaRetries: number;
+    readonly replicaExhausted: number;
+    readonly relayTotal: number;
+    readonly relaySucceeded: number;
+    readonly relayFailed: number;
+    readonly relayRetries: number;
+    readonly relayExhausted: number;
+    readonly fullyPublished: boolean;
+  }
   | {
     readonly type: "blob_store";
     readonly code: "capacity_exhausted" | "reconcile_failure" | "delete_retry";
@@ -159,6 +177,11 @@ export interface OperationalDiagnosticSink {
 export interface ConsoleDiagnosticSinkOptions {
   readonly write?: (line: string) => void;
   readonly now?: () => number;
+  readonly terminal?: {
+    readonly tty: boolean;
+    readonly color: boolean;
+    readonly width: number;
+  };
 }
 
 function endpoint(value: string): string | undefined {
@@ -266,6 +289,14 @@ export function formatOperationalDiagnostic(
       fields.push(`batch=${item.batchId}`);
       if (item.count !== undefined) fields.push(`entries=${item.count}`);
       if (item.rootHash) fields.push(`root=${item.rootHash}`);
+      break;
+    case "publication_progress":
+      message = "publication progress";
+      fields.push(
+        `batch=${item.batchId}`,
+        `replicas=${item.replicaSucceeded}/${item.replicaTotal}`,
+        `relays=${item.relaySucceeded}/${item.relayTotal}`,
+      );
       break;
     case "publication_stage":
       level = item.status === "failed"
@@ -408,11 +439,170 @@ export function createConsoleDiagnosticSink(
 ): OperationalDiagnosticSink {
   const write = options.write ?? ((line: string) => console.log(line));
   const now = options.now ?? Date.now;
+  const terminal = options.terminal ?? { tty: false, color: false, width: 80 };
+  const completed = new Set<number>();
+  const promoted = new Set<number>();
+  const fallback = {
+    replicaFailures: 0,
+    replicaRetries: 0,
+    relayFailures: 0,
+    relayRetries: 0,
+  };
+  const statusLine = (
+    label: string,
+    ok: number,
+    total: number,
+    failed: number,
+    retries: number,
+    exhausted: number,
+  ): string => {
+    const counts = `${ok}/${total} ok, ${failed} failed, ${retries} ${
+      retries === 1 ? "retry" : "retries"
+    }${exhausted ? `, ${exhausted} exhausted` : ""}`;
+    const room = Math.max(
+      0,
+      Math.min(24, terminal.width - label.length - counts.length - 7),
+    );
+    const bar = room >= 8 && total > 0
+      ? ` [${"=".repeat(Math.round(room * Math.min(ok, total) / total))}${
+        "-".repeat(room - Math.round(room * Math.min(ok, total) / total))
+      }]`
+      : "";
+    return `${label}:${bar} ${counts}`;
+  };
+  const publicationDebug = (item: OperationalDiagnostic): void => {
+    try {
+      if (
+        item.type === "replica_attempt" || item.type === "relay_acknowledgement"
+      ) {
+        debugWritePublication("target outcome", {
+          kind: item.type === "replica_attempt" ? "replica" : "relay",
+          endpoint: debugEndpoint(item.endpoint),
+          attempt: item.attempt,
+          duration_ms: item.durationMs ?? 0,
+          ok: item.ok,
+          code: item.code,
+        });
+      } else if (item.type === "publication_stage") {
+        debugWritePublication("stage", {
+          batch: item.batchId,
+          stage: item.stage,
+          status: item.status,
+          root: item.rootHash,
+        });
+      } else if (item.type === "publication_progress") {
+        debugWritePublication("progress", {
+          batch: item.batchId,
+          replicas_ok: item.replicaSucceeded,
+          replicas_total: item.replicaTotal,
+          relays_ok: item.relaySucceeded,
+          relays_total: item.relayTotal,
+          fully_published: item.fullyPublished,
+        });
+      } else if (item.type === "promotion") {
+        debugWritePublication("promoted", {
+          batch: item.batchId,
+          root: item.rootHash,
+          event: item.eventId,
+        });
+      }
+    } catch { /* diagnostics are non-authoritative */ }
+  };
   return Object.freeze({
     emit(item: OperationalDiagnostic): void {
       try {
+        publicationDebug(item);
+        const timestamp = new Date(now()).toISOString();
+        if (item.type === "publication_progress") {
+          const replicaOk = Math.min(
+            item.replicaTotal,
+            Math.max(0, item.replicaSucceeded),
+          );
+          const relayOk = Math.min(
+            item.relayTotal,
+            Math.max(0, item.relaySucceeded),
+          );
+          write(
+            `${timestamp} INFO  ${
+              statusLine(
+                "Blossom replicas",
+                replicaOk,
+                item.replicaTotal,
+                item.replicaFailed,
+                item.replicaRetries,
+                item.replicaExhausted,
+              )
+            }`,
+          );
+          write(
+            `${timestamp} INFO  ${
+              statusLine(
+                "Publication relays",
+                relayOk,
+                item.relayTotal,
+                item.relayFailed,
+                item.relayRetries,
+                item.relayExhausted,
+              )
+            }`,
+          );
+          if (
+            item.fullyPublished && replicaOk === item.replicaTotal &&
+            relayOk === item.relayTotal && !completed.has(item.batchId)
+          ) {
+            completed.add(item.batchId);
+            write(
+              `${timestamp} INFO  ${
+                terminal.color ? "\u001b[1;32m" : ""
+              }Fully published to every configured target${
+                terminal.color ? "\u001b[0m" : ""
+              }`,
+            );
+          }
+          return;
+        }
+        if (item.type === "promotion") {
+          if (!promoted.has(item.batchId)) {
+            promoted.add(item.batchId);
+            write(
+              `${timestamp} INFO  Cache available and published; remaining targets will continue in background`,
+            );
+          }
+          return;
+        }
+        if (item.type === "replica_attempt") {
+          if (!item.ok) {
+            fallback.replicaFailures++;
+            if (item.attempt > 1) fallback.replicaRetries++;
+          }
+          write(
+            `${timestamp} ${item.ok ? "INFO " : "WARN "} Blossom replicas: ${
+              item.ok
+                ? "1/1 ok"
+                : `0/1 ok, ${fallback.replicaFailures} failed, ${fallback.replicaRetries} retries`
+            }`,
+          );
+          return;
+        }
+        if (item.type === "relay_acknowledgement") {
+          if (!item.ok) {
+            fallback.relayFailures++;
+            if (item.attempt > 1) fallback.relayRetries++;
+          }
+          write(
+            `${timestamp} ${item.ok ? "INFO " : "WARN "} Publication relays: ${
+              item.ok
+                ? "1/1 ok"
+                : `0/1 ok, ${fallback.relayFailures} failed, ${fallback.relayRetries} retries`
+            }`,
+          );
+          return;
+        }
+        if (
+          item.type === "batch_transition" || item.type === "publication_stage"
+        ) return;
         write(
-          formatOperationalDiagnostic(item, new Date(now()).toISOString()),
+          formatOperationalDiagnostic(item, timestamp),
         );
       } catch {
         // Diagnostics are deliberately non-authoritative.

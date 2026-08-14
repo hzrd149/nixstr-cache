@@ -32,6 +32,9 @@ export const debugCacheState = compactDebug("nixstr:cache:state");
 export const debugWriteHashtreeState = compactDebug(
   "nixstr:write:hashtree",
 );
+export const debugWritePublication = compactDebug(
+  "nixstr:write:publication",
+);
 
 let nextInboundId = 0;
 let nextOutboundId = 0;
