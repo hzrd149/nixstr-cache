@@ -1082,6 +1082,7 @@ export class WriteRepository {
   nextDueWork(): EndpointWork | undefined {
     return this.endpointWork().find((row) =>
       (row.status === "pending" || row.status === "retry") &&
+      row.kind === "relay" &&
       row.batchId === this.publicationSaga()?.batchId
     );
   }
@@ -1092,7 +1093,8 @@ export class WriteRepository {
         `SELECT batch_id batchId,kind,target,status,attempts,
          next_attempt_at nextAttemptAt,code FROM publication_endpoint_work
          WHERE batch_id=(SELECT batch_id FROM publication_sagas ORDER BY batch_id LIMIT 1)
-           AND status IN ('pending','retry') AND next_attempt_at<=?
+           AND kind='relay' AND status IN ('pending','retry')
+           AND next_attempt_at<=?
          ORDER BY next_attempt_at,batch_id,kind,target LIMIT ?`,
       ).all(now, limit) as unknown as EndpointWork[];
       const claim = this.#db.prepare(

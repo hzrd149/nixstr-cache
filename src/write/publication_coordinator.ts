@@ -197,8 +197,7 @@ export class PublicationCoordinator {
     if (!saga.completeServer) {
       const eligibleServers = o.repository.endpointWork().filter((work) =>
         work.batchId === saga!.batchId && work.kind === "replica" &&
-        (work.status === "pending" ||
-          (work.status === "retry" && work.nextAttemptAt <= o.now()))
+        work.status === "pending"
       ).map((work) => work.target);
       if (eligibleServers.length === 0) {
         this.#emitStage(saga, "replication", "waiting", inventory.length);
@@ -534,7 +533,8 @@ export class PublicationCoordinator {
   ): void {
     const retry = this.#retryOptions();
     const attempt = work.attempts + 1;
-    const exhausted = !ok && attempt >= retry.maxAttempts;
+    const exhausted = !ok &&
+      (work.kind === "replica" || attempt >= retry.maxAttempts);
     const delay = Math.min(
       retry.maxSeconds,
       retry.baseSeconds * 2 ** Math.max(0, attempt - 1),

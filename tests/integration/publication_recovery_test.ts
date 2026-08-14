@@ -99,7 +99,7 @@ Deno.test("restart repairs replicas and relays without rolling back committed ro
     const eventId = committed.signedEvent.id;
     assertEquals(
       write.endpointWork().filter((row) => row.status === "retry").length,
-      2,
+      1,
     );
     write.close();
     write = open();
@@ -108,14 +108,18 @@ Deno.test("restart repairs replicas and relays without rolling back committed ro
     assertEquals(write.publicationSaga()?.signedEvent?.id, eventId);
     assertEquals(
       write.endpointWork().filter((row) => row.status === "retry").length,
-      2,
+      1,
     );
     secondReplica = secondRelay = true;
+    const callsBeforeRelayRepair = replicaCalls;
     now = 110;
     await make().tick();
     assertEquals(write.publicationSaga()?.signedEvent?.id, eventId);
+    assertEquals(replicaCalls, callsBeforeRelayRepair);
     assertEquals(
-      write.endpointWork().every((row) => row.status === "complete"),
+      write.endpointWork().filter((row) => row.kind === "relay").every((row) =>
+        row.status === "complete"
+      ),
       true,
     );
     assertEquals(selection.current()[0]?.event.id, eventId);

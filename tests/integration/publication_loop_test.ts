@@ -83,8 +83,8 @@ Deno.test("one complete replica publishes exact event through normal admission",
       return await original(template);
     };
     const replica: ReplicaPublisher = {
-      prove(_server, entry) {
-        return Promise.resolve(entry.hash !== "33".repeat(32));
+      prove(server) {
+        return Promise.resolve(server.endsWith("9002"));
       },
     };
     const coordinator = new PublicationCoordinator({
@@ -104,10 +104,6 @@ Deno.test("one complete replica publishes exact event through normal admission",
       diagnostics: { emit: (item) => diagnostics.push(item) },
     });
     await coordinator.tick();
-    assertEquals(signCalls, 0, "split/partial replicas must not sign");
-    replica.prove = (server) => Promise.resolve(server.endsWith("9002"));
-    now = 140;
-    await coordinator.tick();
     assertEquals(signCalls, 1);
     const saga = f.write.publicationSaga();
     assert(saga?.signedEvent && saga.committed && saga.admitted);
@@ -116,7 +112,7 @@ Deno.test("one complete replica publishes exact event through normal admission",
       ["htree", `htree://${saga.candidate.nhash}`],
       ["blossom", "http://127.0.0.1:9001"],
       ["blossom", "http://127.0.0.1:9002"],
-      ["expiration", "3740"],
+      ["expiration", "3700"],
     ]);
     replica.prove = () => Promise.resolve(true);
     await coordinator.tick();
@@ -127,15 +123,13 @@ Deno.test("one complete replica publishes exact event through normal admission",
       diagnostics.filter((item) => item.type === "batch_transition").map((
         item,
       ) => item.code),
-      ["batch_claimed", "batch_resumed", "batch_resumed", "batch_resumed"],
+      ["batch_claimed", "batch_resumed", "batch_resumed"],
     );
     assertEquals(
       diagnostics.filter((item) => item.type === "publication_stage").map((
         item,
       ) => item.code),
       [
-        "replication_started",
-        "replication_waiting",
         "replication_started",
         "replication_complete",
         "root_signing_started",
@@ -149,15 +143,13 @@ Deno.test("one complete replica publishes exact event through normal admission",
     const progress = diagnostics.filter((item) =>
       item.type === "publication_progress"
     );
-    const final = progress.find((item) =>
-      item.type === "publication_progress" && item.fullyPublished
-    );
+    const final = progress.at(-1);
     assert(final?.type === "publication_progress", JSON.stringify(progress));
     assertEquals(final.replicaTotal, 2);
-    assertEquals(final.replicaSucceeded, 2);
+    assertEquals(final.replicaSucceeded, 1);
     assertEquals(final.relayTotal, 1);
     assertEquals(final.relaySucceeded, 1);
-    assertEquals(final.fullyPublished, true);
+    assertEquals(final.fullyPublished, false);
   } finally {
     f.selection.dispose();
     f.state.close();
@@ -222,7 +214,7 @@ Deno.test("initial replicas overlap and first completion cancels siblings", asyn
     assertEquals(
       f.write.endpointWork().find((work) => work.target.endsWith("9002"))
         ?.status,
-      "retry",
+      "exhausted",
     );
     const progress = diagnostics.filter((item) =>
       item.type === "replica_progress"
@@ -307,7 +299,7 @@ Deno.test("initial replica workers honor the configured server ceiling", async (
   }
 });
 
-Deno.test("incomplete initial replicas honor durable retry backoff", async () => {
+Deno.test("incomplete initial replicas are never retried", async () => {
   const f = await fixture();
   try {
     let now = 100;
@@ -350,7 +342,17 @@ Deno.test("incomplete initial replicas honor durable retry backoff", async () =>
     assertEquals(calls, 4, "pre-backoff wake must remain idle");
     now = 130;
     await coordinator.tick();
-    assertEquals(calls, 8, "due replica work retries exactly once");
+    assertEquals(
+      calls,
+      4,
+      "replica work must not retry after its initial pass",
+    );
+    assertEquals(
+      f.write.endpointWork().filter((work) => work.kind === "replica").map((
+        work,
+      ) => work.status),
+      ["exhausted", "exhausted"],
+    );
     assertEquals(f.write.publicationSaga()?.signedEvent, undefined);
   } finally {
     f.selection.dispose();
@@ -361,7 +363,7 @@ Deno.test("incomplete initial replicas honor durable retry backoff", async () =>
   }
 });
 
-Deno.test("authorization failures are backoff-eligible and stage-visible", async () => {
+Deno.test("authorization failures exhaust replica work and stay visible", async () => {
   const f = await fixture();
   const diagnostics: OperationalDiagnostic[] = [];
   try {
@@ -406,10 +408,10 @@ Deno.test("authorization failures are backoff-eligible and stage-visible", async
         batchId: 7,
         kind: "replica",
         target: "http://127.0.0.1:9001",
-        status: "retry",
+        status: "exhausted",
         attempts: 1,
         nextAttemptAt: 130,
-        code: "unavailable",
+        code: "attempt_limit",
       },
     );
     assertEquals(
