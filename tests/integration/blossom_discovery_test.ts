@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { bech32 } from "@scure/base";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools";
-import { Subject } from "rxjs";
+import { of, Subject } from "rxjs";
 import {
   type SelectedPublication,
   startPublicationSelection,
@@ -12,6 +12,7 @@ import { StateRepository } from "../../src/persistence/state_repository.ts";
 import type { RawPublication } from "../../src/protocol/publication.ts";
 import { createProductionDependencies } from "../../src/runtime/daemon.ts";
 import { createPublicationEventStream } from "../../src/nostr/publications.ts";
+import type { NostrService } from "../../src/nostr/runtime.ts";
 
 const secret = generateSecretKey();
 const publisher = getPublicKey(secret);
@@ -235,4 +236,46 @@ Deno.test("production event stream exposes dynamic signer BUD-03 follow", () => 
   stream.followBlossomPublisher?.(getPublicKey(generateSecretKey()));
   stream.close();
   stream.close();
+});
+
+Deno.test("fresh runtime dynamically follows the exact signer-owned cache identity", () => {
+  const parsed = parseConfig({
+    caches: [],
+    extraRelays: "ws://127.0.0.1:9000",
+    databasePath: "/tmp/nixstr-unused.sqlite",
+  });
+  if (!parsed.ok) throw new Error("fixture config invalid");
+  const signerSecret = generateSecretKey();
+  const signerPubkey = getPublicKey(signerSecret);
+  const relayEvents = new Subject<RawPublication>();
+  const filters: unknown[] = [];
+  const service = {
+    pool: {
+      subscription(_relays: unknown, filter: unknown) {
+        filters.push(filter);
+        return relayEvents;
+      },
+    },
+    relaySetFor: () => of(["ws://127.0.0.1:9000"]),
+  } as unknown as NostrService;
+  const stream = createPublicationEventStream(parsed.value, service);
+  const received: RawPublication[] = [];
+  stream.events.subscribe((event) => received.push(event));
+  stream.followWritableCache?.(signerPubkey, 37091, "owned");
+  stream.followWritableCache?.(signerPubkey, 37091, "owned");
+  assertEquals(filters, [[{
+    kinds: [37091],
+    authors: [signerPubkey],
+    "#d": ["owned"],
+  }]]);
+  const discovered = finalizeEvent({
+    kind: 37091,
+    created_at: 94,
+    content: "",
+    tags: [["d", "owned"], ["htree", `htree://${nhash}`]],
+  }, signerSecret);
+  relayEvents.next(discovered);
+  assertEquals(received.map((event) => event.id), [discovered.id]);
+  stream.close();
+  signerSecret.fill(0);
 });

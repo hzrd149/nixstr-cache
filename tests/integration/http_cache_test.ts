@@ -7,6 +7,7 @@ import { launchDaemon } from "../../src/runtime/daemon.ts";
 import { Subject } from "rxjs";
 import type { RawPublication } from "../../src/protocol/publication.ts";
 import { createConsoleDiagnosticSink } from "../../src/operations/diagnostics.ts";
+import { createHealthSnapshotProvider } from "../../src/operations/health.ts";
 
 const encoder = new TextEncoder();
 const narinfo = [
@@ -245,6 +246,49 @@ Deno.test("http cache maps methods, absence, availability, deadline and upstream
   assertEquals(
     (await make()(new Request("http://cache/not-valid"))).status,
     404,
+  );
+});
+
+Deno.test("error responses expose bounded health reasons and suppress HEAD bodies", async () => {
+  const health = createHealthSnapshotProvider(() => ({
+    read: { selectedPublications: 0, overlayEntries: 0 },
+    write: {
+      enabled: true,
+      repositoryHealthy: true,
+      signerStatus: "ready",
+      signerOwned: true,
+      activationStatus: "ready",
+      destinations: 0,
+      relays: 1,
+      publication: { phase: "idle", completeReplica: true },
+    },
+  }));
+  const handler = createNixHttpHandler({
+    decodedMetadataBytes: 4096,
+    selection: { current: () => [] },
+    resolverFor: () => ({
+      resolve: () => Promise.reject(new Error("unused")),
+    }),
+    health,
+  });
+  const url = `http://cache/${"0".repeat(32)}.narinfo`;
+  const get = await handler(new Request(url));
+  assertEquals(get.status, 503);
+  assertEquals(get.headers.get("content-type"), "text/plain; charset=utf-8");
+  assertEquals(
+    await get.text(),
+    "cache unavailable: no_read_sources, no_blossom_destination\n",
+  );
+  const head = await handler(new Request(url, { method: "HEAD" }));
+  assertEquals(head.status, 503);
+  assertEquals(await head.text(), "");
+  assertEquals(
+    head.headers.get("content-length"),
+    String(
+      encoder.encode(
+        "cache unavailable: no_read_sources, no_blossom_destination\n",
+      ).length,
+    ),
   );
 });
 

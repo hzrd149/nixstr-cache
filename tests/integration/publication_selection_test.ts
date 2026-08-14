@@ -85,6 +85,52 @@ Deno.test("ordered default and named publications form a frozen production snaps
   }
 });
 
+Deno.test("late writable authorization admits its exact identity at highest priority", async () => {
+  const path = await tempDb();
+  const ownedSecret = generateSecretKey();
+  const ownedPubkey = getPublicKey(ownedSecret);
+  const ownedIdentity = `37091:${ownedPubkey}:owned`;
+  try {
+    const events = new Subject<RawPublication>();
+    const repository = new StateRepository(path);
+    const selector = startPublicationSelection({
+      publisherPubkeys: [publisher, ownedPubkey],
+      identities: [`17091:${publisher}:`, ownedIdentity],
+      events,
+      repository,
+      now: () => 100,
+    });
+    events.next(event(90));
+    selector.authorizePublicationPublisher(ownedPubkey, ownedIdentity);
+    events.next(finalizeEvent({
+      kind: 37091,
+      created_at: 91,
+      content: "",
+      tags: [["d", "owned"], ["htree", `htree://${nhash}`]],
+    }, ownedSecret));
+    assertEquals(selector.current().map(cacheIdentity), [
+      ownedIdentity,
+      `17091:${publisher}:`,
+    ]);
+
+    events.next(finalizeEvent({
+      kind: 37091,
+      created_at: 92,
+      content: "",
+      tags: [["d", "other"], ["htree", `htree://${nhash}`]],
+    }, ownedSecret));
+    assertEquals(selector.current().map(cacheIdentity), [
+      ownedIdentity,
+      `17091:${publisher}:`,
+    ]);
+    selector.dispose();
+    repository.close();
+  } finally {
+    await Deno.remove(path);
+    ownedSecret.fill(0);
+  }
+});
+
 async function tempDb(): Promise<string> {
   return await Deno.makeTempFile({ suffix: ".sqlite" });
 }

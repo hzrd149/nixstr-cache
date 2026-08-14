@@ -847,7 +847,7 @@ Deno.test("partial environment write intent stops before startup side effects", 
   assertThrows(() => Deno.statSync(root), Deno.errors.NotFound);
 });
 
-Deno.test("extra Blossom servers do not make configured writes ready", async () => {
+Deno.test("configured Blossom fallback makes a fresh writable-only cache readable", async () => {
   const root = await Deno.makeTempDir({ prefix: "nixstr-write-intent-" });
   let handler: ((request: Request) => Response | Promise<Response>) | undefined;
   try {
@@ -856,6 +856,7 @@ Deno.test("extra Blossom servers do not make configured writes ready", async () 
     });
     const result = await launchDaemon(
       validRaw({
+        caches: [],
         databasePath: `${root}/state.sqlite`,
         extraServers: ["http://127.0.0.1:9"],
         writable: {
@@ -879,14 +880,20 @@ Deno.test("extra Blossom servers do not make configured writes ready", async () 
     );
     assert(result.ok);
     assert(handler);
-    const response = await handler(
-      new Request("http://cache/nix-cache-info", {
-        method: "PUT",
-        body: "payload",
-      }),
+    let response!: Response;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      response = await handler(
+        new Request(`http://cache/${"0".repeat(32)}.narinfo`),
+      );
+      if (response.status === 404) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assertEquals(response.status, 404);
+    assertEquals(
+      response.headers.get("content-type"),
+      "text/plain; charset=utf-8",
     );
-    assertEquals(response.status, 405);
-    assertEquals(response.headers.get("allow"), "GET, HEAD");
+    assertEquals(await response.text(), "not found\n");
     await result.shutdown();
   } finally {
     await Deno.remove(root, { recursive: true });
