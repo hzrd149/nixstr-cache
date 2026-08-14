@@ -389,7 +389,8 @@ Deno.test("empty read-only config keeps bootstrap relays and serves 503", async 
     assert(result.ok);
     assert(handler);
     assertEquals(
-      (await handler(new Request("http://cache/nix-cache-info"))).status,
+      (await handler(new Request(`http://cache/${"0".repeat(32)}.narinfo`)))
+        .status,
       503,
     );
     await result.shutdown();

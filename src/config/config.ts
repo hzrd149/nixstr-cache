@@ -257,13 +257,6 @@ export function parseConfig(
   }
 
   const identityValues = listValues(raw.caches);
-  if (identityValues.length === 0) {
-    diagnostics.push({
-      field: "caches",
-      code: "required",
-      message: "at least one cache identity is required",
-    });
-  }
   if (identityValues.length > MAX_CACHE_IDENTITIES) {
     diagnostics.push({
       field: "caches",
@@ -298,13 +291,6 @@ export function parseConfig(
   ];
 
   const extraRelayValues = listValues(raw.extraRelays);
-  if (extraRelayValues.length === 0) {
-    diagnostics.push({
-      field: "extraRelays",
-      code: "required",
-      message: "at least one relay URL is required",
-    });
-  }
   const parseRelayUrls = (
     field: "extraRelays" | "bootstrapRelays",
     values: readonly string[],

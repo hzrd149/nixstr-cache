@@ -27,14 +27,16 @@ export function createPublicationEventStream(
     }));
   };
 
-  nostr.followUserMetadata(config.publisherPubkeys);
-  forward(nostr.pool.subscription(
-    nostr.relaySetFor(config.publisherPubkeys),
-    [
-      { kinds: [17091, 37091], authors: [...config.publisherPubkeys] },
-      { kinds: [10063], authors: [...config.publisherPubkeys] },
-    ],
-  ) as Observable<RawPublication>);
+  if (config.publisherPubkeys.length > 0) {
+    nostr.followUserMetadata(config.publisherPubkeys);
+    forward(nostr.pool.subscription(
+      nostr.relaySetFor(config.publisherPubkeys),
+      [
+        { kinds: [17091, 37091], authors: [...config.publisherPubkeys] },
+        { kinds: [10063], authors: [...config.publisherPubkeys] },
+      ],
+    ) as Observable<RawPublication>);
+  }
 
   const stream: PublicationEventStream = {
     events,
