@@ -189,6 +189,7 @@ None for the shipped v1.0 milestone.
 | 260814-iu8 | Add HTML landing and status page at GET / | 2026-08-14 | c39da3d | [260814-iu8-add-html-landing-and-status-page-at-get](./quick/260814-iu8-add-html-landing-and-status-page-at-get/) |
 | 260814-k1n | Parallelize initial Blossom replica publication and eliminate publication proof GET downloads | 2026-08-14 | 0a4ca9f | [260814-k1n-parallelize-initial-blossom-replica-publ](./quick/260814-k1n-parallelize-initial-blossom-replica-publ/) |
 | 260814-kfd | Add bounded console progress logging when Blossom server uploads start and advance | 2026-08-14 | 71743e7 | [260814-kfd-add-bounded-console-progress-logging-whe](./quick/260814-kfd-add-bounded-console-progress-logging-whe/) |
+| 260814-l5q | Disable all background Blossom upload retries while retaining relay retries | 2026-08-14 | b6dee8d | [260814-l5q-disable-all-background-blossom-upload-re](./quick/260814-l5q-disable-all-background-blossom-upload-re/) |
 
 ## Deferred Items
 
