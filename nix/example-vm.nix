@@ -20,7 +20,7 @@
       # then the daemon serves a valid but permanently empty merged cache.
       NIXSTR_CACHES = "0000000000000000000000000000000000000000000000000000000000000000";
 
-      NIXSTR_RELAY_URLS = "wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net";
+      NIXSTR_EXTRA_RELAYS = "wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net";
     };
   };
 

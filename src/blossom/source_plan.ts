@@ -4,12 +4,11 @@ export interface SourceCandidate {
   readonly baseUrl: string;
   readonly origin: string;
   readonly trust: SourceTrust;
-  readonly role: "local-cache" | "publisher";
+  readonly role: "publisher";
 }
 
 export interface SourcePlanInput {
   readonly extras?: readonly (string | URL)[];
-  readonly localCache?: string | URL;
   readonly event?: readonly string[];
   readonly bud03?: readonly string[];
   readonly isQuarantined?: (origin: string) => boolean;
@@ -43,9 +42,6 @@ export function buildSourcePlan(
 ): readonly SourceCandidate[] {
   const ordered: Array<[string | URL, SourceTrust, SourceCandidate["role"]]> =
     [];
-  if (input.localCache) {
-    ordered.push([input.localCache, "configured", "local-cache"]);
-  }
   for (const value of input.event ?? []) {
     ordered.push([value, "publisher", "publisher"]);
   }

@@ -29,7 +29,6 @@ export interface RawConfig {
   readonly extraRelays?: string | readonly string[];
   readonly bootstrapRelays?: string | readonly string[];
   readonly extraServers?: string | readonly string[];
-  readonly localBlossomUrl?: string;
   readonly databasePath?: string;
   readonly spoolDirectory?: string;
   readonly writable?: RawWritableConfig;
@@ -146,7 +145,6 @@ export interface ValidatedConfig {
   readonly extraRelays: readonly URL[];
   readonly bootstrapRelays: readonly URL[];
   readonly extraServers: readonly URL[];
-  readonly localBlossomUrl?: URL;
   readonly databasePath: string;
   readonly spoolDirectory: string;
   readonly identities: readonly string[];
@@ -390,9 +388,6 @@ export function parseConfig(
     seenExtraServers.add(canonical);
     extraServers.push(url);
   }
-  const localBlossomUrl = raw.localBlossomUrl
-    ? parseUrl(raw.localBlossomUrl, "localBlossomUrl", diagnostics)
-    : undefined;
   const databasePath = parseOwnerPath(
     raw.databasePath,
     "databasePath",
@@ -740,7 +735,6 @@ export function parseConfig(
       extraRelays: Object.freeze(extraRelays),
       bootstrapRelays: Object.freeze(bootstrapRelays),
       extraServers: Object.freeze(extraServers),
-      localBlossomUrl,
       databasePath: databasePath!,
       spoolDirectory: spoolDirectory!,
       identities: Object.freeze(normalizedIdentities),
@@ -781,7 +775,6 @@ function normalizeRawConfig(
   for (
     const field of [
       "bindHost",
-      "localBlossomUrl",
       "databasePath",
       "spoolDirectory",
     ]

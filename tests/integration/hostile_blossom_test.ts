@@ -10,7 +10,6 @@ import {
   HashMismatch,
   VerifiedBlob,
 } from "../../src/blossom/blob_fetcher.ts";
-import { BlobCacheSink } from "../../src/blossom/cache_sink.ts";
 import { buildSourcePlan } from "../../src/blossom/source_plan.ts";
 import { StateRepository } from "../../src/persistence/state_repository.ts";
 import { BlobStore } from "../../src/persistence/blob_store.ts";
@@ -56,123 +55,6 @@ Deno.test("source plan|verified spool|quarantine: preserves event, BUD-03, extra
     ["https://extra.test", "configured"],
   ]);
 });
-
-Deno.test("local Blossom is first and corrupt local cache falls back without quarantine", async () => {
-  const good = new TextEncoder().encode("remote verified bytes");
-  const calls: string[] = [];
-  const diagnostics: unknown[] = [];
-  const quarantined: string[] = [];
-  const fetcher = new BlobFetcher({
-    fetcher: {
-      fetch: (url: string | URL) => {
-        calls.push(String(url));
-        return Promise.resolve(
-          response(
-            calls.length === 1 ? new TextEncoder().encode("corrupt") : good,
-          ),
-        );
-      },
-    },
-    quarantine: {
-      isQuarantined: () => false,
-      quarantine: (origin) => quarantined.push(origin),
-      releaseQuarantine: () => {},
-    },
-    store: testBlobStore(await Deno.makeTempDir()),
-    onLocalDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
-  });
-  const plan = buildSourcePlan({
-    localCache: "http://127.0.0.1:24242",
-    event: ["https://publisher.example"],
-    extras: ["https://preferred.example/base"],
-  });
-  assertEquals(plan.map((candidate) => candidate.role), [
-    "local-cache",
-    "publisher",
-    "publisher",
-  ]);
-  const blob = await fetcher.fetch(hex(sha256(good)), plan, {
-    maxAttempts: 3,
-    maxTransferBytes: 100,
-  });
-  assertEquals(await new Response(blob.open()).text(), "remote verified bytes");
-  assertEquals(calls.length, 2);
-  assertEquals(quarantined, []);
-  assertEquals(diagnostics, [{
-    code: "local_hash_mismatch",
-    origin: "http://127.0.0.1:24242",
-    hash: hex(sha256(good)),
-    retryable: true,
-  }]);
-  await blob.dispose();
-});
-
-Deno.test("populate uses a verified lease and owner disposal waits for upload", async () => {
-  const dir = await Deno.makeTempDir();
-  const path = `${dir}/verified`;
-  const bytes = new TextEncoder().encode("verified population");
-  await Deno.writeFile(path, bytes);
-  const hash = hex(sha256(bytes));
-  const blob = new VerifiedBlob(hash, bytes.length, path, "publisher");
-  let observedBody = "";
-  let ownerDisposal: Promise<void> | undefined;
-  const sink = new BlobCacheSink({
-    request: async (_url, _trust, init) => {
-      assertEquals(init.method, "PUT");
-      assertEquals(init.headers.get("content-length"), String(bytes.length));
-      assertEquals(init.headers.get("x-sha-256"), hash);
-      ownerDisposal = blob.dispose();
-      assertEquals(await exists(path), true);
-      observedBody = await new Response(init.body).text();
-      return response(
-        new TextEncoder().encode(JSON.stringify({ sha256: hash })),
-        201,
-      );
-    },
-    localOrigin: "http://127.0.0.1:24242",
-    maxDescriptorBytes: 1024,
-  });
-  assertEquals((await sink.populate(blob)).ok, true);
-  await ownerDisposal;
-  assertEquals(observedBody, "verified population");
-  assertEquals(await exists(path), false);
-});
-
-Deno.test("populate failure is typed retryable and does not invalidate verified read", async () => {
-  const dir = await Deno.makeTempDir();
-  const path = `${dir}/verified`;
-  const bytes = new TextEncoder().encode("still readable");
-  await Deno.writeFile(path, bytes);
-  const hash = hex(sha256(bytes));
-  const blob = new VerifiedBlob(hash, bytes.length, path, "publisher");
-  const sink = new BlobCacheSink({
-    request: () => Promise.resolve(response(new Uint8Array(2048), 500)),
-    localOrigin: "http://127.0.0.1:24242",
-    maxDescriptorBytes: 1024,
-  });
-  const result = await sink.populate(blob);
-  assertEquals(result, {
-    ok: false,
-    diagnostic: {
-      code: "local_population_rejected",
-      origin: "http://127.0.0.1:24242",
-      hash,
-      retryable: true,
-    },
-  });
-  assertEquals(await new Response(blob.open()).text(), "still readable");
-  await blob.dispose();
-});
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await Deno.stat(path);
-    return true;
-  } catch (error) {
-    if (error instanceof Deno.errors.NotFound) return false;
-    throw error;
-  }
-}
 
 Deno.test("source plan|verified spool|quarantine: falls back and exposes bytes only after hash verification", async () => {
   const bytes = new TextEncoder().encode("verified bytes");

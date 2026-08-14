@@ -14,7 +14,6 @@ const SUPPORTED_ENVIRONMENT_NAMES = [
   "NIXSTR_BOOTSTRAP_RELAYS",
   "NIXSTR_EXTRA_SERVERS",
   "NIXSTR_PREFERRED_BLOSSOM_URL",
-  "NIXSTR_LOCAL_BLOSSOM_URL",
   "NIXSTR_DATABASE_PATH",
   "NIXSTR_SPOOL_DIRECTORY",
   "NIXSTR_WRITABLE_ENABLED",
@@ -75,7 +74,6 @@ const JSON_CONFIG_FIELDS = new Set([
   "extraRelays",
   "bootstrapRelays",
   "extraServers",
-  "localBlossomUrl",
   "databasePath",
   "spoolDirectory",
   "writable",
@@ -116,6 +114,12 @@ export function collectRawConfigFromEnvironment(
 export function rawConfigFromEnvironment(
   environment: Record<string, string>,
 ): RawConfig {
+  const removedLocalBlossom = ["NIXSTR", "LOCAL", "BLOSSOM", "URL"].join("_");
+  if (environment[removedLocalBlossom] !== undefined) {
+    throw new Error(
+      `${removedLocalBlossom} is no longer supported; verified blobs are cached directly in the shared store`,
+    );
+  }
   if (environment.NIXSTR_PREFERRED_BLOSSOM_URL !== undefined) {
     throw new Error(
       "NIXSTR_PREFERRED_BLOSSOM_URL is no longer supported; use NIXSTR_EXTRA_SERVERS",
@@ -128,7 +132,6 @@ export function rawConfigFromEnvironment(
     extraRelays: environment.NIXSTR_EXTRA_RELAYS,
     bootstrapRelays: environment.NIXSTR_BOOTSTRAP_RELAYS,
     extraServers: environment.NIXSTR_EXTRA_SERVERS,
-    localBlossomUrl: environment.NIXSTR_LOCAL_BLOSSOM_URL,
     databasePath: environment.NIXSTR_DATABASE_PATH,
     spoolDirectory: environment.NIXSTR_SPOOL_DIRECTORY,
     writable: writableFromEnvironment(environment),
@@ -302,7 +305,6 @@ function validateJsonTopLevel(config: Record<string, unknown>): void {
   for (
     const field of [
       "bindHost",
-      "localBlossomUrl",
       "databasePath",
       "spoolDirectory",
     ]

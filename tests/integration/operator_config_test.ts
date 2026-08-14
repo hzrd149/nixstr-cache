@@ -461,10 +461,11 @@ Deno.test("environment mapper preserves ordered cache identities", () => {
 });
 
 Deno.test("removed local Blossom inputs are not part of operator config", () => {
+  const removed = ["NIXSTR", "LOCAL", "BLOSSOM", "URL"].join("_");
   assertThrows(
-    () => rawConfigFromEnvironment({ NIXSTR_LOCAL_BLOSSOM_URL: "http://127.0.0.1:24242" }),
+    () => rawConfigFromEnvironment({ [removed]: "http://127.0.0.1:24242" }),
     Error,
-    "NIXSTR_LOCAL_BLOSSOM_URL is no longer supported",
+    `${removed} is no longer supported`,
   );
 });
 

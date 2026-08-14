@@ -242,20 +242,11 @@ export class BlobFetcher {
             }),
         );
         if (error instanceof HashMismatch) {
-          if (source.role === "local-cache") {
-            this.#onLocalDiagnostic?.(Object.freeze({
-              code: "local_hash_mismatch",
-              origin: source.origin,
-              hash: expectedHash,
-              retryable: true,
-            }));
-          } else {
-            this.#quarantine.quarantine(
-              source.origin,
-              error.message,
-              Date.now(),
-            );
-          }
+          this.#quarantine.quarantine(
+            source.origin,
+            error.message,
+            Date.now(),
+          );
         }
       }
     }

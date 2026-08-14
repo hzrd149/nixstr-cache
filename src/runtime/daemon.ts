@@ -8,7 +8,6 @@ import {
 } from "../app.ts";
 import { BlobFetcher } from "../blossom/blob_fetcher.ts";
 import { BlobStore } from "../persistence/blob_store.ts";
-import { BlobCacheSink } from "../blossom/cache_sink.ts";
 import { PublicationUploader } from "../blossom/publication_uploader.ts";
 import {
   createUploadAuthorizationBatch,
@@ -81,9 +80,6 @@ function writeBlossomDestinations(
   bud03: readonly string[],
 ): readonly WriteBlossomDestination[] {
   const ordered: Array<[string | URL, WriteBlossomDestination["trust"]]> = [];
-  if (config.localBlossomUrl) {
-    ordered.push([config.localBlossomUrl, "configured"]);
-  }
   for (const server of bud03) ordered.push([server, "publisher"]);
   const seen = new Set<string>();
   return Object.freeze(ordered.flatMap(([value, trust]) => {
@@ -183,8 +179,22 @@ export function createProductionDependencies(
           : undefined,
       });
       let cacheSelectionSeen = false;
+      let selectedRoots = new Map<string, string>();
       const cacheSelectionSubscription = selector.selected$.subscribe(
         (selected) => {
+          const nextRoots = new Map(
+            selected.map((publication) => [
+              cacheIdentity(publication),
+              publication.root.nhash,
+            ]),
+          );
+          const htreeLinks = selected.flatMap((publication) =>
+            selectedRoots.get(cacheIdentity(publication)) ===
+                publication.root.nhash
+              ? []
+              : [`htree://${publication.root.nhash}`]
+          );
+          selectedRoots = nextRoots;
           try {
             debugCacheState("selected", {
               count: selected.length,
@@ -200,6 +210,7 @@ export function createProductionDependencies(
               : "cache_selection_found",
             count: selected.length,
             caches: selected.map(cacheIdentity),
+            htreeLinks,
           });
           cacheSelectionSeen = true;
         },
@@ -214,6 +225,16 @@ export function createProductionDependencies(
             aggregateBytes: writable!.staging.aggregateBytes,
           },
         );
+      const blobStore = writeRepository
+        ? writeRepository.openBlobStore(`${config.databasePath}.blobs`)
+        : new BlobStore(
+          `${config.databasePath}.writes`,
+          `${config.databasePath}.blobs`,
+        );
+      const storeReady = blobStore.migrateLegacy({
+        spoolDirectory: config.spoolDirectory,
+        ...(writable ? { stagingDirectory: writable.staging.directory } : {}),
+      });
       let signer: SignerCapability | undefined;
       let signerReady:
         | Promise<{ readonly ok: boolean; readonly pubkey?: string }>
@@ -245,7 +266,7 @@ export function createProductionDependencies(
             };
           },
         });
-        signerReady = signer.start().then(async () => {
+        signerReady = storeReady.then(() => signer!.start()).then(async () => {
           const state = signer!.current();
           if (state.status !== "ready") return { ok: false } as const;
           const pubkey = await signer!.assertIdentity();
@@ -304,11 +325,14 @@ export function createProductionDependencies(
           selector.watchBlossomServers(pubkey, callback),
         repository,
         writeRepository,
+        blobStore,
+        storeReady,
         signer,
         signerReady,
         followBlossomPublisher: stream.followBlossomPublisher,
         localRelay,
         async readyBeforeBind() {
+          await storeReady;
           if (config.writeIntent.mode !== "ncryptsec") return;
           const result = await signerReady;
           if (!result?.ok || !result.pubkey) {
@@ -340,6 +364,7 @@ export function createProductionDependencies(
             }
             try {
               writeRepository?.close();
+              if (!writeRepository) blobStore.close();
             } catch (error) {
               errors.push(error);
             }
@@ -405,7 +430,7 @@ export function createProductionDependencies(
       }).followBlossomPublisher;
       const writable = config.writable.enabled ? config.writable : undefined;
       const configuredBlossomOrigins = blossomServers(
-        config.localBlossomUrl ? [config.localBlossomUrl] : [],
+        [],
         [...config.extraServers],
       ).map(String);
       const fetcher = new SafeFetcher(
@@ -427,25 +452,14 @@ export function createProductionDependencies(
         drains: new Set<() => Promise<void>>(),
       };
       supervisors.set(selection as object, supervisor);
-      const blobStore = writeRepository
-        ? writeRepository.openBlobStore(`${config.databasePath}.blobs`)
-        : new BlobStore(
-          `${config.databasePath}.writes`,
-          `${config.databasePath}.blobs`,
-        );
-      supervisor.drains.add(() => Promise.resolve(blobStore.close()));
+      const blobStore =
+        (selection as typeof selection & { blobStore: BlobStore })
+          .blobStore;
       const manifestCache = new VerifiedManifestCache(
         config.limits.manifestCacheEntries,
         config.limits.manifestCacheBytes,
       );
       supervisor.drains.add(() => manifestCache.close());
-      const cacheSink = config.localBlossomUrl
-        ? new BlobCacheSink({
-          request: fetcher.request.bind(fetcher),
-          localOrigin: config.localBlossomUrl,
-          maxDescriptorBytes: config.limits.decodedMetadataBytes,
-        })
-        : undefined;
       const blobs = new BlobFetcher({
         fetcher,
         quarantine: repository,
@@ -456,22 +470,6 @@ export function createProductionDependencies(
             code: item.code,
             endpoint: item.origin,
           }),
-        onVerifiedRemote: cacheSink
-          ? (blob) => {
-            const task = cacheSink.populate(blob, supervisor.abort.signal)
-              .then((result) => {
-                if (!result.ok) {
-                  diagnostics.emit({
-                    type: "upstream_failure",
-                    code: result.diagnostic.code,
-                    endpoint: result.diagnostic.origin,
-                  });
-                }
-              })
-              .finally(() => supervisor.tasks.delete(task));
-            supervisor.tasks.add(task);
-          }
-          : undefined,
       });
       const budgetFor = () =>
         new RequestBudget({
@@ -492,7 +490,6 @@ export function createProductionDependencies(
         snapshot: import("../nostr/selection.ts").SelectedPublication,
       ) => {
         const sources = buildSourcePlan({
-          localCache: config.localBlossomUrl,
           event: snapshot.blossomServers,
           bud03: snapshot.bud03Servers,
           extras: config.extraServers,

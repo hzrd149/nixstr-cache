@@ -98,7 +98,6 @@ store. Provision the signing material out of band and reference it by path:
 
 ```nix
 services.nixstr-cache = {
-  environmentFile = "/run/secrets/nixstr-cache.env";
   settings = {
     NIXSTR_WRITABLE_ENABLED = "true";
     NIXSTR_WRITABLE_TYPE = "named";
@@ -110,8 +109,15 @@ services.nixstr-cache = {
 };
 ```
 
-The daemon accepts exactly the protected source matching the mode:
-`NIXSTR_WRITABLE_SIGNER_PATH` contains the protected source for either signer
-type. Missing or false `NIXSTR_WRITABLE_ENABLED` disables writes and ignores
-other writable leaves. Old flat variable names are not aliases and rejected at
+The daemon accepts exactly the protected source matching the mode. A `local`
+or `nip46` signer reads `NIXSTR_WRITABLE_SIGNER_PATH`; the referenced file must
+be provisioned outside the Nix store and readable by the dynamic service user.
+An `ncryptsec` signer instead reads `NIXSTR_WRITABLE_SIGNER_NCRYPTSEC`, which
+belongs in `environmentFile`, but it also requires a securely supplied password
+on standard input before the listener opens and is therefore not unattended by
+default. One-run `nsec`, `ncryptsec`, and `nbunksec` CLI overrides are available
+through the daemon's `--signer` option but may be exposed in process listings.
+
+Missing or false `NIXSTR_WRITABLE_ENABLED` disables writes and ignores other
+writable leaves. Old flat variable names are not aliases and are rejected at
 startup with a printed diagnostic.

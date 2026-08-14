@@ -47,7 +47,8 @@ in
         {
           NIXSTR_BIND_HOST = "0.0.0.0";
           NIXSTR_CACHES = "<64-lowercase-hex-pubkey-or-npub>";
-          NIXSTR_RELAY_URLS = "wss://relay.example.com,wss://nos.lol";
+          NIXSTR_EXTRA_RELAYS = "wss://relay.example.com,wss://nos.lol";
+          NIXSTR_BOOTSTRAP_RELAYS = "wss://purplepag.es/,wss://index.hzrd149.com/";
           NIXSTR_EXTRA_SERVERS = "https://one.example.com,https://two.example.com";
         }
       '';
@@ -56,20 +57,24 @@ in
         its entire configuration from this namespace and refuses to start with a
         printed diagnostic when a value is missing or invalid.
 
-        At minimum `NIXSTR_CACHES` and `NIXSTR_RELAY_URLS` are required.
+        At minimum `NIXSTR_CACHES` and `NIXSTR_EXTRA_RELAYS` are required.
         Cache identities accept a bare lowercase hex pubkey or `npub` for a
         default cache, and a kind-37091 `naddr` for a named cache. The
+        application supplies default discovery relays when
+        `NIXSTR_BOOTSTRAP_RELAYS` is omitted. The
         module defaults `NIXSTR_BIND_HOST`, `NIXSTR_BIND_PORT`,
         `NIXSTR_DATABASE_PATH`, and `NIXSTR_SPOOL_DIRECTORY`.
 
         Enabling the writable overlay additionally requires
         `NIXSTR_WRITABLE_ENABLED=true`, `NIXSTR_WRITABLE_TYPE` (`root` or
-        `named`), `NIXSTR_WRITABLE_SIGNER_TYPE` (`nip46` or `local`),
+        `named`), `NIXSTR_WRITABLE_SIGNER_TYPE` (`local`, `nip46`, or
+        `ncryptsec`),
         `NIXSTR_WRITABLE_STAGING_DIRECTORY` (for example
-        `/var/lib/nixstr-cache/staging`), and the absolute path of exactly the
-        protected source in `NIXSTR_WRITABLE_SIGNER_PATH`. This file holds signing material, so
-        provision them outside the Nix store and keep them readable by the
-        service user only.
+        `/var/lib/nixstr-cache/staging`), and exactly one signer source. Local
+        and NIP-46 signers use an absolute protected source path in
+        `NIXSTR_WRITABLE_SIGNER_PATH`; an encrypted signer uses
+        `NIXSTR_WRITABLE_SIGNER_NCRYPTSEC` and requires a securely provided
+        password on standard input before the listener opens.
 
         Secret values must be supplied through {option}`environmentFile`
         because everything set here enters the world-readable Nix store.
@@ -87,9 +92,9 @@ in
 
     assertions = [
       {
-        assertion = configuredOutOfStore || setting "NIXSTR_RELAY_URLS" != "";
+        assertion = configuredOutOfStore || setting "NIXSTR_EXTRA_RELAYS" != "";
         message = ''
-          services.nixstr-cache.settings.NIXSTR_RELAY_URLS must list at least
+          services.nixstr-cache.settings.NIXSTR_EXTRA_RELAYS must list at least
           one wss:// or ws:// relay URL, or be supplied through
           services.nixstr-cache.environmentFile.
         '';
