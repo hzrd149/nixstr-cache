@@ -219,7 +219,7 @@ export interface Transport {
       readonly signal: AbortSignal;
       readonly connectSignal?: AbortSignal;
       readonly idleTimeoutMs?: number;
-      readonly method?: "GET" | "PUT";
+      readonly method?: "GET" | "HEAD" | "PUT";
       readonly headers?: Headers;
       readonly body?: ReadableStream<Uint8Array>;
     },
@@ -449,7 +449,7 @@ export class PinnedTransport implements Transport {
       readonly signal: AbortSignal;
       readonly connectSignal?: AbortSignal;
       readonly idleTimeoutMs?: number;
-      readonly method?: "GET" | "PUT";
+      readonly method?: "GET" | "HEAD" | "PUT";
       readonly headers?: Headers;
       readonly body?: ReadableStream<Uint8Array>;
     },
@@ -566,6 +566,20 @@ export class PinnedTransport implements Transport {
         framing = { kind: "length", length };
       }
       const cleanup = () => options.signal.removeEventListener("abort", abort);
+      if (method === "HEAD") {
+        abort();
+        cleanup();
+        return new SocketResponse(
+          Number(statusMatch[1]),
+          headers,
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.close();
+            },
+          }),
+          target.address,
+        );
+      }
       return new SocketResponse(
         Number(statusMatch[1]),
         headers,
@@ -625,7 +639,7 @@ export class SafeFetcher {
     input: string | URL,
     trust: SourceTrust,
     init: {
-      readonly method: "GET" | "PUT";
+      readonly method: "GET" | "HEAD" | "PUT";
       readonly headers?: Headers;
       readonly body?: ReadableStream<Uint8Array>;
       readonly signal?: AbortSignal;

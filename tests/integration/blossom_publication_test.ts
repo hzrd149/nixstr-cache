@@ -188,8 +188,6 @@ Deno.test("hostile Blossom responses cannot establish false possession", async (
   const path = `${root}/blob`;
   await Deno.writeFile(path, bytes);
   const hash = sha256(bytes).toHex();
-  const fixture = await createControlledBlossomFixture();
-  const uploader = new PublicationUploader({ request: fixture.request });
   try {
     for (
       const mode of [
@@ -199,18 +197,46 @@ Deno.test("hostile Blossom responses cannot establish false possession", async (
         "false-possession",
       ] as const
     ) {
-      fixture.control.mode = mode;
-      assertEquals(
-        await uploader.prove(fixture.url, { hash, size: bytes.length, path }),
-        false,
-        mode,
-      );
+      const fixture = await createControlledBlossomFixture();
+      try {
+        fixture.control.mode = mode;
+        const uploader = new PublicationUploader({ request: fixture.request });
+        assertEquals(
+          await uploader.prove(fixture.url, { hash, size: bytes.length, path }),
+          false,
+          mode,
+        );
+      } finally {
+        await fixture.close();
+      }
     }
-    fixture.control.mode = "ok";
-    assertEquals(
-      await uploader.prove(fixture.url, { hash, size: bytes.length, path }),
-      true,
-    );
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("publication skips upload when Blossom already has the blob", async () => {
+  const root = await Deno.makeTempDir({ prefix: "existing-publication-" });
+  const fixture = await createControlledBlossomFixture();
+  const bytes = new TextEncoder().encode("existing immutable candidate");
+  const path = `${root}/blob`;
+  await Deno.writeFile(path, bytes);
+  const entry = { hash: sha256(bytes).toHex(), size: bytes.length, path };
+  let authorizationCalls = 0;
+  const uploader = new PublicationUploader({
+    request: fixture.request,
+    authorization: () => {
+      authorizationCalls++;
+      return Promise.resolve("Nostr test");
+    },
+  });
+  try {
+    assertEquals(await uploader.prove(fixture.url, entry), true);
+    assertEquals(fixture.facts.uploads, 1);
+    assertEquals(authorizationCalls, 1);
+    assertEquals(await uploader.prove(fixture.url, entry), true);
+    assertEquals(fixture.facts.uploads, 1);
+    assertEquals(authorizationCalls, 1);
   } finally {
     await fixture.close();
     await Deno.remove(root, { recursive: true });
@@ -259,13 +285,17 @@ Deno.test("publication upload preserves server base path and publisher trust", a
   await Deno.writeFile(path, bytes);
   const calls: Array<[string, string]> = [];
   const uploader = new PublicationUploader({
-    request: (url, trust) => {
+    request: (url, trust, init) => {
       calls.push([String(url), trust]);
       return Promise.resolve({
-        status: calls.length === 1 ? 201 : 200,
+        status: init.method === "HEAD"
+          ? 404
+          : init.method === "PUT"
+          ? 201
+          : 200,
         headers: new Headers(),
         body: new Response(
-          calls.length === 1
+          init.method === "PUT"
             ? JSON.stringify({ sha256: hash, size: bytes.length })
             : bytes,
         ).body!,
@@ -285,6 +315,7 @@ Deno.test("publication upload preserves server base path and publisher trust", a
       true,
     );
     assertEquals(calls, [
+      [`https://blossom.example/base/${hash}`, "publisher"],
       ["https://blossom.example/base/upload", "publisher"],
       [`https://blossom.example/base/${hash}`, "publisher"],
     ]);

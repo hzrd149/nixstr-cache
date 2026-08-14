@@ -4,7 +4,7 @@ import type { PinnedResponse, SourceTrust } from "../network/safe_fetcher.ts";
 
 export interface PublicationUploadBoundary {
   request(input: string | URL, trust: SourceTrust, init: {
-    readonly method: "GET" | "PUT";
+    readonly method: "GET" | "HEAD" | "PUT";
     readonly headers?: Headers;
     readonly body?: ReadableStream<Uint8Array>;
     readonly signal?: AbortSignal;
@@ -58,50 +58,69 @@ export class PublicationUploader {
     trust: SourceTrust = "publisher",
   ): Promise<boolean> {
     signal?.throwIfAborted();
+    const blobUrl = new URL(
+      entry.hash,
+      server.endsWith("/") ? server : `${server}/`,
+    );
+    let exists: PinnedResponse;
+    try {
+      exists = await this.options.request(blobUrl, trust, {
+        method: "HEAD",
+        signal,
+      });
+      await exists.cancel("existence preflight complete");
+      if (exists.status !== 200 && exists.status !== 404) return false;
+    } catch {
+      return false;
+    }
     const headers = new Headers({
       "content-length": String(entry.size),
       "content-type": "application/octet-stream",
       "x-sha-256": entry.hash,
     });
-    const authorization = await this.options.authorization?.(
-      server,
-      entry,
-      signal,
-    );
-    if (authorization) headers.set("authorization", authorization);
-    const file = await Deno.open(entry.path, { read: true });
-    let response: PinnedResponse;
-    try {
-      response = await this.options.request(
-        new URL("upload", server.endsWith("/") ? server : `${server}/`),
-        trust,
-        {
-          method: "PUT",
-          headers,
-          body: file.readable,
-          signal,
-        },
+    if (exists.status === 404) {
+      const authorization = await this.options.authorization?.(
+        server,
+        entry,
+        signal,
       );
-      if (response.status !== 200 && response.status !== 201) {
-        await response.cancel("upload rejected");
-        return false;
-      }
-      const descriptor = await boundedJson(
-        response,
-        this.options.descriptorBytes ?? 16 * 1024,
-      ) as { sha256?: unknown; size?: unknown };
-      if (descriptor.sha256 !== entry.hash || descriptor.size !== entry.size) {
-        return false;
-      }
-    } catch {
+      if (authorization) headers.set("authorization", authorization);
+      const file = await Deno.open(entry.path, { read: true });
+      let response: PinnedResponse;
       try {
-        file.close();
-      } catch { /* stream owns it */ }
-      return false;
+        response = await this.options.request(
+          new URL("upload", server.endsWith("/") ? server : `${server}/`),
+          trust,
+          {
+            method: "PUT",
+            headers,
+            body: file.readable,
+            signal,
+          },
+        );
+        if (response.status !== 200 && response.status !== 201) {
+          await response.cancel("upload rejected");
+          return false;
+        }
+        const descriptor = await boundedJson(
+          response,
+          this.options.descriptorBytes ?? 16 * 1024,
+        ) as { sha256?: unknown; size?: unknown };
+        if (
+          descriptor.sha256 !== entry.hash || descriptor.size !== entry.size
+        ) {
+          return false;
+        }
+      } catch {
+        try {
+          file.close();
+        } catch { /* stream owns it */ }
+        return false;
+      }
     }
     try {
       const proof = await this.options.request(
-        new URL(entry.hash, server.endsWith("/") ? server : `${server}/`),
+        blobUrl,
         trust,
         { method: "GET", signal },
       );

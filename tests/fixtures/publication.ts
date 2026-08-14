@@ -121,6 +121,14 @@ export function createPublicationFixture(): PublicationFixture {
           })
           : new Response(null, { status: 404 });
       }
+      if (request.method === "HEAD") {
+        const body = blobs.get(pathname.slice(1));
+        return body
+          ? new Response(null, {
+            headers: { "content-length": String(body.length) },
+          })
+          : new Response(null, { status: 404 });
+      }
       return new Response(null, { status: 405 });
     },
   );
@@ -201,12 +209,18 @@ export function createControlledBlossomFixture(
 ) {
   const blobs = new Map<string, Uint8Array>();
   const control: { mode: BlossomMode } = { mode: "ok" };
-  const facts = { activeUploads: 0, maxActiveUploads: 0, uploadChunks: 0 };
+  const facts = {
+    activeUploads: 0,
+    maxActiveUploads: 0,
+    uploads: 0,
+    uploadChunks: 0,
+  };
   const server = Deno.serve(
     { hostname: "127.0.0.1", port: 0, onListen: () => {} },
     async (request) => {
       const path = new URL(request.url).pathname;
       if (request.method === "PUT" && path === "/upload") {
+        facts.uploads++;
         facts.activeUploads++;
         facts.maxActiveUploads = Math.max(
           facts.maxActiveUploads,
@@ -255,6 +269,17 @@ export function createControlledBlossomFixture(
           control.mode === "truncated-proof" ? body.slice(0, -1) : body.slice(),
         );
       }
+      if (request.method === "HEAD") {
+        if (control.mode === "false-possession") {
+          return new Response(null, { status: 404 });
+        }
+        const body = blobs.get(path.slice(1));
+        return body
+          ? new Response(null, {
+            headers: { "content-length": String(body.length) },
+          })
+          : new Response(null, { status: 404 });
+      }
       return new Response(null, { status: 405 });
     },
   );
@@ -263,7 +288,7 @@ export function createControlledBlossomFixture(
     input: string | URL,
     _trust: unknown,
     init: {
-      method: "GET" | "PUT";
+      method: "GET" | "HEAD" | "PUT";
       headers?: Headers;
       body?: ReadableStream<Uint8Array>;
       signal?: AbortSignal;
