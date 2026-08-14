@@ -454,6 +454,59 @@ Deno.test("ordered|transfer budget|output budget: nested file manifests preserve
   assertEquals(await new Response(result.body).text(), "ABCD");
 });
 
+Deno.test("resolver releases the active raw lease on output validation error", async () => {
+  const root = manifest({
+    l: [{
+      h: hashBytes(new TextEncoder().encode("too long")),
+      n: "raw",
+      s: 3,
+      t: 0,
+    }],
+    t: 2,
+  });
+  const directory = await Deno.makeTempDir();
+  const rootPath = `${directory}/root`;
+  const rawPath = `${directory}/raw`;
+  await Deno.writeFile(rootPath, root);
+  await Deno.writeTextFile(rawPath, "too long");
+  const fetcher = new BlobFetcher({
+    fetcher: { fetch: () => Promise.resolve(response(new Uint8Array(), 404)) },
+    quarantine: {
+      isQuarantined: () => false,
+      quarantine: () => {},
+      releaseQuarantine: () => {},
+    },
+    store: testBlobStore(`${directory}/store`),
+  });
+  fetcher.fetch = (hash) =>
+    Promise.resolve(
+      hash === hex(hashBytes(root))
+        ? new VerifiedBlob(hash, root.length, rootPath)
+        : new VerifiedBlob(hash, 3, rawPath),
+    );
+  try {
+    const resolver = new PathResolver(
+      fetcher,
+      buildSourcePlan({ event: ["http://tree.test"] }),
+      { maxWireBytes: 4096, maxDecodedBytes: 4096, maxLinks: 10 },
+    );
+    const result = await resolver.resolve(
+      hex(hashBytes(root)),
+      "raw",
+      "GET",
+      new RequestBudget(traversalLimits()),
+    );
+    await assertRejects(
+      () => new Response(result.body).bytes(),
+      Error,
+      "exceeds authenticated size",
+    );
+    await assertRejects(() => Deno.stat(rawPath), Deno.errors.NotFound);
+  } finally {
+    await Deno.remove(directory, { recursive: true });
+  }
+});
+
 Deno.test("legacy file-link wire sizes derive bounded authenticated plaintext sizes", async () => {
   const first = new TextEncoder().encode("legacy ");
   const second = new TextEncoder().encode("readable NAR");
