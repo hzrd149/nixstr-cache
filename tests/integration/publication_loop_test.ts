@@ -537,6 +537,11 @@ Deno.test("second generation rolls over an admitted saga with monotonic event ti
       f.write.publicationHistory().some((item) => item.batchId === 7),
       true,
     );
+    assertEquals(
+      f.write.endpointWork().some((item) => item.batchId === first.batchId),
+      false,
+      "superseded publication work must not remain retryable",
+    );
     await coordinator.close();
   } finally {
     f.selection.dispose();

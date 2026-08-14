@@ -1009,6 +1009,9 @@ export class WriteRepository {
            SELECT batch_id,candidate_json,destinations_json,complete_server,template_json,signed_event_json,acknowledged_relay,committed,admitted,?
            FROM publication_sagas WHERE batch_id=?`,
         ).run(Date.now(), existing.batchId);
+        this.#db.prepare(
+          "DELETE FROM publication_endpoint_work WHERE batch_id=?",
+        ).run(existing.batchId);
         this.#db.prepare("DELETE FROM publication_sagas WHERE batch_id=?").run(
           existing.batchId,
         );
@@ -1078,7 +1081,8 @@ export class WriteRepository {
   }
   nextDueWork(): EndpointWork | undefined {
     return this.endpointWork().find((row) =>
-      row.status === "pending" || row.status === "retry"
+      (row.status === "pending" || row.status === "retry") &&
+      row.batchId === this.publicationSaga()?.batchId
     );
   }
   claimDueWork(now: number, limit: number): readonly EndpointWork[] {
@@ -1087,7 +1091,8 @@ export class WriteRepository {
       const rows = this.#db.prepare(
         `SELECT batch_id batchId,kind,target,status,attempts,
          next_attempt_at nextAttemptAt,code FROM publication_endpoint_work
-         WHERE status IN ('pending','retry') AND next_attempt_at<=?
+         WHERE batch_id=(SELECT batch_id FROM publication_sagas ORDER BY batch_id LIMIT 1)
+           AND status IN ('pending','retry') AND next_attempt_at<=?
          ORDER BY next_attempt_at,batch_id,kind,target LIMIT ?`,
       ).all(now, limit) as unknown as EndpointWork[];
       const claim = this.#db.prepare(
