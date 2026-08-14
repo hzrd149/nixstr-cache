@@ -75,12 +75,20 @@ Deno.test("quiet window builds one unpublished pending candidate", async () => {
     repository.commitOverlay([]);
     const generation = repository.commitOverlayRoutes(["a.narinfo"]);
     const before = repository.currentGeneration();
+    const store = repository.openBlobStore(`${root}/store`, {
+      capacityBytes: 65536,
+    });
     const clock = new FakeClock();
-    const writer = new HashtreeWriter(`${root}/trees`, {
-      maxLinks: 174,
-      maxInventoryBlobs: 100,
-      maxInventoryBytes: 65536,
-    }, repository);
+    const writer = new HashtreeWriter(
+      `${root}/trees`,
+      {
+        maxLinks: 174,
+        maxInventoryBlobs: 100,
+        maxInventoryBytes: 65536,
+      },
+      repository,
+      store,
+    );
     const scheduler = new PublicationBatchScheduler(repository, writer, clock);
     scheduler.dirty(generation);
     await clock.advance(4_999);
@@ -93,6 +101,11 @@ Deno.test("quiet window builds one unpublished pending candidate", async () => {
     assertEquals(repository.currentGeneration(), before);
     assertEquals(repository.pendingInventory().length > 0, true);
     await scheduler.close();
+    assertEquals(
+      store.inventory().every((entry) => entry.owners > 0),
+      true,
+      "disposing the writer run must retain the durable publication owner",
+    );
     repository.close();
   } finally {
     await Deno.remove(root, { recursive: true });

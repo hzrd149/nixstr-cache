@@ -22,11 +22,16 @@ Deno.test("canonical writer reuses pre-chunked shared-store components", async (
       owner: "route:nar/component.nar",
       reserveBytes: 9,
     });
-    const writer = new HashtreeWriter(`${root}/trees`, {
-      maxLinks: 2,
-      maxInventoryBlobs: 32,
-      maxInventoryBytes: 4096,
-    }, undefined, store);
+    const writer = new HashtreeWriter(
+      `${root}/trees`,
+      {
+        maxLinks: 2,
+        maxInventoryBlobs: 32,
+        maxInventoryBytes: 4096,
+      },
+      undefined,
+      store,
+    );
     const built = await writer.build([{
       route: "nar/component.nar",
       size: 9,
