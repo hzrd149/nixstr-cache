@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Ready for next task
-stopped_at: Completed quick task 260814-jcz
-last_updated: "2026-08-14T13:00:00.000Z"
+stopped_at: Completed quick task 260814-k1n
+last_updated: "2026-08-14T13:32:00.000Z"
 last_activity: 2026-08-14
-last_activity_desc: "Completed quick task 260814-jcz: Skip uploads for blobs already present on Blossom"
+last_activity_desc: "Completed quick task 260814-k1n: Parallelize initial Blossom replica publication"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -23,14 +23,14 @@ current_phase_name: Availability-Gated Publication Loop
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** An unmodified Nix client can reliably read and publish a decentralized binary cache while preserving NIP.md trust, integrity, freshness, and bounded-resource guarantees.
-**Current focus:** Quick task 260814-jcz is complete; select the next planned task or milestone.
+**Current focus:** Quick task 260814-k1n is complete; select the next planned task or milestone.
 
 ## Current Position
 
 Phase: Quick task 260813-tzo — Unified bounded content-addressed blob storage
 Plan: 04 of 04 — Runtime/config cleanup and stock-Nix verification
 Status: Complete
-Last activity: 2026-08-14 - Completed quick task 260814-iu8: Add HTML landing and status page at GET /
+Last activity: 2026-08-14 - Parallelized initial Blossom replicas and removed publication proof downloads in 0a4ca9f
 
 ## Performance Metrics
 
@@ -187,6 +187,7 @@ None for the shipped v1.0 milestone.
 | 260814-ikl | Make the publication quiet delay configurable and log when the publication window expires and Hashtree publication begins | 2026-08-14 | 1927ff7 | [260814-ikl-make-the-publication-quiet-delay-configu](./quick/260814-ikl-make-the-publication-quiet-delay-configu/) |
 | 260814-jcz | Check whether each Blossom blob already exists before uploading | 2026-08-14 | dcb70cd | [260814-jcz-check-whether-each-blossom-blob-already-](./quick/260814-jcz-check-whether-each-blossom-blob-already-/) |
 | 260814-iu8 | Add HTML landing and status page at GET / | 2026-08-14 | c39da3d | [260814-iu8-add-html-landing-and-status-page-at-get](./quick/260814-iu8-add-html-landing-and-status-page-at-get/) |
+| 260814-k1n | Parallelize initial Blossom replica publication and eliminate publication proof GET downloads | 2026-08-14 | 0a4ca9f | [260814-k1n-parallelize-initial-blossom-replica-publ](./quick/260814-k1n-parallelize-initial-blossom-replica-publ/) |
 
 ## Deferred Items
 
