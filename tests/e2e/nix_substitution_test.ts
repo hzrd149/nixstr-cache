@@ -20,7 +20,7 @@ async function command(args: string[], options: Deno.CommandOptions = {}) {
   return { stdout, stderr };
 }
 
-Deno.test("stock Nix substitutes merged winner and reuses populated local Blossom", async () => {
+Deno.test("stock Nix substitutes cold and reuses the shared store after restart", async () => {
   assertMatch(
     (await command(["nix", "--version"])).stdout,
     /^nix \(Nix\) 2\.(?:34\.7|35\.1)$/,
@@ -41,8 +41,7 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
     "nixstr-cache walking slice\n",
   );
   let relay: Deno.HttpServer | undefined,
-    blossom: Deno.HttpServer | undefined,
-    localBlossom: Deno.HttpServer | undefined;
+    blossom: Deno.HttpServer | undefined;
   let child: Deno.ChildProcess | undefined;
   try {
     const storePath = (await command([
@@ -119,37 +118,6 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
     });
     const blossomAddress = blossom.addr as Deno.NetAddr;
     const blossomUrl = `http://127.0.0.1:${blossomAddress.port}`;
-    const localBlobs = new Map<string, Uint8Array>();
-    const localPaths: string[] = [];
-    localBlossom = Deno.serve(
-      { hostname: "127.0.0.1", port: 0 },
-      async (request) => {
-        const pathname = new URL(request.url).pathname;
-        localPaths.push(`${request.method} ${pathname}`);
-        if (request.method === "PUT" && pathname === "/upload") {
-          const hash = request.headers.get("x-sha-256");
-          assert(hash);
-          const body = new Uint8Array(await request.arrayBuffer());
-          assertEquals(hex(body), hash);
-          localBlobs.set(hash, body);
-          const descriptor = new TextEncoder().encode(
-            JSON.stringify({ sha256: hash }),
-          );
-          return new Response(descriptor, {
-            status: 201,
-            headers: { "content-length": String(descriptor.length) },
-          });
-        }
-        const body = localBlobs.get(pathname.slice(1));
-        return body
-          ? new Response(body.slice(), {
-            headers: { "content-length": String(body.length) },
-          })
-          : new Response(null, { status: 404 });
-      },
-    );
-    const localAddress = localBlossom.addr as Deno.NetAddr;
-    const localUrl = `http://127.0.0.1:${localAddress.port}`;
     const nhash = bech32.encode(
       "nhash",
       bech32.toWords(Uint8Array.from([0, 32, ...bytes32(hex(rootManifest))])),
@@ -206,7 +174,6 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
           NIXSTR_CACHES: `17091:${event.pubkey}:,17091:${secondEvent.pubkey}:`,
           NIXSTR_EXTRA_RELAYS: `ws://127.0.0.1:${relayAddress.port}`,
           NIXSTR_EXTRA_SERVERS: blossomUrl,
-          NIXSTR_LOCAL_BLOSSOM_URL: localUrl,
           NIXSTR_DATABASE_PATH: `${root}/state.sqlite`,
           NIXSTR_SPOOL_DIRECTORY: spool,
         },
@@ -274,18 +241,7 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
       await substitute("destination-first"),
       "nixstr-cache walking slice\n",
     );
-    for (
-      let attempt = 0;
-      attempt < 200 && localBlobs.size < blobs.size;
-      attempt++
-    ) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    assertEquals(
-      localBlobs.size,
-      blobs.size,
-      "every verified blob must populate locally",
-    );
+    const coldBlossomGets = blossomGets;
     remoteOnline = false;
     child.kill("SIGTERM");
     assertEquals((await child.status).success, true);
@@ -302,8 +258,11 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
       ["nixstr-cache walking slice\n", "nixstr-cache walking slice\n"],
     );
     assertMatch(blossomPaths.join("\n"), /GET \/[0-9a-f]{64}/);
-    assertMatch(localPaths.join("\n"), /PUT \/upload/);
-    assertMatch(localPaths.join("\n"), /GET \/[0-9a-f]{64}/);
+    assertEquals(
+      blossomGets,
+      coldBlossomGets,
+      "warm substitutions must use the shared store without remote requests",
+    );
     assert(
       relayRequests >= 2,
       "daemon restart must restore through relay admission",
@@ -322,7 +281,6 @@ Deno.test("stock Nix substitutes merged winner and reuses populated local Blosso
     }
     await relay?.shutdown();
     await blossom?.shutdown();
-    await localBlossom?.shutdown();
     await Deno.chmod(root, 0o700).catch(() => {});
     await Deno.remove(root, { recursive: true }).catch(() => {});
   }

@@ -86,33 +86,34 @@ Deno.test("stock Nix uploads through production and substitutes from the newly p
     const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
     const daemonPort = (listener.addr as Deno.NetAddr).port;
     listener.close();
-    child = new Deno.Command(Deno.execPath(), {
-      args: [
-        "run",
-        "--allow-env",
-        "--allow-net=127.0.0.1",
-        `--allow-read=${root},${Deno.cwd()}`,
-        `--allow-write=${root}`,
-        `${Deno.cwd()}/main.ts`,
-      ],
-      stdout: "null",
-      stderr: "inherit",
-      env: {
-        NIXSTR_BIND_HOST: "127.0.0.1",
-        NIXSTR_BIND_PORT: String(daemonPort),
-        NIXSTR_CACHES: `17091:${nostrPubkey}:`,
-        NIXSTR_EXTRA_RELAYS: fixture.relayUrl,
-        NIXSTR_LOCAL_BLOSSOM_URL: fixture.blossomUrl,
-        NIXSTR_DATABASE_PATH: `${root}/state.sqlite`,
-        NIXSTR_SPOOL_DIRECTORY: `${root}/spool`,
-        NIXSTR_WRITABLE_ENABLED: "true",
-        NIXSTR_WRITABLE_TYPE: "root",
-        NIXSTR_WRITABLE_SIGNER_TYPE: "local",
-        NIXSTR_WRITABLE_SIGNER_PATH: `${root}/nostr-key`,
-        NIXSTR_WRITABLE_STAGING_DIRECTORY: `${root}/staging`,
-        NIXSTR_WRITABLE_PUBLICATION_NIX_SIG_KEYS: nixPublicText,
-      },
-    }).spawn();
+    const startDaemon = () =>
+      new Deno.Command(Deno.execPath(), {
+        args: [
+          "run",
+          "--allow-env",
+          "--allow-net=127.0.0.1",
+          `--allow-read=${root},${Deno.cwd()}`,
+          `--allow-write=${root}`,
+          `${Deno.cwd()}/main.ts`,
+        ],
+        stdout: "null",
+        stderr: "inherit",
+        env: {
+          NIXSTR_BIND_HOST: "127.0.0.1",
+          NIXSTR_BIND_PORT: String(daemonPort),
+          NIXSTR_CACHES: `17091:${nostrPubkey}:`,
+          NIXSTR_EXTRA_RELAYS: fixture.relayUrl,
+          NIXSTR_DATABASE_PATH: `${root}/state.sqlite`,
+          NIXSTR_SPOOL_DIRECTORY: `${root}/spool`,
+          NIXSTR_WRITABLE_ENABLED: "true",
+          NIXSTR_WRITABLE_TYPE: "root",
+          NIXSTR_WRITABLE_SIGNER_TYPE: "local",
+          NIXSTR_WRITABLE_SIGNER_PATH: `${root}/nostr-key`,
+          NIXSTR_WRITABLE_STAGING_DIRECTORY: `${root}/staging`,
+          NIXSTR_WRITABLE_PUBLICATION_NIX_SIG_KEYS: nixPublicText,
+        },
+      }).spawn();
+    child = startDaemon();
     await waitUntil(
       () =>
         fetch(`http://127.0.0.1:${daemonPort}/health`).then((r) => r.json())
@@ -178,6 +179,17 @@ Deno.test("stock Nix uploads through production and substitutes from the newly p
     assert(secondEvent.created_at > event.created_at);
     const secondRoot = secondEvent.tags.find((tag) => tag[0] === "htree")?.[1];
     assert(secondRoot && secondRoot !== rootTag);
+
+    child.kill("SIGTERM");
+    assertEquals((await child.status).success, true);
+    child = startDaemon();
+    await waitUntil(
+      () =>
+        fetch(`http://127.0.0.1:${daemonPort}/health`).then((r) => r.json())
+          .catch(() => undefined),
+      (health) => Boolean(health && health.write?.status === "ready"),
+      "restarted daemon write readiness",
+    );
 
     await removeNixStoreRoot(source);
     await Deno.remove(input, { recursive: true });
