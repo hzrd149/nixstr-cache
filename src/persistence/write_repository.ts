@@ -874,22 +874,28 @@ export class WriteRepository {
         "INSERT INTO pending_candidate_blobs(batch_id,hash,size,path) VALUES(?,?,?,?)",
       );
       for (const blob of inventory) {
-        const owned = runId && this.#db.prepare(
-          `SELECT 1 FROM content_blobs b JOIN blob_owners o ON o.hash=b.hash
-           WHERE o.owner=? AND b.hash=? AND b.size=? AND b.path=?`,
-        ).get(runId, blob.hash, blob.size, blob.path);
+        const owned = runId && (this.#blobStore
+          ? this.#db.prepare(
+            `SELECT 1 FROM blob_store_catalog b JOIN blob_store_owners o ON o.hash=b.hash
+             WHERE o.owner=? AND b.hash=? AND b.size=?`,
+          ).get(runId, blob.hash, blob.size)
+          : this.#db.prepare(
+            `SELECT 1 FROM content_blobs b JOIN blob_owners o ON o.hash=b.hash
+             WHERE o.owner=? AND b.hash=? AND b.size=? AND b.path=?`,
+          ).get(runId, blob.hash, blob.size, blob.path));
         if (runId && !owned) {
           throw new Error("candidate inventory is not run-owned");
         }
         insert.run(batch.id, blob.hash, blob.size, blob.path);
       }
       if (runId) {
+        const owners = this.#blobStore ? "blob_store_owners" : "blob_owners";
         this.#db.prepare(
-          "INSERT OR IGNORE INTO blob_owners(owner,hash) SELECT ?,hash FROM blob_owners WHERE owner=?",
+          `INSERT OR IGNORE INTO ${owners}(owner,hash) SELECT ?,hash FROM ${owners} WHERE owner=?`,
         ).run(`batch:${batch.id}`, runId);
         const count = Number(
           (this.#db.prepare(
-            "SELECT COUNT(*) count FROM blob_owners WHERE owner=?",
+            `SELECT COUNT(*) count FROM ${owners} WHERE owner=?`,
           ).get(`batch:${batch.id}`) as { count: number }).count,
         );
         if (count !== candidate.blobCount) {
@@ -912,9 +918,13 @@ export class WriteRepository {
       ).run(batch.id);
       this.#db.exec("COMMIT");
       if (superseded && superseded.batchId !== batch.id) {
-        this.#db.prepare("DELETE FROM blob_owners WHERE owner=?").run(
-          `batch:${superseded.batchId}`,
-        );
+        if (this.#blobStore) {
+          this.#blobStore.releaseOwner(`batch:${superseded.batchId}`);
+        } else {
+          this.#db.prepare("DELETE FROM blob_owners WHERE owner=?").run(
+            `batch:${superseded.batchId}`,
+          );
+        }
         this.#sweepCandidateBlobsSync();
       }
     } catch (error) {
@@ -980,6 +990,14 @@ export class WriteRepository {
           "INSERT INTO publication_saga_blobs SELECT batch_id,hash,size,path FROM pending_candidate_blobs WHERE batch_id=?",
         )
           .run(candidate.batchId);
+        if (this.#blobStore) {
+          this.#db.prepare(
+            "INSERT OR IGNORE INTO blob_store_owners(owner,hash) SELECT ?,hash FROM blob_store_owners WHERE owner=?",
+          ).run(`saga:${candidate.batchId}`, `batch:${candidate.batchId}`);
+          this.#db.prepare(
+            "DELETE FROM blob_store_owners WHERE owner=?",
+          ).run(`batch:${candidate.batchId}`);
+        }
         this.#db.prepare("DELETE FROM pending_candidate").run();
         this.#db.prepare("DELETE FROM pending_candidate_blobs").run();
       }
@@ -1185,6 +1203,11 @@ export class WriteRepository {
         JSON.stringify(candidate),
         JSON.stringify(saga.destinations),
       );
+      if (this.#blobStore) {
+        this.#db.prepare(
+          "INSERT OR IGNORE INTO blob_store_owners(owner,hash) SELECT ?,hash FROM blob_store_owners WHERE owner=?",
+        ).run(`saga:${nextBatchId}`, `saga:${saga.batchId}`);
+      }
       this.#db.exec("COMMIT");
       this.changes$.next("publication-refresh");
       return true;
@@ -1366,9 +1389,13 @@ export class WriteRepository {
       }
       this.#db.exec("COMMIT");
       for (const item of releasable) {
-        this.#db.prepare("DELETE FROM blob_owners WHERE owner=?").run(
-          `batch:${item.batchId}`,
-        );
+        if (this.#blobStore) {
+          this.#blobStore.releaseOwner(`saga:${item.batchId}`);
+        } else {
+          this.#db.prepare("DELETE FROM blob_owners WHERE owner=?").run(
+            `batch:${item.batchId}`,
+          );
+        }
       }
       this.#sweepCandidateBlobsSync();
     } catch (error) {
