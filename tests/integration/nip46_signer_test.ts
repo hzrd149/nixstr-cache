@@ -13,22 +13,6 @@ import {
 
 const deadline = 4_000;
 
-async function waitForPutStatus(
-  put: () => Response | Promise<Response>,
-  status: number,
-  timeoutMs: number,
-) {
-  const started = performance.now();
-  while (true) {
-    const response = await put();
-    if (response.status === status) return response;
-    if (performance.now() - started >= timeoutMs) {
-      throw new Error(`timed out waiting for PUT status ${status}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
-
 async function scenario(
   kind: 17091 | 37091,
   outcome: NostrConnectOutcome,
@@ -108,7 +92,11 @@ async function scenario(
       await fixture.waitForRequests(2, deadline);
     }
     if (outcome === "success") {
-      assertEquals((await waitForPutStatus(put, 200, deadline)).status, 200);
+      assertEquals(
+        (await put()).status,
+        405,
+        "signer authorization alone must not bypass the BUD-03 destination gate",
+      );
       assertEquals(fixture.facts.methods[0], "connect");
       assert(
         fixture.facts.methods.slice(1).every((method) =>
@@ -141,7 +129,7 @@ async function scenario(
   }
 }
 
-Deno.test("production NIP-46 enables default and named owners after exact authorization", async () => {
+Deno.test("production NIP-46 authorizes owners without bypassing BUD-03 readiness", async () => {
   await scenario(17091, "success");
   await scenario(37091, "success");
 });
