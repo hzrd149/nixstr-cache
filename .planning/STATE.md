@@ -181,6 +181,7 @@ None for the shipped v1.0 milestone.
 | 260813-qy6 | Log compact reactive cache and writable Hashtree state | 2026-08-13 | 706d0b2 | [260813-qy6-log-write-hashtree-state-and-reactive-ca](./quick/260813-qy6-log-write-hashtree-state-and-reactive-ca/) |
 | 260813-tzo | Implement unified bounded content-addressed blob storage | 2026-08-14 | 61e5638 | [260813-tzo-implement-unified-bounded-content-addres](./quick/260813-tzo-implement-unified-bounded-content-addres/) |
 | 260814-ff8 | Remove startup requirements for non-empty caches and extraRelays | 2026-08-14 | 33b97b8 | [260814-ff8-remove-startup-requirements-for-non-empt](./quick/260814-ff8-remove-startup-requirements-for-non-empt/) |
+| 260814-g2r | Remove all pre-release legacy compatibility functionality | 2026-08-14 | 25e0d67 | [260814-g2r-remove-all-legacy-compatibility-function](./quick/260814-g2r-remove-all-legacy-compatibility-function/) |
 
 ## Deferred Items
 
@@ -191,8 +192,8 @@ None for the shipped v1.0 milestone.
 
 ## Session Continuity
 
-Last session: 2026-08-14T09:59:27.000Z
-Stopped at: Completed quick task 260813-tzo
+Last session: 2026-08-14T10:41:00.000Z
+Stopped at: Completed quick task 260814-g2r
 Resume file: None
 
 ## Operator Next Steps
