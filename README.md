@@ -131,7 +131,8 @@ cache in `config.json`:
     },
     "publication": {
       "nixSigKeys": ["my-cache-1:<base64-public-key>"],
-      "quietSeconds": 5
+      "quietSeconds": 5,
+      "concurrency": 2
     }
   }
 }
@@ -166,7 +167,12 @@ without another committed write. Override that delay with
 `writable.publication.quietSeconds` (or
 `NIXSTR_WRITABLE_PUBLICATION_QUIET_SECONDS`); continuous writes still trigger a
 batch after the fixed 60-second maximum window. The resulting root is announced
-after Blossom replication succeeds.
+after one Blossom replica succeeds. Initial replica uploads run in parallel up
+to `writable.publication.concurrency` (or
+`NIXSTR_WRITABLE_PUBLICATION_CONCURRENCY`); incomplete replicas remain durable
+repair work. Existing blobs are credited by an exact-size BUD-01 HEAD response,
+while new uploads require a bounded BUD-02 response whose hash and size match
+the candidate. Publication does not download blobs again after either response.
 
 ## NixOS service
 

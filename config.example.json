@@ -23,7 +23,8 @@
       "ncryptsec": "ncryptsec1REPLACE_WITH_YOUR_ENCRYPTED_SECRET"
     },
     "publication": {
-      "quietSeconds": 5
+      "quietSeconds": 5,
+      "concurrency": 2
     }
   },
   "limits": {

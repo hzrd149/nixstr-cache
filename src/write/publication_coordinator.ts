@@ -225,33 +225,18 @@ export class PublicationCoordinator {
             inventory.length,
           );
           for (const server of saga.destinations) {
-            this.#recordInitial("replica", server, false);
+            this.#recordInitial(saga.batchId, "replica", server, false);
           }
           throw error;
         }
       }
       this.#emitStage(saga, "replication", "started", inventory.length);
       try {
-        for (const server of saga.destinations) {
-          let complete = true;
-          for (const entry of inventory) {
-            if (await o.replica.prove(server, entry, this.#abort.signal)) {
-              o.repository.recordBlobProof(saga.batchId, server, entry.hash);
-            } else complete = false;
-          }
-          if (o.repository.serverComplete(saga.batchId, server)) {
-            o.repository.recordCompleteServer(saga.batchId, server);
-          }
-          this.#recordInitial(
-            "replica",
-            server,
-            complete && o.repository.serverComplete(saga.batchId, server),
-          );
-        }
+        await this.#replicateInitial(saga, inventory);
       } catch (error) {
         this.#emitStage(saga, "replication", "failed", inventory.length);
         for (const server of saga.destinations) {
-          this.#recordInitial("replica", server, false);
+          this.#recordInitial(saga.batchId, "replica", server, false);
         }
         throw error;
       }
@@ -328,6 +313,7 @@ export class PublicationCoordinator {
       if (o.repository.publicationSaga()?.batchId !== expectedBatch) return;
       for (const relay of publicationRelays) {
         this.#recordInitial(
+          saga.batchId,
           "relay",
           relay,
           outcomes.some((result) => result.relay === relay && result.ok),
@@ -412,28 +398,96 @@ export class PublicationCoordinator {
       },
     };
   }
-  #recordInitial(kind: "replica" | "relay", target: string, ok: boolean): void {
+  #recordInitial(
+    batchId: number,
+    kind: "replica" | "relay",
+    target: string,
+    ok: boolean,
+    durationMs = 0,
+  ): void {
     const work = this.options.repository.endpointWork().find((row) =>
-      row.kind === kind && row.target === target &&
+      row.batchId === batchId && row.kind === kind && row.target === target &&
       (row.status === "pending" || row.status === "claimed")
     );
     if (!work) return;
     const claimed = work.status === "claimed"
       ? work
-      : this.options.repository.claimDueWork(
+      : this.options.repository.claimEndpointWork(
+        work.batchId,
+        kind,
+        target,
         this.options.now(),
-        Number.MAX_SAFE_INTEGER,
-      )
-        .find((row) => row.kind === kind && row.target === target);
+      );
     if (claimed) {
       this.#outcome(claimed, ok, ok ? "ok" : "unavailable");
       this.#emitEndpoint(
         claimed,
         ok,
         ok ? "ok" : kind === "relay" ? "rejected" : "unavailable",
-        0,
+        durationMs,
       );
     }
+  }
+  async #replicateInitial(
+    saga: import("../persistence/write_repository.ts").PublicationSaga,
+    inventory: readonly PendingInventoryEntry[],
+  ): Promise<void> {
+    const o = this.options;
+    const completed = new AbortController();
+    const signal = AbortSignal.any([this.#abort.signal, completed.signal]);
+    let cursor = 0;
+    const worker = async () => {
+      while (!completed.signal.aborted) {
+        const server = saga.destinations[cursor++];
+        if (!server) return;
+        const started = Date.now();
+        let complete = true;
+        try {
+          for (const entry of inventory) {
+            signal.throwIfAborted();
+            if (await o.replica.prove(server, entry, signal)) {
+              o.repository.recordBlobProof(saga.batchId, server, entry.hash);
+            } else {
+              complete = false;
+            }
+          }
+          const proven = complete &&
+            o.repository.serverComplete(saga.batchId, server);
+          if (proven) {
+            o.repository.recordCompleteServer(saga.batchId, server);
+          }
+          this.#recordInitial(
+            saga.batchId,
+            "replica",
+            server,
+            proven,
+            Date.now() - started,
+          );
+          if (proven) completed.abort("complete replica found");
+        } catch (error) {
+          if (this.#abort.signal.aborted) throw error;
+          this.#recordInitial(
+            saga.batchId,
+            "replica",
+            server,
+            false,
+            Date.now() - started,
+          );
+          if (!completed.signal.aborted) continue;
+          return;
+        }
+      }
+    };
+    const concurrency = Math.min(
+      saga.destinations.length,
+      this.#retryOptions().concurrency,
+    );
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: concurrency }, () => worker()),
+    );
+    this.#abort.signal.throwIfAborted();
+    const rejected = outcomes.find((outcome) => outcome.status === "rejected");
+    if (rejected?.status === "rejected") throw rejected.reason;
   }
   #outcome(
     work: import("../persistence/write_repository.ts").EndpointWork,

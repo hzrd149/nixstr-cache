@@ -1079,6 +1079,36 @@ export class WriteRepository {
       throw error;
     }
   }
+  claimEndpointWork(
+    batchId: number,
+    kind: EndpointWorkKind,
+    target: string,
+    now: number,
+  ): EndpointWork | undefined {
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = this.#db.prepare(
+        `SELECT batch_id batchId,kind,target,status,attempts,
+         next_attempt_at nextAttemptAt,code FROM publication_endpoint_work
+         WHERE batch_id=? AND kind=? AND target=?
+           AND status IN ('pending','retry') AND next_attempt_at<=?`,
+      ).get(batchId, kind, target, now) as unknown as EndpointWork | undefined;
+      if (!row) {
+        this.#db.exec("COMMIT");
+        return;
+      }
+      const claimed = this.#db.prepare(
+        "UPDATE publication_endpoint_work SET status='claimed' WHERE batch_id=? AND kind=? AND target=? AND status IN ('pending','retry')",
+      ).run(batchId, kind, target);
+      this.#db.exec("COMMIT");
+      return claimed.changes === 1
+        ? Object.freeze({ ...row, status: "claimed" as const })
+        : undefined;
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
   restoreClaimedWork(now: number): void {
     this.#db.prepare(
       "UPDATE publication_endpoint_work SET status='retry',next_attempt_at=?,code='unavailable' WHERE status='claimed'",

@@ -1,4 +1,3 @@
-import { sha256 } from "@noble/hashes/sha2.js";
 import type { PendingInventoryEntry } from "../persistence/write_repository.ts";
 import type { PinnedResponse, SourceTrust } from "../network/safe_fetcher.ts";
 
@@ -69,7 +68,12 @@ export class PublicationUploader {
         signal,
       });
       await exists.cancel("existence preflight complete");
-      if (exists.status !== 200 && exists.status !== 404) return false;
+      if (exists.status === 200) {
+        const length = exists.headers.get("content-length");
+        return length !== null && /^(0|[1-9][0-9]*)$/.test(length) &&
+          Number(length) === entry.size;
+      }
+      if (exists.status !== 404) return false;
     } catch {
       return false;
     }
@@ -78,75 +82,38 @@ export class PublicationUploader {
       "content-type": "application/octet-stream",
       "x-sha-256": entry.hash,
     });
-    if (exists.status === 404) {
-      const authorization = await this.options.authorization?.(
-        server,
-        entry,
-        signal,
-      );
-      if (authorization) headers.set("authorization", authorization);
-      const file = await Deno.open(entry.path, { read: true });
-      let response: PinnedResponse;
-      try {
-        response = await this.options.request(
-          new URL("upload", server.endsWith("/") ? server : `${server}/`),
-          trust,
-          {
-            method: "PUT",
-            headers,
-            body: file.readable,
-            signal,
-          },
-        );
-        if (response.status !== 200 && response.status !== 201) {
-          await response.cancel("upload rejected");
-          return false;
-        }
-        const descriptor = await boundedJson(
-          response,
-          this.options.descriptorBytes ?? 16 * 1024,
-        ) as { sha256?: unknown; size?: unknown };
-        if (
-          descriptor.sha256 !== entry.hash || descriptor.size !== entry.size
-        ) {
-          return false;
-        }
-      } catch {
-        try {
-          file.close();
-        } catch { /* stream owns it */ }
-        return false;
-      }
-    }
+    const authorization = await this.options.authorization?.(
+      server,
+      entry,
+      signal,
+    );
+    if (authorization) headers.set("authorization", authorization);
+    const file = await Deno.open(entry.path, { read: true });
+    let response: PinnedResponse;
     try {
-      const proof = await this.options.request(
-        blobUrl,
+      response = await this.options.request(
+        new URL("upload", server.endsWith("/") ? server : `${server}/`),
         trust,
-        { method: "GET", signal },
+        {
+          method: "PUT",
+          headers,
+          body: file.readable,
+          signal,
+        },
       );
-      if (proof.status !== 200) {
-        await proof.cancel("possession absent");
+      if (response.status !== 200 && response.status !== 201) {
+        await response.cancel("upload rejected");
         return false;
       }
-      const digest = sha256.create();
-      let size = 0;
-      const reader = proof.body.getReader();
-      try {
-        while (true) {
-          const part = await reader.read();
-          if (part.done) break;
-          size += part.value.length;
-          if (size > entry.size) {
-            await reader.cancel("proof oversized");
-            return false;
-          }
-          digest.update(part.value);
-        }
-      } finally {
-        reader.releaseLock();
-      }
-      return size === entry.size && digest.digest().toHex() === entry.hash;
+      const descriptor = await boundedJson(
+        response,
+        this.options.descriptorBytes ?? 16 * 1024,
+      ) as { sha256?: unknown; size?: unknown };
+      return descriptor.sha256 === entry.hash && descriptor.size === entry.size;
     } catch {
+      try {
+        file.close();
+      } catch { /* stream owns it */ }
       return false;
     }
   }

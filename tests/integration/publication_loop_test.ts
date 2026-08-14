@@ -167,6 +167,131 @@ Deno.test("one complete replica publishes exact event through normal admission",
   }
 });
 
+Deno.test("initial replicas overlap and first completion cancels siblings", async () => {
+  const f = await fixture();
+  try {
+    const started = new Set<string>();
+    let bothStarted!: () => void;
+    const overlap = new Promise<void>((resolve) => bothStarted = resolve);
+    let siblingAborted = false;
+    const original = f.signer.signEvent.bind(f.signer);
+    f.signer.signEvent = async (template, signal) => {
+      assertEquals(siblingAborted, true);
+      return await original(template, signal);
+    };
+    const coordinator = new PublicationCoordinator({
+      repository: f.write,
+      signer: f.signer,
+      selector: f.selection,
+      identity: { kind: 17091, pubkey: f.pubkey, identifier: "" },
+      blossomServers: ["http://127.0.0.1:9001", "http://127.0.0.1:9002"],
+      nixSigKeys: [],
+      publicationRelays: ["ws://127.0.0.1:7447"],
+      lifetimeSeconds: 3600,
+      now: () => 100,
+      replica: {
+        async prove(server, _entry, signal) {
+          started.add(server);
+          if (started.size === 2) bothStarted();
+          await overlap;
+          if (server.endsWith("9001")) return true;
+          return await new Promise<boolean>((_resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              siblingAborted = true;
+              reject(signal.reason);
+            }, { once: true });
+          });
+        },
+      },
+      publishRelays: (_event, relays) =>
+        Promise.resolve(relays.map((relay) => ({ relay, ok: true }))),
+      retry: {
+        baseSeconds: 30,
+        maxSeconds: 60,
+        maxAttempts: 5,
+        concurrency: 2,
+        jitter: () => 0,
+      },
+    });
+    await coordinator.tick();
+    assertEquals(started.size, 2);
+    assertEquals(siblingAborted, true);
+    assert(f.write.publicationSaga()?.committed);
+    assertEquals(
+      f.write.endpointWork().find((work) => work.target.endsWith("9002"))
+        ?.status,
+      "retry",
+    );
+  } finally {
+    f.selection.dispose();
+    f.state.close();
+    f.write.close();
+    await f.signer.close();
+    await Deno.remove(f.root, { recursive: true });
+  }
+});
+
+Deno.test("initial replica workers honor the configured server ceiling", async () => {
+  const f = await fixture();
+  try {
+    let active = 0;
+    let maximum = 0;
+    let firstPair!: () => void;
+    const twoStarted = new Promise<void>((resolve) => firstPair = resolve);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => release = resolve);
+    const started: string[] = [];
+    const coordinator = new PublicationCoordinator({
+      repository: f.write,
+      signer: f.signer,
+      selector: f.selection,
+      identity: { kind: 17091, pubkey: f.pubkey, identifier: "" },
+      blossomServers: [
+        "http://127.0.0.1:9001",
+        "http://127.0.0.1:9002",
+        "http://127.0.0.1:9003",
+      ],
+      nixSigKeys: [],
+      publicationRelays: ["ws://127.0.0.1:7447"],
+      lifetimeSeconds: 3600,
+      now: () => 100,
+      replica: {
+        async prove(server) {
+          active++;
+          maximum = Math.max(maximum, active);
+          started.push(server);
+          if (active === 2) firstPair();
+          await gate;
+          active--;
+          return false;
+        },
+      },
+      publishRelays: () => Promise.resolve([]),
+      retry: {
+        baseSeconds: 30,
+        maxSeconds: 60,
+        maxAttempts: 5,
+        concurrency: 2,
+        jitter: () => 0,
+      },
+    });
+    const tick = coordinator.tick();
+    await twoStarted;
+    assertEquals(started.some((server) => server.endsWith("9003")), false);
+    release();
+    await tick;
+    assertEquals(maximum, 2);
+    assertEquals(started.some((server) => server.endsWith("9003")), true);
+    assertEquals(f.write.publicationSaga()?.signedEvent, undefined);
+  } finally {
+    f.selection.dispose();
+    f.state.close();
+    f.write.close();
+    await f.signer.close();
+    await Deno.remove(f.root, { recursive: true });
+  }
+});
+
 Deno.test("authorization failures are backoff-eligible and stage-visible", async () => {
   const f = await fixture();
   const diagnostics: OperationalDiagnostic[] = [];

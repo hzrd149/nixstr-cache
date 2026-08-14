@@ -201,6 +201,7 @@ export type BlossomMode =
   | "ok"
   | "descriptor-hash"
   | "descriptor-size"
+  | "head-size"
   | "truncated-proof"
   | "false-possession";
 
@@ -213,6 +214,8 @@ export function createControlledBlossomFixture(
     activeUploads: 0,
     maxActiveUploads: 0,
     uploads: 0,
+    heads: 0,
+    gets: 0,
     uploadChunks: 0,
   };
   const server = Deno.serve(
@@ -260,6 +263,7 @@ export function createControlledBlossomFixture(
         }
       }
       if (request.method === "GET") {
+        facts.gets++;
         if (control.mode === "false-possession") {
           return new Response(null, { status: 404 });
         }
@@ -270,13 +274,18 @@ export function createControlledBlossomFixture(
         );
       }
       if (request.method === "HEAD") {
+        facts.heads++;
         if (control.mode === "false-possession") {
           return new Response(null, { status: 404 });
         }
         const body = blobs.get(path.slice(1));
         return body
           ? new Response(null, {
-            headers: { "content-length": String(body.length) },
+            headers: {
+              "content-length": String(
+                control.mode === "head-size" ? body.length + 1 : body.length,
+              ),
+            },
           })
           : new Response(null, { status: 404 });
       }

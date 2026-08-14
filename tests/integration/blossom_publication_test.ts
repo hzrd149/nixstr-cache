@@ -182,7 +182,7 @@ Deno.test("upload authorization splits before signing at the exact header-byte b
   assertEquals(undersizedSignCalls, 0);
 });
 
-Deno.test("hostile Blossom responses cannot establish false possession", async () => {
+Deno.test("hostile Blossom upload descriptors cannot establish possession", async () => {
   const root = await Deno.makeTempDir({ prefix: "hostile-publication-" });
   const bytes = new TextEncoder().encode("immutable candidate");
   const path = `${root}/blob`;
@@ -193,8 +193,6 @@ Deno.test("hostile Blossom responses cannot establish false possession", async (
       const mode of [
         "descriptor-hash",
         "descriptor-size",
-        "truncated-proof",
-        "false-possession",
       ] as const
     ) {
       const fixture = await createControlledBlossomFixture();
@@ -233,10 +231,16 @@ Deno.test("publication skips upload when Blossom already has the blob", async ()
   try {
     assertEquals(await uploader.prove(fixture.url, entry), true);
     assertEquals(fixture.facts.uploads, 1);
+    assertEquals(fixture.facts.gets, 0);
     assertEquals(authorizationCalls, 1);
     assertEquals(await uploader.prove(fixture.url, entry), true);
     assertEquals(fixture.facts.uploads, 1);
+    assertEquals(fixture.facts.heads, 2);
+    assertEquals(fixture.facts.gets, 0);
     assertEquals(authorizationCalls, 1);
+    fixture.control.mode = "head-size";
+    assertEquals(await uploader.prove(fixture.url, entry), false);
+    assertEquals(fixture.facts.uploads, 1);
   } finally {
     await fixture.close();
     await Deno.remove(root, { recursive: true });
@@ -317,7 +321,6 @@ Deno.test("publication upload preserves server base path and publisher trust", a
     assertEquals(calls, [
       [`https://blossom.example/base/${hash}`, "publisher"],
       ["https://blossom.example/base/upload", "publisher"],
-      [`https://blossom.example/base/${hash}`, "publisher"],
     ]);
   } finally {
     await Deno.remove(root, { recursive: true });
