@@ -440,7 +440,11 @@ export function createConsoleDiagnosticSink(
   const write = options.write ?? ((line: string) => console.log(line));
   const now = options.now ?? Date.now;
   const terminal = options.terminal ?? { tty: false, color: false, width: 80 };
-  const completed = new Set<number>();
+  const publicationStates = new Map<
+    number,
+    { replica?: string; relay?: string; completed: boolean }
+  >();
+  const maxPublicationStates = 128;
   const promoted = new Set<number>();
   const fallback = {
     replicaFailures: 0,
@@ -508,6 +512,44 @@ export function createConsoleDiagnosticSink(
       }
     } catch { /* diagnostics are non-authoritative */ }
   };
+  const publicationState = (
+    batchId: number,
+  ): { replica?: string; relay?: string; completed: boolean } => {
+    const existing = publicationStates.get(batchId);
+    if (existing) {
+      publicationStates.delete(batchId);
+      publicationStates.set(batchId, existing);
+      return existing;
+    }
+    const created: { replica?: string; relay?: string; completed: boolean } = {
+      completed: false,
+    };
+    publicationStates.set(batchId, created);
+    if (publicationStates.size > maxPublicationStates) {
+      publicationStates.delete(publicationStates.keys().next().value!);
+    }
+    return created;
+  };
+  const componentState = (
+    total: number,
+    succeeded: number,
+    failed: number,
+    retries: number,
+    exhausted: number,
+  ): string => `${total}:${succeeded}:${failed}:${retries}:${exhausted}`;
+  const uploadSummary = (
+    item: Extract<OperationalDiagnostic, {
+      type: "replica_attempt";
+    }>,
+  ): string => {
+    const root = item.rootHash && /^[0-9a-f]{64}$/i.test(item.rootHash)
+      ? item.rootHash.slice(0, 12).toLowerCase()
+      : "unknown";
+    const blobs = item.count === undefined
+      ? ""
+      : ` (${Math.max(0, Math.trunc(item.count))} blobs)`;
+    return `root ${root}${blobs}`;
+  };
   return Object.freeze({
     emit(item: OperationalDiagnostic): void {
       try {
@@ -522,40 +564,66 @@ export function createConsoleDiagnosticSink(
             item.relayTotal,
             Math.max(0, item.relaySucceeded),
           );
-          write(
-            `${timestamp} INFO  ${
-              statusLine(
-                "Blossom replicas",
-                replicaOk,
-                item.replicaTotal,
-                item.replicaFailed,
-                item.replicaRetries,
-                item.replicaExhausted,
-              )
-            }`,
+          const state = publicationState(item.batchId);
+          const replicaState = componentState(
+            item.replicaTotal,
+            replicaOk,
+            item.replicaFailed,
+            item.replicaRetries,
+            item.replicaExhausted,
           );
-          write(
-            `${timestamp} INFO  ${
-              statusLine(
-                "Publication relays",
-                relayOk,
-                item.relayTotal,
-                item.relayFailed,
-                item.relayRetries,
-                item.relayExhausted,
-              )
-            }`,
+          const relayState = componentState(
+            item.relayTotal,
+            relayOk,
+            item.relayFailed,
+            item.relayRetries,
+            item.relayExhausted,
           );
           if (
             item.fullyPublished && replicaOk === item.replicaTotal &&
-            relayOk === item.relayTotal && !completed.has(item.batchId)
+            relayOk === item.relayTotal
           ) {
-            completed.add(item.batchId);
+            state.replica = replicaState;
+            state.relay = relayState;
+            if (!state.completed) {
+              state.completed = true;
+              write(
+                `${timestamp} INFO  ${
+                  terminal.color ? "\u001b[1;32m" : ""
+                }Fully published to every configured target${
+                  terminal.color ? "\u001b[0m" : ""
+                }`,
+              );
+            }
+            return;
+          }
+          if (state.replica !== replicaState) {
+            state.replica = replicaState;
             write(
               `${timestamp} INFO  ${
-                terminal.color ? "\u001b[1;32m" : ""
-              }Fully published to every configured target${
-                terminal.color ? "\u001b[0m" : ""
+                statusLine(
+                  "Blossom replicas",
+                  replicaOk,
+                  item.replicaTotal,
+                  item.replicaFailed,
+                  item.replicaRetries,
+                  item.replicaExhausted,
+                )
+              }`,
+            );
+          }
+          if (state.relay !== relayState) {
+            state.relay = relayState;
+            write(
+              `${timestamp} INFO  ${
+                statusLine(
+                  "Publication relays",
+                  relayOk,
+                  item.relayTotal,
+                  item.relayFailed,
+                  item.relayRetries,
+                  item.relayExhausted,
+                )
               }`,
             );
           }
@@ -576,10 +644,10 @@ export function createConsoleDiagnosticSink(
             if (item.attempt > 1) fallback.replicaRetries++;
           }
           write(
-            `${timestamp} ${item.ok ? "INFO " : "WARN "} Blossom replicas: ${
-              item.ok
-                ? "1/1 ok"
-                : `0/1 ok, ${fallback.replicaFailures} failed, ${fallback.replicaRetries} retries`
+            `${timestamp} ${item.ok ? "INFO " : "WARN "} ${
+              item.ok ? "Uploaded" : "Blossom upload failed for"
+            } ${uploadSummary(item)} ${item.ok ? "to" : "at"} ${
+              endpoint(item.endpoint) ?? "invalid"
             }`,
           );
           return;

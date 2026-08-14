@@ -75,8 +75,8 @@ Deno.test("blocked publication is observable without side effects or secrets", a
   );
   assertEquals(lines.length, 1);
   const encoded = lines[0];
-  assertStringIncludes(encoded, "Blossom replicas");
-  assertEquals(encoded.includes("example.test"), false);
+  assertStringIncludes(encoded, "Blossom upload failed");
+  assertStringIncludes(encoded, "https://example.test/upload");
   for (const secret of secretCorpus) {
     assertEquals(encoded.includes(secret), false);
   }
@@ -119,10 +119,12 @@ Deno.test("publication diagnostics render only real state transitions", () => {
   console.debug = (...args: unknown[]) => debugCalls.push(args);
   debugWritePublication.enabled = true;
   try {
-    for (const terminal of [
-      { tty: false, color: false, width: 80 },
-      { tty: true, color: true, width: 80 },
-    ]) {
+    for (
+      const terminal of [
+        { tty: false, color: false, width: 80 },
+        { tty: true, color: true, width: 80 },
+      ]
+    ) {
       const lines: string[] = [];
       let clock = 0;
       const sink = createConsoleDiagnosticSink({
@@ -134,22 +136,23 @@ Deno.test("publication diagnostics render only real state transitions", () => {
         batchId: number,
         replicaSucceeded: number,
         relaySucceeded: number,
-      ) => sink.emit({
-        type: "publication_progress",
-        code: "publication_progress",
-        batchId,
-        replicaTotal: 2,
-        replicaSucceeded,
-        replicaFailed: 2 - replicaSucceeded,
-        replicaRetries: replicaSucceeded === 0 ? 1 : 0,
-        replicaExhausted: 0,
-        relayTotal: 1,
-        relaySucceeded,
-        relayFailed: 1 - relaySucceeded,
-        relayRetries: 0,
-        relayExhausted: 0,
-        fullyPublished: replicaSucceeded === 2 && relaySucceeded === 1,
-      });
+      ) =>
+        sink.emit({
+          type: "publication_progress",
+          code: "publication_progress",
+          batchId,
+          replicaTotal: 2,
+          replicaSucceeded,
+          replicaFailed: 2 - replicaSucceeded,
+          replicaRetries: replicaSucceeded === 0 ? 1 : 0,
+          replicaExhausted: 0,
+          relayTotal: 1,
+          relaySucceeded,
+          relayFailed: 1 - relaySucceeded,
+          relayRetries: 0,
+          relayExhausted: 0,
+          fullyPublished: replicaSucceeded === 2 && relaySucceeded === 1,
+        });
 
       progress(7, 0, 0);
       assertEquals(lines.length, 2);
@@ -163,7 +166,10 @@ Deno.test("publication diagnostics render only real state transitions", () => {
       assertStringIncludes(lines[2], "Blossom replicas:");
       progress(7, 2, 1);
       assertEquals(lines.length, 4);
-      assertStringIncludes(lines[3], "Fully published to every configured target");
+      assertStringIncludes(
+        lines[3],
+        "Fully published to every configured target",
+      );
       assertEquals(lines[3].includes("Blossom replicas:"), false);
       assertEquals(lines[3].includes("Publication relays:"), false);
       progress(7, 2, 1);
@@ -177,9 +183,11 @@ Deno.test("publication diagnostics render only real state transitions", () => {
         assertEquals(lines.every((line) => !line.includes("\u001b")), true);
       }
     }
-    assertEquals(debugCalls.length, 10);
+    assertEquals(debugCalls.length, 12);
     assertEquals(
-      debugCalls.every((call) => call.every((value) => typeof value === "string")),
+      debugCalls.every((call) =>
+        call.every((value) => typeof value === "string")
+      ),
       true,
     );
   } finally {
@@ -223,7 +231,10 @@ Deno.test("replica attempt output says what was uploaded and sanitized where", (
   assertStringIncludes(lines[0], "https://example.test/upload");
   assertStringIncludes(lines[1], "Blossom upload failed");
   assertStringIncludes(lines[1], "https://example.test/upload");
-  assertEquals(lines.some((line) => /user|password|query-secret|fragment/.test(line)), false);
+  assertEquals(
+    lines.some((line) => /user|password|query-secret|fragment/.test(line)),
+    false,
+  );
   assertEquals(lines.every((line) => !line.includes("{")), true);
 });
 
@@ -501,7 +512,8 @@ Deno.test("diagnostic taxonomy is closed, allow-listed, and sink failures are co
   assertStringIncludes(lines[1], "narinfo publisher conflict");
   assertStringIncludes(lines[2], "upstream request failed: upstream_timeout");
   assertStringIncludes(lines[3], "signer ready: signer_ready");
-  assertStringIncludes(lines[4], "Blossom replicas: 1/1 ok");
+  assertStringIncludes(lines[4], "Uploaded root unknown (2 blobs)");
+  assertStringIncludes(lines[4], "https://example.test");
   assertStringIncludes(lines[5], "Publication relays: 1/1 ok");
   assertStringIncludes(lines[6], "Cache available and published");
   assertStringIncludes(lines[7], "write Blossom server list changed");
