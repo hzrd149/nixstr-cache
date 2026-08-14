@@ -963,7 +963,33 @@ export class WriteRepository {
   claimPublication(
     destinations: readonly string[],
   ): PublicationSaga | undefined {
-    const current = this.publicationSaga();
+    let current = this.publicationSaga();
+    if (current && !current.completeServer && !current.signedEvent) {
+      const prior = this.publicationHistory().toReversed().find((item) =>
+        item.committed && item.admitted && item.completeServer &&
+        item.candidate.rootHex === current!.candidate.rootHex &&
+        current!.destinations.includes(item.completeServer)
+      );
+      if (prior?.completeServer) {
+        this.#db.exec("BEGIN IMMEDIATE");
+        try {
+          this.#db.prepare(
+            "UPDATE publication_sagas SET complete_server=? WHERE batch_id=? AND complete_server IS NULL AND signed_event_json IS NULL",
+          ).run(prior.completeServer, current.batchId);
+          this.#db.prepare(
+            `UPDATE publication_endpoint_work
+             SET status=CASE WHEN target=? THEN 'complete' ELSE 'exhausted' END,
+                 code=CASE WHEN target=? THEN 'ok' ELSE 'unavailable' END
+             WHERE batch_id=? AND kind='replica'`,
+          ).run(prior.completeServer, prior.completeServer, current.batchId);
+          this.#db.exec("COMMIT");
+          current = this.publicationSaga();
+        } catch (error) {
+          this.#db.exec("ROLLBACK");
+          throw error;
+        }
+      }
+    }
     const candidate = this.pendingCandidate();
     if (
       current &&
@@ -1226,6 +1252,24 @@ export class WriteRepository {
       this.#db.prepare(
         "INSERT INTO publication_saga_blobs SELECT ?,hash,size,path FROM publication_saga_blobs WHERE batch_id=?",
       ).run(nextBatchId, saga.batchId);
+      const candidate = { ...saga.candidate, batchId: nextBatchId };
+      this.#db.prepare(
+        "INSERT INTO publication_sagas(batch_id,candidate_json,destinations_json,complete_server) VALUES(?,?,?,?)",
+      ).run(
+        nextBatchId,
+        JSON.stringify(candidate),
+        JSON.stringify(saga.destinations),
+        saga.completeServer ?? null,
+      );
+      this.#db.prepare(
+        `INSERT INTO publication_blob_proofs(batch_id,server,hash)
+         SELECT ?,server,hash FROM publication_blob_proofs WHERE batch_id=?`,
+      ).run(nextBatchId, saga.batchId);
+      this.#db.prepare(
+        `INSERT INTO publication_endpoint_work(batch_id,kind,target,status,attempts,next_attempt_at,code)
+         SELECT ?,'replica',target,status,attempts,next_attempt_at,code
+         FROM publication_endpoint_work WHERE batch_id=? AND kind='replica'`,
+      ).run(nextBatchId, saga.batchId);
       this.#db.prepare("DELETE FROM publication_endpoint_work WHERE batch_id=?")
         .run(saga.batchId);
       this.#db.prepare("DELETE FROM publication_blob_proofs WHERE batch_id=?")
@@ -1234,14 +1278,6 @@ export class WriteRepository {
         .run(saga.batchId);
       this.#db.prepare("DELETE FROM publication_sagas WHERE batch_id=?").run(
         saga.batchId,
-      );
-      const candidate = { ...saga.candidate, batchId: nextBatchId };
-      this.#db.prepare(
-        "INSERT INTO publication_sagas(batch_id,candidate_json,destinations_json) VALUES(?,?,?)",
-      ).run(
-        nextBatchId,
-        JSON.stringify(candidate),
-        JSON.stringify(saga.destinations),
       );
       if (this.#blobStore) {
         this.#db.prepare(

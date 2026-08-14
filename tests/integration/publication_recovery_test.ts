@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 import { bech32 } from "@scure/base";
+import { DatabaseSync } from "node:sqlite";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { Subject } from "rxjs";
 import { WriteRepository as BaseWriteRepository } from "../../src/persistence/write_repository.ts";
@@ -24,6 +25,7 @@ Deno.test("restart repairs replicas and relays without rolling back committed ro
   let now = 100;
   let secondReplica = false;
   let secondRelay = false;
+  let replicaCalls = 0;
   const open = () =>
     new WriteRepository(`${root}/write.sqlite`, `${root}/spool`, {
       perBodyBytes: 1024,
@@ -71,8 +73,10 @@ Deno.test("restart repairs replicas and relays without rolling back committed ro
       lifetimeSeconds: 3600,
       now: () => now,
       replica: {
-        prove: (server) =>
-          Promise.resolve(server.endsWith("9001") || secondReplica),
+        prove: (server) => {
+          replicaCalls++;
+          return Promise.resolve(server.endsWith("9001") || secondReplica);
+        },
       },
       publishRelays: (_event, relays) =>
         Promise.resolve(relays.map((relay) => ({
@@ -116,6 +120,19 @@ Deno.test("restart repairs replicas and relays without rolling back committed ro
     );
     assertEquals(selection.current()[0]?.event.id, eventId);
     now = 3_100;
+    assertEquals(write.beginPublicationRefresh(now, 600), true);
+    write.close();
+    const legacy = new DatabaseSync(`${root}/write.sqlite`);
+    legacy.exec(
+      `UPDATE publication_sagas SET complete_server=NULL;
+       DELETE FROM publication_blob_proofs;
+       UPDATE publication_endpoint_work
+       SET status='retry',code='unavailable',next_attempt_at=0
+       WHERE kind='replica';`,
+    );
+    legacy.close();
+    write = open();
+    const callsBeforeRefresh = replicaCalls;
     await make().tick();
     const refreshed = write.publicationSaga()!;
     assert(refreshed.committed && refreshed.admitted);
@@ -124,6 +141,11 @@ Deno.test("restart repairs replicas and relays without rolling back committed ro
     assertEquals(
       write.publicationHistory().map((item) => item.signedEvent?.id),
       [eventId],
+    );
+    assertEquals(
+      replicaCalls,
+      callsBeforeRefresh,
+      "an expiration-only refresh must reuse immutable replica proofs",
     );
   } finally {
     selection.dispose();
