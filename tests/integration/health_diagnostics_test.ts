@@ -74,8 +74,8 @@ Deno.test("blocked publication is observable without side effects or secrets", a
   );
   assertEquals(lines.length, 1);
   const encoded = lines[0];
-  assertStringIncludes(encoded, "WARN  Blossom replica failed");
-  assertStringIncludes(encoded, "endpoint=https://example.test/upload");
+  assertStringIncludes(encoded, "Blossom replicas");
+  assertEquals(encoded.includes("example.test"), false);
   for (const secret of secretCorpus) {
     assertEquals(encoded.includes(secret), false);
   }
@@ -110,6 +110,48 @@ Deno.test("blocked publication is observable without side effects or secrets", a
   );
   assertEquals(await head.text(), "");
   assertEquals(reads, 3);
+});
+
+Deno.test("publication diagnostics render bounded plain progress and one completion", () => {
+  const lines: string[] = [];
+  const sink = createConsoleDiagnosticSink({
+    write: (line) => lines.push(line),
+    now: () => 0,
+    terminal: { tty: false, color: false, width: 80 },
+  });
+  const progress = (replicaSucceeded: number, relaySucceeded: number) =>
+    sink.emit({
+      type: "publication_progress",
+      code: "publication_progress",
+      batchId: 7,
+      replicaTotal: 2,
+      replicaSucceeded,
+      replicaFailed: 2 - replicaSucceeded,
+      replicaRetries: 1,
+      replicaExhausted: 0,
+      relayTotal: 1,
+      relaySucceeded,
+      relayFailed: 1 - relaySucceeded,
+      relayRetries: 0,
+      relayExhausted: 0,
+      fullyPublished: replicaSucceeded === 2 && relaySucceeded === 1,
+    });
+  progress(1, 0);
+  sink.emit({
+    type: "promotion",
+    code: "publication_promoted",
+    batchId: 7,
+    eventId: "e".repeat(64),
+    rootHash: "r".repeat(64),
+  });
+  progress(2, 1);
+  progress(2, 1);
+  assertEquals(lines.some((line) => /[\u001b\r]/.test(line)), false);
+  assertEquals(lines.some((line) => line.includes("Blossom replicas: 1/2 ok, 1 failed, 1 retry")), true);
+  assertEquals(lines.some((line) => line.includes("Cache available and published")), true);
+  assertEquals(lines.filter((line) => line.includes("Fully published")).length, 1);
+  assertEquals(lines.some((line) => line.includes("eeee")), false);
+  assertEquals(lines.every((line) => !line.includes("{")), true);
 });
 
 Deno.test("staging failure diagnostic is typed secret-safe and non-authoritative", async () => {
