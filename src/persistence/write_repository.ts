@@ -40,6 +40,7 @@ export interface StagedNarInfo {
 }
 export interface OverlayEntry extends StagedBlob {
   readonly generation: number;
+  readonly components?: readonly import("./blob_store.ts").RouteComponent[];
 }
 export interface FrozenBatch {
   readonly id: number;
@@ -287,6 +288,9 @@ export class WriteRepository {
   /** Shares this repository's SQLite transaction boundary with the blob catalog. */
   openBlobStore(root: string, options: BlobStoreOptions = {}): BlobStore {
     return this.#blobStore ??= new BlobStore(this.#db, root, options);
+  }
+  blobLease(hash: string) {
+    return this.#blobStore?.lookup(hash);
   }
 
   #stagingHasContent(): boolean {
@@ -560,7 +564,13 @@ export class WriteRepository {
       "SELECT generation,route,digest,size,path FROM overlay_entries WHERE generation=? ORDER BY route",
     ).all(generation) as unknown as OverlayEntry[];
     return Object.freeze(
-      rows.map((row) => Object.freeze({ ...row, idempotent: true })),
+      rows.map((row) =>
+        Object.freeze({
+          ...row,
+          idempotent: true,
+          components: this.#blobStore?.routeComponents(row.route) ?? [],
+        })
+      ),
     );
   }
   currentOverlayStorePaths(): ReadonlySet<string> {
